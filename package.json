@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "bench": "bun scripts/bench.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/sim/tsconfig.json",
     "test": "vitest run"
   },
