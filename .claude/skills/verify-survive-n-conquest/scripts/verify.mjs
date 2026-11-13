@@ -211,6 +211,7 @@ function meanColor(png) {
 }
 
 const brightness = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+const blueness = ([red, , blue]) => blue / red;
 
 function difference(pngA, pngB) {
   const a = probe(pngA);
@@ -282,10 +283,15 @@ const clockMinutes = ({ day, time }) => {
   return (day - 1) * MINUTES_PER_DAY + hours * 60 + minutes;
 };
 
-const clockText = (minutes) => {
+const clockAt = (minutes) => {
   const pad = (value) => String(value).padStart(2, '0');
   const ofDay = minutes % MINUTES_PER_DAY;
-  return `day ${Math.floor(minutes / MINUTES_PER_DAY) + 1} ${pad(Math.floor(ofDay / 60))}:${pad(ofDay % 60)}`;
+  return { day: Math.floor(minutes / MINUTES_PER_DAY) + 1, time: `${pad(Math.floor(ofDay / 60))}:${pad(ofDay % 60)}` };
+};
+
+const clockText = (minutes) => {
+  const { day, time } = clockAt(minutes);
+  return `day ${day} ${time}`;
 };
 
 function createSession(browser, instance, dir, evidence) {
@@ -459,6 +465,11 @@ const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
 /** The sun rises and sets at these times through the spring. */
 const DAWN = '04:48';
 const DUSK = '19:12';
+/**
+ * The daylight stops this many game minutes before and after spring dusk and dawn. Each point of night share moves
+ * dusk and dawn by 7.2 minutes, so a night share more than about 5 points off 40% puts a stop on the wrong side.
+ */
+const BESIDE_TWILIGHT = 36;
 /** The sun has set by this time in winter and is still up in summer. */
 const EVENING = '18:30';
 /** The share of the map, below the sky, that each season must and must not color at noon. */
@@ -746,11 +757,15 @@ const SCENARIOS = {
     await session.finishClip(context, page, 'day-at-8x', { from: fastFrom, width: 640 });
 
     const stops = await session.open(CLIP, { clock: 'running' });
+    const dusk = clockMinutes({ day: 1, time: DUSK });
+    const dawn = clockMinutes({ day: 2, time: DAWN });
     const moments = {
       noon: { day: 1, time: '12:00' },
-      dusk: { day: 1, time: DUSK },
+      'before-dusk': clockAt(dusk - BESIDE_TWILIGHT),
+      'after-dusk': clockAt(dusk + BESIDE_TWILIGHT),
       midnight: { day: 2, time: '00:00' },
-      dawn: { day: 2, time: DAWN },
+      'before-dawn': clockAt(dawn - BESIDE_TWILIGHT),
+      'after-dawn': clockAt(dawn + BESIDE_TWILIGHT),
     };
     const saved = {};
     for (const [index, [moment, when]] of Object.entries(moments).entries()) {
@@ -786,18 +801,17 @@ const SCENARIOS = {
     session.check('the day is more than twice as bright as the night', dimmestDay > 2 * brightestNight, levels);
     session.check('the night stays light enough to see the map', darkestNight >= 20, levels);
 
-    const halfway = (dimmestDay + brightestNight) / 2;
-    let dark = 0;
-    for (let i = 1; i < samples.length; i++) {
-      const [dimmer, brighter] = [samples[i - 1].light, samples[i].light].sort((a, b) => a - b);
-      const below = brighter === dimmer ? Number(dimmer < halfway) : (halfway - dimmer) / (brighter - dimmer);
-      dark += Math.min(Math.max(below, 0), 1) * (samples[i].minutes - samples[i - 1].minutes);
-    }
-    const share = dark / (samples.at(-1).minutes - samples[0].minutes);
+    const noonBlue = blueness(meanColor(saved.noon));
+    const sides = { 'before-dusk': 'day', 'after-dusk': 'night', 'before-dawn': 'night', 'after-dawn': 'day' };
+    const readings = Object.entries(sides).map(([moment, side]) => {
+      const blue = blueness(meanColor(saved[moment]));
+      return { side, blue, seen: blue > noonBlue ? 'night' : 'day', at: moments[moment].time };
+    });
     session.check(
-      'a spring day is dark for about 40% of its length',
-      share > 0.33 && share < 0.47,
-      `${(share * 100).toFixed(1)}% of the day is darker than ${halfway.toFixed(0)}, needs 33% to 47%`,
+      `a spring night lasts from ${DUSK} to ${DAWN}, 40% of the day`,
+      readings.every(({ side, seen }) => side === seen),
+      `night is bluer than noon, which has ${noonBlue.toFixed(2)} times as much blue as red; ` +
+        readings.map(({ side, blue, seen, at }) => `${at} has ${blue.toFixed(2)}, ${seen}, needs ${side}`).join('; '),
     );
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
   },
@@ -825,7 +839,6 @@ const SCENARIOS = {
 
       const noon = meanColor(shots.noon);
       const midnight = meanColor(shots.midnight);
-      const blueness = ([red, , blue]) => blue / red;
       share[season] = brightness(meanColor(shots.evening)) / brightness(noon);
       session.check(
         `midnight in ${season} is dark, cold, and light enough to see the map`,
