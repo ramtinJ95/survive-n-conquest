@@ -9,7 +9,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `main` is protected. Never push to it. Every change lands through a pull request.
 - Pull requests are squash-merged and the merged branch is deleted automatically.
 - PR titles are conventional commits, because the squash commit takes the PR title.
-- All PR work follows pstack poteto-mode and the skills it routes to. The skill cannot be invoked by the model. Read `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before you start, or have the orchestrator send `/pstack:poteto-mode` to the worker.
+- Claude Code sessions follow pstack poteto-mode and the skills it routes to. The orchestrator loads the skill in each Claude Code worker with `/pstack:poteto-mode`. A Claude Code session that did not receive that command reads `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before it starts. Pi workers cannot load pstack and are exempt.
 
 ## Stages and pull requests
 
@@ -24,7 +24,19 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - Each pull request has one Claude Code worker, started through shepherdr in its own git worktree. The worker is the only writer of its branch.
 - Graphics work runs on `claude-fable-5-2` at high effort. Graphics work means models, materials, lighting, animation, and the look of the interface. Pass the model when you spawn the worker.
 - A reviewer that is not the author checks each diff before the pull request opens. Use a reviewer from a different model family.
-- Pushing branches, opening pull requests, and uploading media go through a worker or the GitHub MCP.
+
+## Instructions to workers
+
+- Every instruction that an orchestrator sends to a Claude Code worker starts with `/pstack:poteto-mode` on its own first line. The task follows on the next lines. This rule covers the first instruction and every later one.
+- Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
+- Pi workers do not have pstack. Give them plain instructions.
+
+## Pushing and capturing
+
+- Claude Code workers run in a sandbox that blocks `git push` and `gh`. They commit in their worktree and never push.
+- A pi worker pushes the branch, uploads the media, and opens the pull request from the draft that the owner of the pull request wrote.
+- If the sandbox stops a Claude Code worker from capturing proof, a pi worker runs the verification skill.
+- The GitHub MCP is the fallback for small text-only changes.
 
 ## What merges without the owner
 

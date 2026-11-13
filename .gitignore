@@ -5,4 +5,5 @@ assets-source/
 .DS_Store
 # Per-machine agent state.
 .claude/.cc-writes/
+.claude/worktrees/
 .claude/settings.local.json
