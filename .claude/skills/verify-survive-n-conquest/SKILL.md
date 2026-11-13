@@ -5,7 +5,7 @@ description: Launch the survive-n-conquest browser game from a production build,
 
 # Verify survive-n-conquest
 
-The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. Interface elements are HTML over that canvas. The `seed` URL parameter chooses the map.
+The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map.
 
 Every command below runs from the root of the checkout under test. `scripts/verify.mjs` is the only harness, and it resolves Playwright from that checkout's `node_modules`.
 
@@ -54,9 +54,9 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
-- `open(viewport, { record, search })` opens the game at a viewport size, optionally recording video, and waits for the first frames. `search` is a query string such as `'?seed=7'`.
+- `open(viewport, { record, search, clock })` opens the game at a viewport size, optionally recording video, and waits for the first frames and the clock. `search` is a query string such as `'?seed=7'`. By default it presses Space to pause the clock, as a player would, so the screen comes to rest. Pass `clock: 'running'` to leave the clock running.
 - `settle(page)` waits for `canvas#world` and two animation frames.
-- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place.
+- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day changes several times a second.
 - `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
 - `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB.

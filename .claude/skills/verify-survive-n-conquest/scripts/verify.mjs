@@ -239,7 +239,7 @@ function createSession(browser, instance, dir, evidence) {
   return {
     check,
 
-    async open(viewport, { record = false, search = '' } = {}) {
+    async open(viewport, { record = false, search = '', clock = 'paused' } = {}) {
       const context = await browser.newContext({
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
@@ -250,6 +250,11 @@ function createSession(browser, instance, dir, evidence) {
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
       await page.goto(instance.url + search);
       await this.settle(page);
+      await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
+      if (clock === 'paused') {
+        await page.keyboard.press('Space');
+        await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
+      }
       return { context, page, errors };
     },
 
@@ -466,6 +471,122 @@ const SCENARIOS = {
     }
     await context.close();
     const seen = [...flight.errors, ...errors];
+    session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+  },
+
+  async clock(session) {
+    const GAME_MINUTES_PER_SECOND_AT_1X = 1440 / 300;
+    const panels = async (page) => ({
+      clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
+      controls: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+    });
+    const expectApart = async (page, viewport) => {
+      const { clock, controls } = await panels(page);
+      const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height;
+      const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+      const ok = inside(clock) && inside(controls) && disjoint(clock, controls);
+      session.check(`the clock and the camera controls fit apart at ${viewport.width}x${viewport.height}`, ok, `clock ${JSON.stringify(clock)}, controls ${JSON.stringify(controls)}`);
+    };
+
+    const { context, page, errors } = await session.open(WIDE, { record: true, clock: 'running' });
+    const date = page.getByRole('status', { name: 'Date' });
+    const time = page.getByRole('timer', { name: 'Time of day' });
+    const controls = page.getByRole('group', { name: 'Game speed' });
+    const buttons = {
+      Pause: controls.getByRole('button', { name: 'Pause', exact: true }),
+      ...Object.fromEntries([1, 2, 4, 8].map((speed) => [`Speed ${speed}×`, controls.getByRole('button', { name: `Speed ${speed}×` })])),
+    };
+
+    const click = async (button) => {
+      const box = await button.boundingBox();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    };
+    const gameMinutes = async () => {
+      const day = Number(/^Day (\d+) /.exec(await date.textContent())?.[1]);
+      const [hours, minutes] = (await time.textContent()).split(':').map(Number);
+      return (day - 1) * 1440 + hours * 60 + minutes;
+    };
+    const pressedButtons = async () => {
+      const states = await Promise.all(Object.entries(buttons).map(async ([name, button]) => [name, await button.getAttribute('aria-pressed')]));
+      return states.filter(([, state]) => state === 'true').map(([name]) => name).join(', ');
+    };
+    const expectPressed = async (...names) => {
+      const wanted = names.join(', ');
+      let pressed = await pressedButtons();
+      for (let polls = 0; polls < 20 && pressed !== wanted; polls++) {
+        await page.waitForTimeout(100);
+        pressed = await pressedButtons();
+      }
+      session.check(`pressed: ${names.join(' and ')}`, pressed === wanted, `aria-pressed on ${pressed || 'nothing'}`);
+    };
+    const expectRate = async (label, speed, ms) => {
+      const before = await gameMinutes();
+      const start = Date.now();
+      await page.waitForTimeout(ms);
+      const after = await gameMinutes();
+      const seconds = (Date.now() - start) / 1000;
+      const rate = (after - before) / seconds;
+      const expected = speed * GAME_MINUTES_PER_SECOND_AT_1X;
+      const ok = speed === 0 ? after === before : Math.abs(rate / expected - 1) < 0.25;
+      session.check(`${label} runs ${expected} game minutes per second`, ok, `${before} to ${after} game minutes in ${seconds.toFixed(2)} s, ${rate.toFixed(1)} per second`);
+    };
+
+    const opening = await date.textContent();
+    session.check('opens on the first day of spring', opening === 'Day 1 · Early Spring · Year 1', `date "${opening}", time "${await time.textContent()}"`);
+    await expectPressed('Speed 1×');
+    await expectApart(page, WIDE);
+    await expectRate('1×', 1, 4000);
+    await session.screenshot(page, 'clock-1x');
+
+    await click(buttons['Speed 2×']);
+    await expectPressed('Speed 2×');
+    await expectRate('2× by pointer', 2, 4000);
+
+    await page.keyboard.press('3');
+    await expectPressed('Speed 4×');
+    await expectRate('4× by the 3 key', 4, 4000);
+
+    await page.keyboard.press('4');
+    await expectPressed('Speed 8×');
+    await expectRate('8× by the 4 key', 8, 3000);
+
+    await page.keyboard.press('Space');
+    await expectPressed('Pause', 'Speed 8×');
+    const paused = await session.screenshot(page, 'clock-paused');
+    await expectRate('pause by Space', 0, 2500);
+    session.expectUnchanged('nothing on screen moves while paused', paused, await session.screenshot(page, 'clock-paused-later'));
+
+    const heldAt = await time.textContent();
+    await session.hold(page, 'KeyW', 600);
+    await session.still(page);
+    session.expectChanged('the W key still moves the camera while paused', paused, await session.screenshot(page, 'clock-paused-camera-moved'));
+    await expectPressed('Pause', 'Speed 8×');
+    const stillAt = await time.textContent();
+    session.check('the camera keys leave the clock alone', stillAt === heldAt, `time "${heldAt}" before W, "${stillAt}" after`);
+
+    for (let presses = 0; presses < 6 && !(await buttons.Pause.evaluate((node) => node === document.activeElement)); presses++) {
+      await page.keyboard.press('Tab');
+    }
+    await page.keyboard.press('Enter');
+    await expectPressed('Speed 8×');
+    await expectRate('resume by Tab and Enter on Pause', 8, 3000);
+
+    await date.filter({ hasText: /^Day 2 / }).waitFor({ timeout: 60_000 });
+    const nextDay = await date.textContent();
+    session.check('the date turns to the second day at 8×', nextDay === 'Day 2 · Mid Spring · Year 1', `date "${nextDay}", time "${await time.textContent()}"`);
+    await page.waitForTimeout(1500);
+    await click(buttons.Pause);
+    await expectPressed('Pause', 'Speed 8×');
+    await session.screenshot(page, 'clock-day-2');
+    await session.finishClip(context, page, 'clock-speeds');
+
+    const narrow = { width: 960, height: 600 };
+    const small = await session.open(narrow);
+    await session.still(small.page);
+    await expectApart(small.page, narrow);
+    await session.screenshot(small.page, 'clock-960x600');
+    await small.context.close();
+    const seen = [...errors, ...small.errors];
     session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
 };
