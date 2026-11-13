@@ -1,0 +1,8 @@
+node_modules/
+dist/
+# Purchased or licensed source assets must never be committed.
+assets-source/
+.DS_Store
+# Per-machine agent state.
+.claude/.cc-writes/
+.claude/settings.local.json
