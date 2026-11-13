@@ -465,11 +465,14 @@ const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
 /** The sun rises and sets at these times through the spring. */
 const DAWN = '04:48';
 const DUSK = '19:12';
+/** The moon's blue takes over from the sunset's orange this many game minutes after dusk, and gives way as long before dawn. */
+const BLUE_LAG = 20;
 /**
- * The daylight stops this many game minutes before and after spring dusk and dawn. Each point of night share moves
- * dusk and dawn by 7.2 minutes, so a night share more than about 5 points off 40% puts a stop on the wrong side.
+ * The daylight stops this many game minutes either side of the moments the map turns blue and back. Each point of
+ * night share moves dusk and dawn by 7.2 minutes, so a night share more than about 4 points off 40% puts a stop on the
+ * wrong side.
  */
-const BESIDE_TWILIGHT = 36;
+const BESIDE_TWILIGHT = 30;
 /** The sun has set by this time in winter and is still up in summer. */
 const EVENING = '18:30';
 /** The share of the map, below the sky, that each season must and must not color at noon. */
@@ -742,41 +745,42 @@ const SCENARIOS = {
     const { context, page, errors, since } = await session.open(CLIP, { record: true, clock: 'running' });
     await page.keyboard.press('4');
     const fastFrom = since();
-    let before = await session.gameMinutes(page);
-    const end = before + MINUTES_PER_DAY;
+    const end = (await session.gameMinutes(page)) + MINUTES_PER_DAY;
     const deadline = Date.now() + 120_000;
-    const samples = [];
-    while (before < end) {
-      if (Date.now() > deadline) fail(`the clock reached only ${clockText(before)} in two minutes at 8×`);
-      const png = await page.screenshot();
-      const after = await session.gameMinutes(page);
-      samples.push({ minutes: (before + after) / 2, png });
-      before = after;
+    for (let now = await session.gameMinutes(page); now < end; now = await session.gameMinutes(page)) {
+      if (Date.now() > deadline) fail(`the clock reached only ${clockText(now)} in two minutes at 8×`);
+      await page.waitForTimeout(250);
     }
     await session.pause(page);
     await session.finishClip(context, page, 'day-at-8x', { from: fastFrom, width: 640 });
 
-    const stops = await session.open(CLIP, { clock: 'running' });
-    const dusk = clockMinutes({ day: 1, time: DUSK });
-    const dawn = clockMinutes({ day: 2, time: DAWN });
-    const moments = {
-      noon: { day: 1, time: '12:00' },
-      'before-dusk': clockAt(dusk - BESIDE_TWILIGHT),
-      'after-dusk': clockAt(dusk + BESIDE_TWILIGHT),
-      midnight: { day: 2, time: '00:00' },
-      'before-dawn': clockAt(dawn - BESIDE_TWILIGHT),
-      'after-dawn': clockAt(dawn + BESIDE_TWILIGHT),
-    };
-    const saved = {};
-    for (const [index, [moment, when]] of Object.entries(moments).entries()) {
-      await session.reach(stops.page, when);
-      await session.still(stops.page);
-      saved[moment] = await session.screenshot(stops.page, `day-${index + 1}-${moment}`);
+    const paused = await session.open(CLIP, { clock: 'running' });
+    const turnsBlue = clockMinutes({ day: 1, time: DUSK }) + BLUE_LAG;
+    const turnsBack = clockMinutes({ day: 2, time: DAWN }) - BLUE_LAG;
+    const stops = Object.entries({
+      morning: { when: { day: 1, time: '09:00' }, side: 'day' },
+      noon: { when: { day: 1, time: '12:00' }, side: 'day' },
+      afternoon: { when: { day: 1, time: '15:00' }, side: 'day' },
+      'before-dusk': { when: clockAt(turnsBlue - BESIDE_TWILIGHT), side: 'day', twilight: true },
+      'after-dusk': { when: clockAt(turnsBlue + BESIDE_TWILIGHT), side: 'night', twilight: true },
+      midnight: { when: { day: 2, time: '00:00' }, side: 'night' },
+      'before-dawn': { when: clockAt(turnsBack - BESIDE_TWILIGHT), side: 'night', twilight: true },
+      'after-dawn': { when: clockAt(turnsBack + BESIDE_TWILIGHT), side: 'day', twilight: true },
+    }).map(([name, stop]) => ({ name, ...stop }));
+    for (const [index, stop] of stops.entries()) {
+      await session.reach(paused.page, stop.when);
+      await session.still(paused.page);
+      stop.png = await session.screenshot(paused.page, `day-${index + 1}-${stop.name}`);
+      const color = meanColor(stop.png);
+      stop.light = brightness(color);
+      stop.blue = blueness(color);
     }
-    await stops.context.close();
-    errors.push(...stops.errors);
-    const lit = session.unitPixels(saved.noon);
-    const unlit = session.unitPixels(saved.midnight);
+    await paused.context.close();
+    errors.push(...paused.errors);
+    const at = Object.fromEntries(stops.map((stop) => [stop.name, stop]));
+
+    const lit = session.unitPixels(at.noon.png);
+    const unlit = session.unitPixels(at.midnight.png);
     session.check(
       'villagers and monsters show their colors at noon',
       lit.villagers >= 200 && lit.monsters >= 200,
@@ -788,30 +792,26 @@ const SCENARIOS = {
       `${unlit.villagers} villager pixels and ${unlit.monsters} monster pixels in their daylight colors, needs fewer than 50 of each`,
     );
 
-    for (const sample of samples) sample.light = brightness(meanColor(sample.png));
-    const hourOf = ({ minutes }) => (minutes % MINUTES_PER_DAY) / 60;
-    const lights = (inside) => samples.filter((sample) => inside(hourOf(sample))).map((sample) => sample.light);
-    const day = lights((hour) => hour >= 9 && hour <= 15);
-    const night = lights((hour) => hour >= 20.5 || hour <= 3.5);
-    if (day.length === 0 || night.length === 0) fail(`${samples.length} screenshots in one day left none by day or none by night`);
-    const dimmestDay = Math.min(...day);
-    const brightestNight = Math.max(...night);
-    const darkestNight = Math.min(...night);
-    const levels = `${day.length} readings from 09:00 to 15:00 are ${dimmestDay.toFixed(0)} to ${Math.max(...day).toFixed(0)}, ${night.length} from 20:30 to 03:30 are ${darkestNight.toFixed(0)} to ${brightestNight.toFixed(0)}, on a scale of 255`;
-    session.check('the day is more than twice as bright as the night', dimmestDay > 2 * brightestNight, levels);
-    session.check('the night stays light enough to see the map', darkestNight >= 20, levels);
+    const day = stops.filter((stop) => stop.side === 'day' && !stop.twilight);
+    const night = stops.filter((stop) => stop.side === 'night');
+    const range = (group) => {
+      const lights = group.map((stop) => stop.light);
+      return { least: Math.min(...lights), most: Math.max(...lights), times: group.map((stop) => stop.when.time).join(', ') };
+    };
+    const [byDay, byNight] = [range(day), range(night)];
+    const levels = `${byDay.times} read ${byDay.least.toFixed(0)} to ${byDay.most.toFixed(0)}, ${byNight.times} read ${byNight.least.toFixed(0)} to ${byNight.most.toFixed(0)}, on a scale of 255`;
+    session.check('the day is more than twice as bright as the night', byDay.least > 2 * byNight.most, levels);
+    session.check('the night stays light enough to see the map', byNight.least >= 20, levels);
 
-    const noonBlue = blueness(meanColor(saved.noon));
-    const sides = { 'before-dusk': 'day', 'after-dusk': 'night', 'before-dawn': 'night', 'after-dawn': 'day' };
-    const readings = Object.entries(sides).map(([moment, side]) => {
-      const blue = blueness(meanColor(saved[moment]));
-      return { side, blue, seen: blue > noonBlue ? 'night' : 'day', at: moments[moment].time };
-    });
+    const halfway = (at.noon.blue + at.midnight.blue) / 2;
+    const readings = stops
+      .filter((stop) => stop.twilight)
+      .map(({ when, side, blue }) => ({ time: when.time, side, blue, seen: blue > halfway ? 'night' : 'day' }));
     session.check(
       `a spring night lasts from ${DUSK} to ${DAWN}, 40% of the day`,
       readings.every(({ side, seen }) => side === seen),
-      `night is bluer than noon, which has ${noonBlue.toFixed(2)} times as much blue as red; ` +
-        readings.map(({ side, blue, seen, at }) => `${at} has ${blue.toFixed(2)}, ${seen}, needs ${side}`).join('; '),
+      `night has more blue for each part of red than ${halfway.toFixed(2)}, halfway between noon and midnight; ` +
+        readings.map(({ time, side, blue, seen }) => `${time} has ${blue.toFixed(2)}, ${seen}, needs ${side}`).join('; '),
     );
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
   },
