@@ -3,8 +3,10 @@ import { bindCameraInput } from './render/cameraInput';
 import { createWorld } from './render/world';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
+import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import './ui/style.css';
+import type { ToSim } from './worker';
 
 const renderer = new WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -33,3 +35,7 @@ renderer.setAnimationLoop((now) => {
   lastFrame = now;
   renderer.render(scene, camera);
 });
+
+const sim = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+mountClock(document.body, sim);
+sim.postMessage({ kind: 'start', seed: map.seed } satisfies ToSim);

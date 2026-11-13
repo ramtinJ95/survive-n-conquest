@@ -8,3 +8,69 @@ body {
 #world {
   display: block;
 }
+
+.clock {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 8px;
+  background: rgb(18 22 28 / 0.72);
+  color: #f3efe4;
+  font: 14px/1.2 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.clock p {
+  margin: 0;
+}
+
+.clock-time {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.clock-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.clock button {
+  min-width: 34px;
+  padding: 5px 8px;
+  border: 1px solid rgb(243 239 228 / 0.25);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.clock button:hover {
+  background: rgb(243 239 228 / 0.12);
+}
+
+.clock button:focus-visible {
+  outline: 2px solid #ffd27a;
+  outline-offset: 1px;
+}
+
+.clock button[aria-pressed='true'] {
+  border-color: #ffd27a;
+  background: #ffd27a;
+  color: #1b1f26;
+}
+
+.clock[data-paused] .clock-time {
+  opacity: 0.55;
+}
+
+.clock[data-paused] .clock-controls button[aria-pressed='true']:not([aria-label='Pause']) {
+  background: transparent;
+  color: #ffd27a;
+}

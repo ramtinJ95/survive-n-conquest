@@ -19,6 +19,7 @@ This directory is the maintained source for verifying what a player sees and doe
 - Start every scenario from a fresh page load. The game keeps no saved state yet.
 - Choose the map with the `seed` URL parameter, through `open(viewport, { search: '?seed=7' })`.
 - Wait with `still(page)` before every screenshot. The camera eases into place.
+- Pause the clock before you compare screenshots. `open` presses Space to pause it unless you pass `clock: 'running'`. A paused game still shows the time it paused at, which differs by a few game minutes between page loads.
 
 ## Proof and skip reporting
 
@@ -42,3 +43,4 @@ Each feature file starts with an H1 title and one paragraph describing the playe
 - [Window](./window.md) covers opening the game to a map that fills the window, and refilling the window after a resize.
 - [Terrain](./terrain.md) covers the seeded map of hills, water, forest, and rock, and choosing the seed.
 - [Camera](./camera.md) covers panning, turning, tilting, and zooming by keyboard and mouse, and the limits that keep the camera on the map and above the ground.
+- [Clock and speed controls](./clock.md) covers the time of day and the date advancing in a Web Worker, pausing, and the four speeds by pointer and keyboard. It also says how to reach a chosen time.
