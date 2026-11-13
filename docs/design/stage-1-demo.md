@@ -1,6 +1,6 @@
 # Stage 1 demo: foundation
 
-Stage 1 is complete. You can open the game, fly a camera over a seeded map, watch days and seasons pass, and see 1500 villagers and 3000 monsters move. Nothing in the world has behavior yet. The brief is `docs/design/stage-1-foundation.md`.
+The five pull requests of stage 1 are merged. One measurement that the brief asked for is still open: the frame rate in a real browser, which only the owner can take. You can open the game, fly a camera over a seeded map, watch days and seasons pass, and see 1500 villagers and 3000 monsters move. Nothing in the world has behavior yet. The brief is `docs/design/stage-1-foundation.md`.
 
 Every clip below was captured by the verification skill from a production build in headless Chromium. Headless Chromium renders on the CPU, so the clips are choppy and their frame rate says nothing about real hardware.
 
@@ -45,8 +45,8 @@ The sun, the sky, and the shadows follow the clock. The night is 30% of the day 
 The brief asked the stage to settle three things.
 
 - **The 512 map holds for the simulation.** With 1500 villagers and 3000 monsters that only move, the 99th percentile tick is 0.036 ms on the 256 map and 0.035 ms on the 512 map, and the heap does not grow across the measured ticks. The benchmark runs on Bun, which uses JavaScriptCore, and the game's worker runs on V8 in Chromium.
-- **The 4 ms limit stays as it is.** The measured tick is about a hundredth of the limit, but the benchmark units only move. The limit is the budget for the behavior that stages 2 and later add, so a measurement of movement alone is no reason to change it. Stage 2 measures it again with villagers that work. This is the orchestrator's call, and the owner can overrule it.
-- **The frame rate with 4500 units is not measured.** It needs a real browser on the owner's machine. Since 1.4 every frame also draws a shadow pass, and the units cast shadows. To measure, run `bun run dev`, open the game, and read the frame rate from the browser's rendering tools at the farthest and the nearest zoom. `?swarm=off` gives the frame rate of the bare map for comparison.
+- **The 4 ms limit stays, which departs from the brief.** The brief says a measured tick time replaces the 4 ms proposal. The measured tick is about a hundredth of the limit, but the benchmark units only move. The limit is the budget for the behavior that stages 2 and later add, so a measurement of movement alone is a poor replacement. Stage 2 measures the tick again with villagers that work. The stage 2 brief carries the 4 ms limit forward, so the owner confirms or changes this when they accept that brief.
+- **The frame rate with 4500 units is not measured, so this decision is open.** It needs a real browser on the owner's machine. Since 1.4 every frame also draws a shadow pass, and the units cast shadows. To measure, run `bun run dev`, open the game, and read the frame rate from the browser's rendering tools at the farthest and the nearest zoom. `?swarm=off` gives the frame rate of the bare map for comparison.
 
 The second risk the stage tested was whether a pull request can prove its own work. It can. Each of the five pull requests carried a clip and screenshots from the verification skill, and the skill now has seven scenarios that pass on `main`: `window`, `terrain`, `camera`, `clock`, `swarm`, `daylight`, and `seasons`.
 
