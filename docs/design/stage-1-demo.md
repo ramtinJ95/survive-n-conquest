@@ -65,6 +65,6 @@ No decision in `docs/design.md` changed. These choices filled gaps the brief lef
 
 - No pixel check covers the direction of the shadows or the shadows of the units.
 - The turn from one season to the next has unit tests and no clip.
-- The `daylight` check on the dark share of a spring day read 43.2% and 46.2% in two runs of one revision, against a limit of 47%. It takes about 16 screenshots in the day, so it has little margin.
+- The `daylight` scenario first measured the dark share of a spring day from screenshots of a running clock. It read 43.2% and 46.2% in two runs of one revision, against a limit of 47%. The check now reads paused stops beside dusk and dawn instead, and gives the same reading on every run.
 - The camera checks run with `?swarm=off`, because the software renderer became too slow for them with unit shadows. More render cost can break them again.
 - The build warns that the Three.js bundle is larger than 500 kB.
