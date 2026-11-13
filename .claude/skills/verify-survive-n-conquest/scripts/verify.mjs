@@ -24,6 +24,10 @@ const GIF_STEPS = [
 ];
 const GIF_BYTE_LIMIT = 8_000_000;
 const PROBE = { width: 160, height: 90 };
+const UNIT_COLORS = {
+  villagers: ([r, g, b]) => r > 170 && g > 0.55 * r && b < 0.25 * r,
+  monsters: ([r, g, b]) => r > 90 && r > 2.2 * g && r > 2 * b,
+};
 const BROWSER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 
 class VerifyError extends Error {}
@@ -180,7 +184,7 @@ async function doctor() {
 }
 
 function ffmpeg(args) {
-  const result = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args]);
+  const result = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args], { maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) fail(`ffmpeg ${args.join(' ')} failed: ${result.stderr ?? result.error}`);
   return result.stdout;
 }
@@ -219,6 +223,16 @@ function surfaceShares(png, [top, bottom] = [0, 1]) {
   }
   shares.ground = 1 - shares.sky;
   return shares;
+}
+
+function unitPixels(png) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const counts = Object.fromEntries(Object.keys(UNIT_COLORS).map((group) => [group, 0]));
+  for (let i = 0; i < pixels.length; i += 3) {
+    const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+    for (const [group, matches] of Object.entries(UNIT_COLORS)) if (matches(rgb)) counts[group] += 1;
+  }
+  return counts;
 }
 
 function toGif(video, gif) {
@@ -303,6 +317,7 @@ function createSession(browser, instance, dir, evidence) {
     },
 
     difference,
+    unitPixels,
 
     expectChanged(name, before, after) {
       const moved = difference(before, after);
@@ -375,11 +390,11 @@ const SCENARIOS = {
     };
 
     const [first, second] = SEEDS;
-    const a = await view(`?seed=${first}`, `terrain-seed-${first}`, true);
-    const b = await view(`?seed=${second}`, `terrain-seed-${second}`, true);
-    const again = await view(`?seed=${first}`, `terrain-seed-${first}-again`);
-    const unseeded = await view('', 'terrain-no-seed');
-    const worded = await view('?seed=winter', 'terrain-seed-winter');
+    const a = await view(`?seed=${first}&swarm=off`, `terrain-seed-${first}`, true);
+    const b = await view(`?seed=${second}&swarm=off`, `terrain-seed-${second}`, true);
+    const again = await view(`?seed=${first}&swarm=off`, `terrain-seed-${first}-again`);
+    const unseeded = await view('?swarm=off', 'terrain-no-seed');
+    const worded = await view('?seed=winter&swarm=off', 'terrain-seed-winter');
 
     const kinds = { water: 0.01, plants: 0.15, rock: 0.003 };
     session.expectSurfaces(`seed ${first} shows water, plants, and rock`, a.far, kinds);
@@ -589,6 +604,48 @@ const SCENARIOS = {
     const seen = [...errors, ...small.errors];
     session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
+};
+
+SCENARIOS.swarm = async (session) => {
+  const seen = [];
+  const pressed = (page, name) => page.getByRole('button', { name, exact: true, pressed: true }).waitFor();
+
+  const flight = await session.open(CLIP, { record: true, clock: 'running' });
+  await flight.page.keyboard.press('4');
+  await pressed(flight.page, 'Speed 8×');
+  await flight.page.waitForTimeout(5000);
+  await session.hold(flight.page, 'KeyX', 1200);
+  await flight.page.waitForTimeout(5000);
+  await session.finishClip(flight.context, flight.page, 'swarm-8x');
+  seen.push(...flight.errors);
+
+  const { context, page, errors } = await session.open(WIDE);
+  await session.still(page);
+  const before = await session.screenshot(page, 'swarm-paused');
+  const counted = session.unitPixels(before);
+  session.check('villagers and monsters both show', counted.villagers >= 500 && counted.monsters >= 500, `${counted.villagers} villager pixels and ${counted.monsters} monster pixels, needs 500 of each`);
+  await page.waitForTimeout(2000);
+  session.expectUnchanged('the swarm holds still while the clock is paused', before, await session.screenshot(page, 'swarm-paused-later'));
+
+  await page.keyboard.press('4');
+  await pressed(page, 'Speed 8×');
+  await page.waitForTimeout(2500);
+  await page.keyboard.press('Space');
+  await pressed(page, 'Pause');
+  await session.still(page);
+  session.expectChanged('the swarm moves while the clock runs', before, await session.screenshot(page, 'swarm-after-8x'));
+  await context.close();
+  seen.push(...errors);
+
+  const bare = await session.open(WIDE, { search: '?swarm=off' });
+  await session.still(bare.page);
+  const empty = await session.screenshot(bare.page, 'swarm-off');
+  const none = session.unitPixels(empty);
+  session.check('?swarm=off shows no unit colors', none.villagers < 50 && none.monsters < 50, `${none.villagers} villager pixels and ${none.monsters} monster pixels, needs fewer than 50 of each`);
+  session.expectChanged('the swarm draws units over the same map', empty, before);
+  await bare.context.close();
+  seen.push(...bare.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
 function scenarioNamed(name) {
