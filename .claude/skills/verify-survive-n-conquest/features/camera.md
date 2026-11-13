@@ -23,9 +23,9 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run camera`, which runs doctor itself.
 
-- **Fly over the map.** A recorded page at 960 by 540 pans with `D`, pans with a drag, turns with `Q`, turns and tilts with a right-drag, zooms in with the wheel, and zooms out with `X`. `camera-flight.gif` shows the flight. The check `camera-flight.gif stays under 8 MB` passes.
-- **Try each control.** A second page uses `hold`, `drag`, and `page.mouse.wheel` for one control at a time and takes a screenshot after each. The checks `a held D key pans`, `a drag pans`, `a held Q key turns`, `a right-drag turns and tilts`, `a held F key tilts`, `a held Z key zooms`, and `the wheel zooms` pass when the view changed.
-- **Zoom out to the limit.** Hold `X` for 4 seconds, then zoom out more with the wheel and the key. The check `zooming out stops at the farthest view` passes when the second screenshot matches the first.
+- **Fly over the map.** A recorded page at 960 by 540, paused in the morning light of the 08:00 start, pans with `D`, pans with a drag, turns with `Q`, turns and tilts with a right-drag, zooms in with the wheel, and zooms out with `X`. `camera-flight.gif` shows the flight. The check `camera-flight.gif stays under 8 MB` passes.
+- **Try each control.** A second page, loaded with `?swarm=off` and paused at noon, uses `hold`, `drag`, and `page.mouse.wheel` for one control at a time and takes a screenshot after each. The checks `a held D key pans`, `a drag pans`, `a held Q key turns`, `a right-drag turns and tilts`, `a held F key tilts`, `a held Z key zooms`, and `the wheel zooms` pass when the view changed.
+- **Zoom out to the limit.** Hold `X` for 4 seconds, then zoom out more with the wheel and the key. The check `zooming out stops at the farthest view` passes when the second screenshot matches the first. The check `the sky shows around the map at the farthest view` passes when at least 5% of that screenshot has the sky color.
 - **Pan to the edge.** Hold `W` for 4 seconds. The check `the camera reaches the map edge` passes. The view then slides along the edge. Hold `W` in legs of 2.5 seconds until two screenshots in a row match. The checks `panning stops in a corner of the map` and `the map stays in view at its corner` pass.
 - **Fly low.** Hold `Z` and then `F` to reach the nearest and lowest view. The check `zooming in and tilting stop at the lowest view` passes. Then fly four legs with `S` and `Q`. Each check `the ground fills the lower view on low flight <leg>` passes when at least 90% of the bottom 40% of the screenshot is not sky.
 - **Proof.** Run `$V run camera`. The evidence folder holds `camera-flight.gif`, numbered screenshots from `camera-01-start.png` on, and `result.json`.
@@ -34,8 +34,10 @@ Preconditions:
 
 - A camera under the ground sees the sky through it, because the ground has no underside. The low-flight checks rely on that.
 - At the lowest view the far ground fades into the sky color. Read only the bottom 40% of the screenshot for ground.
+- The sky color changes with the time of day and the season. `SKY_RGB` is the sky of a spring noon. The low-flight checks would pass on any ground if the sky had another color, so the farthest view checks that the sky is found at all.
 - Playwright names keys by code, such as `KeyW`. The game reads `event.code`, so the keys do not depend on the keyboard layout.
 - The camera eases toward its goal. Wait with `still` after every action before you take a screenshot.
 - SwiftShader runs at a low frame rate, and the game caps each frame's step at 0.1 seconds. A held key therefore moves the camera less far than on real hardware. Hold times in the limit steps are long on purpose.
+- Keep `swarm=off` on the page for the checks. At 1280 by 720, SwiftShader takes about 270 ms for a frame of the bare map and about 400 ms for a frame with the 4500 units and their shadows. At 400 ms the held keys stop short of the nearest view, and the limit checks fail for a reason that has nothing to do with the camera. The clip keeps the units, because no check reads it. [Swarm](./swarm.md) shows the units from a camera that moves.
 - A pan against the map edge does not stop at once. The view slides along the edge until it reaches a corner. Compare screenshots only after the view rests in the corner.
 - The clip records in real time, and every frame of a flight differs from the last, so the GIF grows fast. Keep the flight under about 8 seconds. `finishClip` lowers the GIF width and its color count step by step, from 960 pixels and 256 colors, until the file is under 8 MB.

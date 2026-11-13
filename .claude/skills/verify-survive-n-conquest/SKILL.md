@@ -5,7 +5,7 @@ description: Launch the survive-n-conquest browser game from a production build,
 
 # Verify survive-n-conquest
 
-The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map, and `swarm=off` opens it without the 1500 villagers and 3000 monsters.
+The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The sun, the sky, and the colors of the map follow that clock. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map, and `swarm=off` opens it without the 1500 villagers and 3000 monsters.
 
 Every command below runs from the root of the checkout under test. `scripts/verify.mjs` is the only harness, and it resolves Playwright from that checkout's `node_modules`.
 
@@ -54,16 +54,20 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
-- `open(viewport, { record, search, clock })` opens the game at a viewport size, optionally recording video, and waits for the first frames and the clock. `search` is a query string such as `'?seed=7'`. By default it presses Space to pause the clock, as a player would, so the screen comes to rest. Pass `clock: 'running'` to leave the clock running.
+- `open(viewport, { record, search, clock })` opens the game at a viewport size, optionally recording video, and waits for the first frames and the clock. `search` is a query string such as `'?seed=7'`. The light follows the clock, so `clock` decides what the page looks like. The default, `'noon'`, runs the clock to 12:00 on day 1 and pauses it there, so that every page shows the same spring noon. `'paused'` pauses at once, a few game minutes after the 08:00 start. `'running'` leaves the clock running. The result holds `since()`, the seconds since the page was created, which is also the time in its video.
+- `gameMinutes(page)` reads the clock panel and returns the game minutes since 00:00 on day 1.
+- `pause(page)` presses Space and waits for the `Pause` button to report that it is pressed.
+- `reach(page, { day, time })` runs the clock to a day and an `HH:MM` time and leaves it paused there. It runs at 8×, slows to 1× half a game hour before the target, pauses, and then steps forward in short runs. It fails if the clock stops more than 2 game minutes past the target.
 - `settle(page)` waits for `canvas#world` and two animation frames.
-- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day changes several times a second.
+- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day and the light change several times a second.
 - `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
-- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
+- `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`, and `width` caps the GIF's width. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
-- `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot.
-- `unitPixels(png)` counts the full-resolution pixels in villager yellow and in monster red.
+- `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot. The colors it looks for are those of a spring noon.
+- `expectShares(name, kinds, png, { atLeast, atMost }, rows)` checks the share of any set of pixel kinds, such as `SEASON_MARKS`, against lower and upper limits.
+- `unitPixels(png)` counts the full-resolution pixels in villager yellow and in monster red, as they look in daylight.
 - `check(name, ok, detail)` records any other check.
 
 Drive the game through the page, as a player does: viewport changes, pointer, and keyboard. Do not call into the game's modules or add test-only hooks to prove a behavior.
