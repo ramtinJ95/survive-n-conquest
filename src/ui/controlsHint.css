@@ -1,0 +1,27 @@
+#controls-hint {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: rgb(24 30 26 / 62%);
+  color: #f1eedf;
+  font: 12px/1.5 system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+#controls-hint kbd {
+  font: inherit;
+  font-weight: 600;
+  color: #ffe9a8;
+}
+
+#controls-hint .seed {
+  opacity: 0.75;
+}

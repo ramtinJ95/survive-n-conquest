@@ -3,6 +3,7 @@ import { bindCameraInput } from './render/cameraInput';
 import { createWorld } from './render/world';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
+import { showControlsHint } from './ui/controlsHint';
 import './ui/style.css';
 
 const renderer = new WebGLRenderer({ antialias: true });
@@ -14,6 +15,7 @@ const map = generateMap(parseSeed(new URLSearchParams(window.location.search).ge
 const { scene, rig } = createWorld(map);
 const camera = rig.camera;
 bindCameraInput(renderer.domElement, rig);
+showControlsHint(map.seed);
 
 function fitToWindow() {
   renderer.setSize(window.innerWidth, window.innerHeight);
