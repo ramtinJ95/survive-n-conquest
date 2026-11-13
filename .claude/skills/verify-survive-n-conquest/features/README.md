@@ -17,6 +17,8 @@ This directory is the maintained source for verifying what a player sees and doe
 - Locate the world by `canvas#world`. Locate interface elements by ARIA role and accessible name once they exist.
 - Drive through the page only: viewport size, pointer, and keyboard.
 - Start every scenario from a fresh page load. The game keeps no saved state yet.
+- Choose the map with the `seed` URL parameter, through `open(viewport, { search: '?seed=7' })`.
+- Wait with `still(page)` before every screenshot. The camera eases into place.
 
 ## Proof and skip reporting
 
@@ -37,4 +39,6 @@ Each feature file starts with an H1 title and one paragraph describing the playe
 
 ## Features
 
-- [Empty scene](./empty-scene.md) covers opening the game to a lit ground under a sky that fills the window, and refilling the window after a resize.
+- [Window](./window.md) covers opening the game to a map that fills the window, and refilling the window after a resize.
+- [Terrain](./terrain.md) covers the seeded map of hills, water, forest, and rock, and choosing the seed.
+- [Camera](./camera.md) covers panning, turning, tilting, and zooming by keyboard and mouse, and the limits that keep the camera on the map and above the ground.

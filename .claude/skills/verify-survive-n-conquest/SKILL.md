@@ -5,7 +5,7 @@ description: Launch the survive-n-conquest browser game from a production build,
 
 # Verify survive-n-conquest
 
-The game is a Three.js scene in a browser page. The page has one surface: a full-window canvas with the id `world`. Interface elements arrive later as HTML over that canvas.
+The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. Interface elements are HTML over that canvas. The `seed` URL parameter chooses the map.
 
 Every command below runs from the root of the checkout under test. `scripts/verify.mjs` is the only harness, and it resolves Playwright from that checkout's `node_modules`.
 
@@ -24,14 +24,15 @@ V=.claude/skills/verify-survive-n-conquest/scripts/verify.mjs
 The one-shot path builds, serves, checks, drives one scenario, and stops, all in one process. Use it by default.
 
 ```sh
-$V run empty-scene --port 4173
+$V run terrain --port 4173
 ```
 
 To drive several scenarios against one instance, launch it, drive, and stop it yourself.
 
 ```sh
 $V launch --port 4173
-$V drive empty-scene
+$V drive terrain
+$V drive camera
 $V stop
 ```
 
@@ -53,11 +54,15 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
-- `open(viewport, { record })` opens the game at a viewport size, optionally recording video, and waits for the first frames.
+- `open(viewport, { record, search })` opens the game at a viewport size, optionally recording video, and waits for the first frames. `search` is a query string such as `'?seed=7'`.
 - `settle(page)` waits for `canvas#world` and two animation frames.
+- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place.
+- `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
-- `finishClip(context, page, label)` closes the page and converts its video to `<label>.gif`.
-- `expectFillsViewport(page, viewport)` and `expectSkyAndGround(png, viewport)` record checks.
+- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB.
+- `expectFillsViewport(page, viewport)` checks the size of the world.
+- `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
+- `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot.
 - `check(name, ok, detail)` records any other check.
 
 Drive the game through the page, as a player does: viewport changes, pointer, and keyboard. Do not call into the game's modules or add test-only hooks to prove a behavior.

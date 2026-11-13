@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -13,6 +13,17 @@ const EVIDENCE_ROOT = join(ROOT, '.verify', 'evidence');
 const APP_NAME = 'survive-n-conquest';
 const WORLD = 'canvas#world';
 const SKY_RGB = [0x9f, 0xc9, 0xe8];
+const GIF_STEPS = [
+  { width: 960, colors: 256 },
+  { width: 800, colors: 256 },
+  { width: 800, colors: 96 },
+  { width: 640, colors: 256 },
+  { width: 640, colors: 96 },
+  { width: 480, colors: 256 },
+  { width: 480, colors: 64 },
+];
+const GIF_BYTE_LIMIT = 8_000_000;
+const PROBE = { width: 160, height: 90 };
 const BROWSER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 
 class VerifyError extends Error {}
@@ -174,15 +185,48 @@ function ffmpeg(args) {
   return result.stdout;
 }
 
-function pixel(png, x, y) {
-  return [...ffmpeg(['-i', png, '-vf', `crop=1:1:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])];
+function probe(png) {
+  const scale = `scale=${PROBE.width}:${PROBE.height}:flags=area`;
+  return ffmpeg(['-i', png, '-vf', scale, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+}
+
+function difference(pngA, pngB) {
+  const a = probe(pngA);
+  const b = probe(pngB);
+  let total = 0;
+  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
+  return total / a.length;
 }
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
+const SURFACES = {
+  sky: (rgb) => distance(rgb, SKY_RGB) < 14,
+  water: ([r, g, b]) => b > g && b > r + 40,
+  plants: ([r, g, b]) => g > r + 15 && g > b + 25,
+  rock: ([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b) < 28 && r + g + b > 210 && r + g + b < 645,
+};
+
+function surfaceShares(png, [top, bottom] = [0, 1]) {
+  const pixels = probe(png);
+  const from = Math.floor(top * PROBE.height) * PROBE.width;
+  const to = Math.floor(bottom * PROBE.height) * PROBE.width;
+  const shares = Object.fromEntries(Object.keys(SURFACES).map((surface) => [surface, 0]));
+  for (let i = from; i < to; i++) {
+    const rgb = [pixels[i * 3], pixels[i * 3 + 1], pixels[i * 3 + 2]];
+    const surface = Object.keys(SURFACES).find((name) => SURFACES[name](rgb));
+    if (surface) shares[surface] += 1 / (to - from);
+  }
+  shares.ground = 1 - shares.sky;
+  return shares;
+}
+
 function toGif(video, gif) {
-  const palette = 'fps=12,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer';
-  ffmpeg(['-i', video, '-vf', palette, gif]);
+  for (const { width, colors } of GIF_STEPS) {
+    const palette = `fps=8,scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+    ffmpeg(['-i', video, '-vf', palette, gif]);
+    if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
+  }
   rmSync(video);
 }
 
@@ -195,7 +239,7 @@ function createSession(browser, instance, dir, evidence) {
   return {
     check,
 
-    async open(viewport, { record = false } = {}) {
+    async open(viewport, { record = false, search = '' } = {}) {
       const context = await browser.newContext({
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
@@ -204,7 +248,7 @@ function createSession(browser, instance, dir, evidence) {
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
-      await page.goto(instance.url);
+      await page.goto(instance.url + search);
       await this.settle(page);
       return { context, page, errors };
     },
@@ -220,10 +264,58 @@ function createSession(browser, instance, dir, evidence) {
       return path;
     },
 
+    async still(page) {
+      let last = await page.screenshot();
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await page.waitForTimeout(250);
+        const next = await page.screenshot();
+        if (next.equals(last)) return;
+        last = next;
+      }
+      check('the view comes to rest', false, 'two screenshots 250 ms apart still differ after 15 s');
+    },
+
+    async hold(page, key, ms) {
+      await page.keyboard.down(key);
+      await page.waitForTimeout(ms);
+      await page.keyboard.up(key);
+    },
+
+    async drag(page, from, to, button = 'left') {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down({ button });
+      await page.mouse.move(to.x, to.y, { steps: 6 });
+      await page.mouse.up({ button });
+    },
+
     async finishClip(context, page, label) {
       await page.close();
       await context.close();
-      toGif(await page.video().path(), capture(`${label}.gif`));
+      const gif = capture(`${label}.gif`);
+      toGif(await page.video().path(), gif);
+      const bytes = statSync(gif).size;
+      check(`${label}.gif stays under 8 MB`, bytes <= GIF_BYTE_LIMIT, `${(bytes / 1e6).toFixed(1)} MB`);
+    },
+
+    difference,
+
+    expectChanged(name, before, after) {
+      const moved = difference(before, after);
+      check(name, moved > 2, `mean pixel difference ${moved.toFixed(2)}, needs more than 2`);
+    },
+
+    expectUnchanged(name, before, after) {
+      const moved = difference(before, after);
+      check(name, moved < 0.2, `mean pixel difference ${moved.toFixed(2)}, needs less than 0.2`);
+    },
+
+    expectSurfaces(name, png, minimums, rows) {
+      const shares = surfaceShares(png, rows);
+      const seen = Object.entries(minimums).map(
+        ([surface, minimum]) => `${surface} ${(shares[surface] * 100).toFixed(1)}% of at least ${minimum * 100}%`,
+      );
+      const enough = Object.entries(minimums).every(([surface, minimum]) => shares[surface] >= minimum);
+      check(name, enough, seen.join(', '));
     },
 
     async expectFillsViewport(page, viewport) {
@@ -231,36 +323,150 @@ function createSession(browser, instance, dir, evidence) {
       const fills = box?.x === 0 && box.y === 0 && box.width === viewport.width && box.height === viewport.height;
       check(`world fills ${viewport.width}x${viewport.height}`, fills, JSON.stringify(box));
     },
-
-    expectSkyAndGround(png, viewport) {
-      const x = Math.floor(viewport.width / 2);
-      const sky = pixel(png, x, 4);
-      const ground = pixel(png, x, viewport.height - 5);
-      check('sky fills the top edge', distance(sky, SKY_RGB) < 12, `top ${sky}, sky ${SKY_RGB}`);
-      const lit = distance(ground, SKY_RGB) > 40 && Math.max(...ground) > 40;
-      check('lit ground fills the bottom edge', lit, `bottom ${ground}`);
-    },
   };
 }
 
+const WIDE = { width: 1280, height: 720 };
+const CENTER = { x: WIDE.width / 2, y: WIDE.height / 2 };
+const CLIP = { width: 960, height: 540 };
+const SEEDS = ['7', '2026'];
+
 const SCENARIOS = {
-  async 'empty-scene'(session) {
-    const wide = { width: 1280, height: 720 };
+  async window(session) {
     const narrow = { width: 960, height: 600 };
-    const { context, page, errors } = await session.open(wide, { record: true });
-    await page.waitForTimeout(800);
-    await session.expectFillsViewport(page, wide);
-    session.expectSkyAndGround(await session.screenshot(page, 'empty-scene-1280x720'), wide);
+    const { context, page, errors } = await session.open(WIDE, { record: true });
+    await session.still(page);
+    await session.expectFillsViewport(page, WIDE);
+    const wide = await session.screenshot(page, 'window-1280x720');
+    session.expectSurfaces('the map fills the 1280x720 window', wide, { plants: 0.3 });
     await page.setViewportSize(narrow);
     await session.settle(page);
-    await page.waitForTimeout(800);
+    await session.still(page);
     await session.expectFillsViewport(page, narrow);
-    session.expectSkyAndGround(await session.screenshot(page, 'empty-scene-960x600'), narrow);
-    await page.setViewportSize(wide);
+    const small = await session.screenshot(page, 'window-960x600');
+    session.expectSurfaces('the map fills the 960x600 window', small, { plants: 0.3 });
+    await page.setViewportSize(WIDE);
     await session.settle(page);
-    await page.waitForTimeout(800);
-    await session.finishClip(context, page, 'empty-scene-resize');
+    await session.still(page);
+    await session.finishClip(context, page, 'window-resize');
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
+  },
+
+  async terrain(session) {
+    const errors = [];
+    const view = async (search, label, wholeMap = false) => {
+      const opened = await session.open(WIDE, { search });
+      await session.still(opened.page);
+      const close = await session.screenshot(opened.page, label);
+      let far = null;
+      if (wholeMap) {
+        await session.hold(opened.page, 'KeyX', 2500);
+        await session.still(opened.page);
+        far = await session.screenshot(opened.page, `${label}-whole-map`);
+      }
+      await opened.context.close();
+      errors.push(...opened.errors);
+      return { close, far };
+    };
+
+    const [first, second] = SEEDS;
+    const a = await view(`?seed=${first}`, `terrain-seed-${first}`, true);
+    const b = await view(`?seed=${second}`, `terrain-seed-${second}`, true);
+    const again = await view(`?seed=${first}`, `terrain-seed-${first}-again`);
+    const unseeded = await view('', 'terrain-no-seed');
+    const worded = await view('?seed=winter', 'terrain-seed-winter');
+
+    const kinds = { water: 0.01, plants: 0.15, rock: 0.003 };
+    session.expectSurfaces(`seed ${first} shows water, plants, and rock`, a.far, kinds);
+    session.expectSurfaces(`seed ${second} shows water, plants, and rock`, b.far, kinds);
+    session.expectChanged(`seeds ${first} and ${second} draw different maps`, a.close, b.close);
+    session.expectUnchanged(`seed ${first} draws the same map again`, a.close, again.close);
+    session.expectUnchanged(`no seed draws the default seed ${first}`, a.close, unseeded.close);
+    session.expectChanged('a word is a seed too', a.close, worded.close);
+    session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
+  },
+
+  async camera(session) {
+    const flight = await session.open(CLIP, { record: true });
+    await session.hold(flight.page, 'KeyD', 800);
+    await session.drag(flight.page, { x: 620, y: 220 }, { x: 380, y: 360 });
+    await session.hold(flight.page, 'KeyQ', 1000);
+    await session.drag(flight.page, { x: 380, y: 230 }, { x: 560, y: 290 }, 'right');
+    for (let notch = 0; notch < 5; notch++) {
+      await flight.page.mouse.wheel(0, -200);
+      await flight.page.waitForTimeout(120);
+    }
+    await flight.page.waitForTimeout(400);
+    await session.hold(flight.page, 'KeyX', 900);
+    await flight.page.waitForTimeout(500);
+    await session.finishClip(flight.context, flight.page, 'camera-flight');
+
+    const { context, page, errors } = await session.open(WIDE);
+    await session.still(page);
+    let shots = 0;
+    const shoot = (label) => session.screenshot(page, `camera-${String(++shots).padStart(2, '0')}-${label}`);
+    let before = await shoot('start');
+    const moves = [
+      ['a held D key pans', 'pan-key', () => session.hold(page, 'KeyD', 600)],
+      ['a drag pans', 'pan-drag', () => session.drag(page, { x: 800, y: 300 }, { x: 500, y: 450 })],
+      ['a held Q key turns', 'turn-key', () => session.hold(page, 'KeyQ', 600)],
+      ['a right-drag turns and tilts', 'turn-drag', () => session.drag(page, { x: 500, y: 300 }, { x: 700, y: 380 }, 'right')],
+      ['a held F key tilts', 'tilt-key', () => session.hold(page, 'KeyF', 600)],
+      ['a held Z key zooms', 'zoom-key', () => session.hold(page, 'KeyZ', 600)],
+      ['the wheel zooms', 'zoom-wheel', async () => {
+        await page.mouse.move(CENTER.x, CENTER.y);
+        await page.mouse.wheel(0, 400);
+      }],
+    ];
+    for (const [name, label, move] of moves) {
+      await move();
+      await session.still(page);
+      const after = await shoot(label);
+      session.expectChanged(name, before, after);
+      before = after;
+    }
+
+    await session.hold(page, 'KeyX', 4000);
+    await session.still(page);
+    const farthest = await shoot('farthest');
+    await page.mouse.wheel(0, 2000);
+    await session.hold(page, 'KeyX', 1000);
+    await session.still(page);
+    session.expectUnchanged('zooming out stops at the farthest view', farthest, await shoot('farthest-again'));
+
+    await session.hold(page, 'KeyW', 4000);
+    await session.still(page);
+    let edge = await shoot('map-edge');
+    session.expectChanged('the camera reaches the map edge', farthest, edge);
+    let rested = false;
+    for (let leg = 0; leg < 8 && !rested; leg++) {
+      await session.hold(page, 'KeyW', 2500);
+      await session.still(page);
+      const next = await shoot('map-edge');
+      rested = session.difference(edge, next) < 0.2;
+      edge = next;
+    }
+    session.check('panning stops in a corner of the map', rested, rested ? 'the view stopped while W stayed held' : 'the view still moved after 20 s of W');
+    session.expectSurfaces('the map stays in view at its corner', edge, { plants: 0.05 });
+
+    await session.hold(page, 'KeyZ', 5000);
+    await session.hold(page, 'KeyF', 3000);
+    await session.still(page);
+    const nearest = await shoot('nearest');
+    await page.mouse.wheel(0, -2000);
+    await session.hold(page, 'KeyF', 1000);
+    await session.still(page);
+    session.expectUnchanged('zooming in and tilting stop at the lowest view', nearest, await shoot('nearest-again'));
+    for (const leg of ['one', 'two', 'three', 'four']) {
+      await session.hold(page, 'KeyS', 2500);
+      await session.hold(page, 'KeyQ', 500);
+      await session.still(page);
+      const low = await shoot(`low-flight-${leg}`);
+      session.expectSurfaces(`the ground fills the lower view on low flight ${leg}`, low, { ground: 0.9 }, [0.6, 1]);
+    }
+    await context.close();
+    const seen = [...flight.errors, ...errors];
+    session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
 };
 
