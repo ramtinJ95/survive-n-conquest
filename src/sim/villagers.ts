@@ -62,8 +62,19 @@ export function createVillagers(map: TileMap, count: number): Villagers {
 }
 
 /**
- * Walks every villager one tick toward its target. A villager that arrives, or
- * whose next step would enter water or rock, picks a new target instead.
+ * Whether a step shorter than a tile may go from one position to another. Like
+ * a flow field route, it cuts a corner only when both tiles beside it are walkable.
+ */
+function canStep(map: TileMap, fromX: number, fromY: number, toX: number, toY: number): boolean {
+  if (!walkable(map, tileAt(map, toX, toY))) return false;
+  const turnsCorner = Math.floor(fromX) !== Math.floor(toX) && Math.floor(fromY) !== Math.floor(toY);
+  return !turnsCorner || (walkable(map, tileAt(map, toX, fromY)) && walkable(map, tileAt(map, fromX, toY)));
+}
+
+/**
+ * Walks every villager one tick toward its target. A villager that arrives picks
+ * a new target. One whose step would enter water or rock, or squeeze between
+ * them at a corner, stays put and picks a new target instead.
  */
 export function moveVillagers(map: TileMap, villagers: Villagers): void {
   const { x, y, targetX, targetY } = villagers;
@@ -71,19 +82,15 @@ export function moveVillagers(map: TileMap, villagers: Villagers): void {
     const dx = targetX[id]! - x[id]!;
     const dy = targetY[id]! - y[id]!;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    if (distance <= VILLAGER_STEP) {
-      x[id] = targetX[id]!;
-      y[id] = targetY[id]!;
+    const arrives = distance <= VILLAGER_STEP;
+    const nx = arrives ? targetX[id]! : Math.fround(x[id]! + (dx / distance) * VILLAGER_STEP);
+    const ny = arrives ? targetY[id]! : Math.fround(y[id]! + (dy / distance) * VILLAGER_STEP);
+    if (!canStep(map, x[id]!, y[id]!, nx, ny)) {
       chooseTarget(map, villagers, id);
       continue;
     }
-    const nx = Math.fround(x[id]! + (dx / distance) * VILLAGER_STEP);
-    const ny = Math.fround(y[id]! + (dy / distance) * VILLAGER_STEP);
-    if (walkable(map, tileAt(map, nx, ny))) {
-      x[id] = nx;
-      y[id] = ny;
-    } else {
-      chooseTarget(map, villagers, id);
-    }
+    x[id] = nx;
+    y[id] = ny;
+    if (arrives) chooseTarget(map, villagers, id);
   }
 }

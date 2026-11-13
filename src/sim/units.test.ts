@@ -3,7 +3,7 @@ import { ENTRY_BAND, createFlowField } from './flowField';
 import { type TileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { MONSTER_STEP } from './monsters';
-import { type Population, type Sim, createSim, step } from './sim';
+import { BENCHMARK_POPULATION, type Population, type Sim, createSim, step } from './sim';
 import { VILLAGER_STEP } from './villagers';
 
 const SIZE = 96;
@@ -42,6 +42,32 @@ describe('the units', () => {
   it('end in a different state from another seed', () => {
     const other = generateMap(8, SIZE);
     expect(run(createSim(other, POPULATION), 50).villagers.x).not.toEqual(run(createSim(map, POPULATION), 50).villagers.x);
+  });
+
+  it('never squeeze diagonally between two tiles of water or rock', () => {
+    const big = generateMap(7, 256);
+    const sim = createSim(big, BENCHMARK_POPULATION);
+    const tables = [sim.villagers, sim.monsters];
+    const lastX = tables.map(({ x }) => new Float32Array(x.length));
+    const lastY = tables.map(({ y }) => new Float32Array(y.length));
+    const squeezes: string[] = [];
+    for (let tick = 0; tick < 1000; tick++) {
+      tables.forEach(({ x, y }, table) => {
+        lastX[table]!.set(x);
+        lastY[table]!.set(y);
+      });
+      step(sim);
+      tables.forEach(({ x, y }, table) => {
+        for (let id = 0; id < x.length; id++) {
+          const [fromX, fromY] = [Math.floor(lastX[table]![id]!), Math.floor(lastY[table]![id]!)];
+          const [toX, toY] = [Math.floor(x[id]!), Math.floor(y[id]!)];
+          if (Math.abs(toX - fromX) !== 1 || Math.abs(toY - fromY) !== 1) continue;
+          const besideClear = walkable(big, fromY * big.size + toX) || walkable(big, toY * big.size + fromX);
+          if (!besideClear) squeezes.push(`table ${table} unit ${id} at tick ${tick}`);
+        }
+      });
+    }
+    expect(squeezes).toEqual([]);
   });
 
   it('never stand on water or rock', () => {
