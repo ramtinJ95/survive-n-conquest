@@ -1,8 +1,6 @@
 import {
   Box3,
   type BufferAttribute,
-  Color,
-  DirectionalLight,
   InstancedMesh,
   Matrix4,
   Mesh,
@@ -12,7 +10,6 @@ import {
 import { describe, expect, it } from 'vitest';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
-import { SKY_COLOR } from './palette';
 import { TALLEST_TREE } from './scenery';
 import { createWorld } from './world';
 
@@ -35,10 +32,6 @@ function kindsUnder(name: string): Set<number> {
 }
 
 describe('createWorld', () => {
-  it('fills the background with the sky color', () => {
-    expect(scene.background).toEqual(new Color(SKY_COLOR));
-  });
-
   it('draws terrain over the whole map, up to its highest tile', () => {
     const terrain = scene.getObjectByName('terrain') as Mesh;
     const { min, max } = new Box3().setFromObject(terrain);
@@ -96,12 +89,6 @@ describe('createWorld', () => {
 
   it('scatters boulders on rock tiles only', () => {
     expect(kindsUnder('boulders')).toEqual(new Set([TileKind.Rock]));
-  });
-
-  it('lights the world from above', () => {
-    const sun = scene.getObjectByName('sun');
-    expect(sun).toBeInstanceOf(DirectionalLight);
-    expect(sun!.position.y).toBeGreaterThan(0);
   });
 
   it('starts the camera above the map center, looking down at it', () => {

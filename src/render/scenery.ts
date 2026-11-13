@@ -5,15 +5,17 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DodecahedronGeometry,
+  type IUniform,
   IcosahedronGeometry,
   InstancedMesh,
-  MeshLambertMaterial,
   Object3D,
+  type Vector4,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TileKind, heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
-import { PALETTE } from './palette';
+import { PALETTES, type Surface } from './palette';
+import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 
 const TREES_PER_FOREST_TILE = 0.17;
 const BOULDERS_PER_ROCK_TILE = 0.1;
@@ -25,40 +27,42 @@ export const TALLEST_TREE = PINE_TOP * GROWTH.max;
 /** Pines take over from broadleaf trees between these heights, in meters. */
 const PINE_LINE = { from: 2, to: 13 };
 
-/** Strips a primitive down to painted, unshared triangles so that it shades flat and merges. */
-function painted(geometry: BufferGeometry, color: Color): BufferGeometry {
+/**
+ * Strips a primitive down to unshared triangles so that it shades flat and
+ * merges, and paints it as `surface` in each season.
+ */
+function painted(geometry: BufferGeometry, surface: Surface): BufferGeometry {
   const flat = geometry.index ? geometry.toNonIndexed() : geometry;
   flat.deleteAttribute('normal');
   flat.deleteAttribute('uv');
   const count = flat.getAttribute('position').count;
-  const colors = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) color.toArray(colors, i * 3);
-  flat.setAttribute('color', new BufferAttribute(colors, 3));
+  PALETTES.forEach((palette, season) => {
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) palette[surface].toArray(colors, i * 3);
+    flat.setAttribute(SEASON_COLORS[season]!, new BufferAttribute(colors, 3));
+  });
   return flat;
 }
 
 function pineGeometry(): BufferGeometry {
   return mergeGeometries([
-    painted(new CylinderGeometry(0.16, 0.22, 1.2, 5).translate(0, 0.6, 0), PALETTE.trunk),
-    painted(new ConeGeometry(1.35, 2.3, 6).translate(0, 2.0, 0), PALETTE.pineLow),
-    painted(
-      new ConeGeometry(1.0, 2.0, 6).rotateY(0.5).translate(0, 3.3, 0),
-      PALETTE.pineLow.clone().lerp(PALETTE.pineHigh, 0.5),
-    ),
-    painted(new ConeGeometry(0.62, 1.6, 6).translate(0, PINE_TOP - 0.8, 0), PALETTE.pineHigh),
+    painted(new CylinderGeometry(0.16, 0.22, 1.2, 5).translate(0, 0.6, 0), 'trunk'),
+    painted(new ConeGeometry(1.35, 2.3, 6).translate(0, 2.0, 0), 'pineLow'),
+    painted(new ConeGeometry(1.0, 2.0, 6).rotateY(0.5).translate(0, 3.3, 0), 'pineMid'),
+    painted(new ConeGeometry(0.62, 1.6, 6).translate(0, PINE_TOP - 0.8, 0), 'pineHigh'),
   ]);
 }
 
 function broadleafGeometry(): BufferGeometry {
   return mergeGeometries([
-    painted(new CylinderGeometry(0.17, 0.24, 1.8, 5).translate(0, 0.9, 0), PALETTE.trunk),
-    painted(new IcosahedronGeometry(1.5, 0).scale(1, 0.85, 1).translate(0, 2.7, 0), PALETTE.leafLow),
-    painted(new IcosahedronGeometry(0.95, 0).rotateY(1).translate(0.7, 3.6, 0.3), PALETTE.leafHigh),
+    painted(new CylinderGeometry(0.17, 0.24, 1.8, 5).translate(0, 0.9, 0), 'trunk'),
+    painted(new IcosahedronGeometry(1.5, 0).scale(1, 0.85, 1).translate(0, 2.7, 0), 'leafLow'),
+    painted(new IcosahedronGeometry(0.95, 0).rotateY(1).translate(0.7, 3.6, 0.3), 'leafHigh'),
   ]);
 }
 
 function boulderGeometry(): BufferGeometry {
-  return painted(new DodecahedronGeometry(1, 0), PALETTE.boulder);
+  return painted(new DodecahedronGeometry(1, 0), 'boulder');
 }
 
 interface Placement {
@@ -71,13 +75,16 @@ interface Placement {
   shade: number;
 }
 
-function instanced(name: string, geometry: BufferGeometry, placements: Placement[]): InstancedMesh {
-  const mesh = new InstancedMesh(
-    geometry,
-    new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
-    placements.length,
-  );
+function instanced(
+  name: string,
+  geometry: BufferGeometry,
+  placements: Placement[],
+  seasonMix: IUniform<Vector4>,
+): InstancedMesh {
+  const mesh = new InstancedMesh(geometry, seasonalMaterial(seasonMix), placements.length);
   mesh.name = name;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   const pose = new Object3D();
   const tint = new Color();
   placements.forEach((placement, i) => {
@@ -95,8 +102,9 @@ function instanced(name: string, geometry: BufferGeometry, placements: Placement
 /**
  * Trees on forest tiles and boulders on rock tiles, one instanced mesh for each
  * shape. The seed decides where each one stands, so a map always looks the same.
+ * `seasonMix` blends the colors that each shape has in each season.
  */
-export function createScenery(map: TileMap): InstancedMesh[] {
+export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>): InstancedMesh[] {
   const { size, kinds, seed } = map;
   const half = size / 2;
   const pines: Placement[] = [];
@@ -143,8 +151,8 @@ export function createScenery(map: TileMap): InstancedMesh[] {
   }
 
   return [
-    instanced('pines', pineGeometry(), pines),
-    instanced('broadleaves', broadleafGeometry(), broadleaves),
-    instanced('boulders', boulderGeometry(), boulders),
+    instanced('pines', pineGeometry(), pines, seasonMix),
+    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix),
+    instanced('boulders', boulderGeometry(), boulders, seasonMix),
   ];
 }

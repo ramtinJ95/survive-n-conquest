@@ -1,7 +1,8 @@
-import { BufferAttribute, BufferGeometry, Color, Mesh, MeshLambertMaterial } from 'three';
+import { BufferAttribute, BufferGeometry, Color, type IUniform, Mesh, type Vector4 } from 'three';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { fractalNoise, hashUnit } from '../sim/noise';
-import { PALETTE } from './palette';
+import { PALETTES, type Palette } from './palette';
+import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 
 /** How far the cut edge of the map reaches below the water level, in meters. */
 const SLAB_DEPTH = 7;
@@ -14,30 +15,37 @@ function ramp(from: number, to: number, value: number): number {
 }
 
 /** The ground color of a tile from its height and from `meadow`, a slow noise in about [-1, 1]. */
-const GROUND_COLOR: Record<TileKind, (height: number, meadow: number, out: Color) => Color> = {
-  [TileKind.Grass]: (height, meadow, out) =>
+const GROUND_COLOR: Record<TileKind, (palette: Palette, height: number, meadow: number, out: Color) => Color> = {
+  [TileKind.Grass]: (palette, height, meadow, out) =>
     out
-      .lerpColors(PALETTE.grassLow, PALETTE.grassHigh, ramp(2, 16, height))
-      .lerp(PALETTE.meadow, 0.6 * ramp(-0.2, 0.4, meadow))
-      .lerp(PALETTE.sand, 1 - ramp(0.15, 0.9, height)),
-  [TileKind.Forest]: (height, meadow, out) =>
+      .lerpColors(palette.grassLow, palette.grassHigh, ramp(2, 16, height))
+      .lerp(palette.meadow, 0.6 * ramp(-0.2, 0.4, meadow))
+      .lerp(palette.sand, 1 - ramp(0.15, 0.9, height)),
+  [TileKind.Forest]: (palette, height, meadow, out) =>
     out
-      .lerpColors(PALETTE.forestFloor, PALETTE.grassHigh, 0.35 * ramp(4, 18, height))
-      .lerp(PALETTE.meadow, 0.2 * ramp(-0.2, 0.4, meadow)),
-  [TileKind.Rock]: (height, _meadow, out) =>
-    out.lerpColors(PALETTE.rockLow, PALETTE.rockHigh, ramp(3, 20, height)),
-  [TileKind.Water]: (height, _meadow, out) =>
-    out.lerpColors(PALETTE.sand, PALETTE.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
+      .lerpColors(palette.forestFloor, palette.grassHigh, 0.35 * ramp(4, 18, height))
+      .lerp(palette.meadow, 0.2 * ramp(-0.2, 0.4, meadow)),
+  [TileKind.Rock]: (palette, height, _meadow, out) =>
+    out.lerpColors(palette.rockLow, palette.rockHigh, ramp(3, 20, height)),
+  [TileKind.Water]: (palette, height, _meadow, out) =>
+    out.lerpColors(palette.sand, palette.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
 };
 
-function tileColors(map: TileMap): Float32Array {
+function meadows(map: TileMap): Float32Array {
+  const noise = new Float32Array(map.size * map.size);
+  for (let i = 0; i < noise.length; i++) {
+    const x = (i % map.size) / MEADOW_SPAN;
+    const y = Math.floor(i / map.size) / MEADOW_SPAN;
+    noise[i] = fractalNoise(map.seed, x, y, 2);
+  }
+  return noise;
+}
+
+function tileColors(map: TileMap, palette: Palette, meadow: Float32Array): Float32Array {
   const colors = new Float32Array(map.size * map.size * 3);
   const color = new Color();
   for (let i = 0; i < map.size * map.size; i++) {
-    const x = (i % map.size) / MEADOW_SPAN;
-    const y = Math.floor(i / map.size) / MEADOW_SPAN;
-    const meadow = fractalNoise(map.seed, x, y, 2);
-    GROUND_COLOR[map.kinds[i] as TileKind](map.heights[i]!, meadow, color).toArray(colors, i * 3);
+    GROUND_COLOR[map.kinds[i] as TileKind](palette, map.heights[i]!, meadow[i]!, color).toArray(colors, i * 3);
   }
   return colors;
 }
@@ -46,9 +54,10 @@ function tileColors(map: TileMap): Float32Array {
  * The ground as flat-shaded triangles, and the cut edge of the map as walls. A
  * vertex sits at each tile center. One more ring of vertices sits on the map
  * edge and repeats the border tiles, so the ground covers every tile in full
- * and matches `heightAt`. The map center sits at the world origin.
+ * and matches `heightAt`. The map center sits at the world origin. Every
+ * vertex carries its color in each season, and `seasonMix` blends them.
  */
-export function createTerrain(map: TileMap): Mesh {
+export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh {
   const { size, heights } = map;
   const rows = size + 2;
   const cells = size + 1;
@@ -60,30 +69,40 @@ export function createTerrain(map: TileMap): Mesh {
     tileAlong(Math.floor(corner / rows)) * size + tileAlong(corner % rows);
   const vertexCount = (cells * cells * 2 + cells * 4 * 2) * 3;
   const positions = new Float32Array(vertexCount * 3);
-  const colors = new Float32Array(vertexCount * 3);
-  const tiles = tileColors(map);
+  const meadow = meadows(map);
+  const seasons = PALETTES.map((palette) => ({
+    palette,
+    tiles: tileColors(map, palette, meadow),
+    colors: new Uint8ClampedArray(vertexCount * 3),
+  }));
   let cursor = 0;
 
-  const vertex = (x: number, y: number, z: number, r: number, g: number, b: number) => {
+  const vertex = (x: number, y: number, z: number) => {
     positions[cursor] = x;
     positions[cursor + 1] = y;
     positions[cursor + 2] = z;
-    colors[cursor] = r;
-    colors[cursor + 1] = g;
-    colors[cursor + 2] = b;
     cursor += 3;
   };
 
+  const paint = (colors: Uint8ClampedArray, at: number, r: number, g: number, b: number) => {
+    colors[at] = r * 255;
+    colors[at + 1] = g * 255;
+    colors[at + 2] = b * 255;
+  };
+
   const facet = (a: number, b: number, c: number) => {
-    const shimmer = 1 + FACET_SHIMMER * (hashUnit(map.seed, a, b ^ c) - 0.5);
+    const shimmer = (1 + FACET_SHIMMER * (hashUnit(map.seed, a, b ^ c) - 0.5)) / 3;
     const ta = tileAt(a) * 3;
     const tb = tileAt(b) * 3;
     const tc = tileAt(c) * 3;
-    const r = ((tiles[ta]! + tiles[tb]! + tiles[tc]!) / 3) * shimmer;
-    const g = ((tiles[ta + 1]! + tiles[tb + 1]! + tiles[tc + 1]!) / 3) * shimmer;
-    const bl = ((tiles[ta + 2]! + tiles[tb + 2]! + tiles[tc + 2]!) / 3) * shimmer;
+    for (const { tiles, colors } of seasons) {
+      const r = (tiles[ta]! + tiles[tb]! + tiles[tc]!) * shimmer;
+      const g = (tiles[ta + 1]! + tiles[tb + 1]! + tiles[tc + 1]!) * shimmer;
+      const bl = (tiles[ta + 2]! + tiles[tb + 2]! + tiles[tc + 2]!) * shimmer;
+      for (let corner = 0; corner < 9; corner += 3) paint(colors, cursor + corner, r, g, bl);
+    }
     for (const corner of [a, b, c]) {
-      vertex(along(corner % rows), heights[tileAt(corner)]!, along(Math.floor(corner / rows)), r, g, bl);
+      vertex(along(corner % rows), heights[tileAt(corner)]!, along(Math.floor(corner / rows)));
     }
   };
 
@@ -104,11 +123,7 @@ export function createTerrain(map: TileMap): Mesh {
   }
 
   const base = WATER_LEVEL - SLAB_DEPTH;
-  const rim = (height: number, out: Color) =>
-    out.copy(height < WATER_LEVEL ? PALETTE.water : PALETTE.soil);
-  const fromColor = new Color();
-  const toColor = new Color();
-  const deep = PALETTE.bedrock;
+  const rim = (palette: Palette, height: number) => (height < WATER_LEVEL ? palette.water : palette.soil);
 
   /** A wall under the edge from vertex `from` to vertex `to`. It faces left of that direction. */
   const wall = (from: number, to: number) => {
@@ -116,16 +131,23 @@ export function createTerrain(map: TileMap): Mesh {
     const fz = along(Math.floor(from / rows));
     const tx = along(to % rows);
     const tz = along(Math.floor(to / rows));
-    const fy = Math.max(heights[tileAt(from)]!, WATER_LEVEL);
-    const ty = Math.max(heights[tileAt(to)]!, WATER_LEVEL);
-    rim(heights[tileAt(from)]!, fromColor);
-    rim(heights[tileAt(to)]!, toColor);
-    vertex(fx, fy, fz, fromColor.r, fromColor.g, fromColor.b);
-    vertex(tx, ty, tz, toColor.r, toColor.g, toColor.b);
-    vertex(fx, base, fz, deep.r, deep.g, deep.b);
-    vertex(tx, ty, tz, toColor.r, toColor.g, toColor.b);
-    vertex(tx, base, tz, deep.r, deep.g, deep.b);
-    vertex(fx, base, fz, deep.r, deep.g, deep.b);
+    const fromHeight = heights[tileAt(from)]!;
+    const toHeight = heights[tileAt(to)]!;
+    const fy = Math.max(fromHeight, WATER_LEVEL);
+    const ty = Math.max(toHeight, WATER_LEVEL);
+    for (const { palette, colors } of seasons) {
+      const top = [rim(palette, fromHeight), rim(palette, toHeight)] as const;
+      const deep = palette.bedrock;
+      [top[0], top[1], deep, top[1], deep, deep].forEach((color, corner) =>
+        paint(colors, cursor + corner * 3, color.r, color.g, color.b),
+      );
+    }
+    vertex(fx, fy, fz);
+    vertex(tx, ty, tz);
+    vertex(fx, base, fz);
+    vertex(tx, ty, tz);
+    vertex(tx, base, tz);
+    vertex(fx, base, fz);
   };
 
   const lastRow = cells * rows;
@@ -138,14 +160,15 @@ export function createTerrain(map: TileMap): Mesh {
 
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new BufferAttribute(colors, 3));
+  seasons.forEach(({ colors }, season) =>
+    geometry.setAttribute(SEASON_COLORS[season]!, new BufferAttribute(colors, 3, true)),
+  );
   geometry.computeBoundingSphere();
   geometry.computeBoundingBox();
 
-  const terrain = new Mesh(
-    geometry,
-    new MeshLambertMaterial({ vertexColors: true, flatShading: true }),
-  );
+  const terrain = new Mesh(geometry, seasonalMaterial(seasonMix));
   terrain.name = 'terrain';
+  terrain.castShadow = true;
+  terrain.receiveShadow = true;
   return terrain;
 }
