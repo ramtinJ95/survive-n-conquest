@@ -7,3 +7,5 @@ assets-source/
 .claude/.cc-writes/
 .claude/worktrees/
 .claude/settings.local.json
+# Verification runs: instance state and captured evidence.
+.verify/
