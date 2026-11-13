@@ -14,13 +14,15 @@ const APP_NAME = 'survive-n-conquest';
 const WORLD = 'canvas#world';
 const SKY_RGB = [0x9f, 0xc9, 0xe8];
 const GIF_STEPS = [
-  { width: 960, colors: 256 },
-  { width: 800, colors: 256 },
-  { width: 800, colors: 96 },
-  { width: 640, colors: 256 },
-  { width: 640, colors: 96 },
-  { width: 480, colors: 256 },
-  { width: 480, colors: 64 },
+  { width: 960, colors: 256, fps: 8 },
+  { width: 800, colors: 256, fps: 8 },
+  { width: 800, colors: 96, fps: 8 },
+  { width: 640, colors: 256, fps: 8 },
+  { width: 640, colors: 96, fps: 8 },
+  { width: 480, colors: 256, fps: 8 },
+  { width: 480, colors: 64, fps: 8 },
+  { width: 640, colors: 96, fps: 4 },
+  { width: 480, colors: 64, fps: 4 },
 ];
 const GIF_BYTE_LIMIT = 8_000_000;
 const PROBE = { width: 160, height: 90 };
@@ -236,8 +238,8 @@ function unitPixels(png) {
 }
 
 function toGif(video, gif) {
-  for (const { width, colors } of GIF_STEPS) {
-    const palette = `fps=8,scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+  for (const { width, colors, fps } of GIF_STEPS) {
+    const palette = `fps=${fps},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg(['-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }

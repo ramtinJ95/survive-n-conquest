@@ -59,7 +59,7 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day changes several times a second.
 - `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
-- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB.
+- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
 - `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot.
