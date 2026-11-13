@@ -4,8 +4,6 @@ Stage 2 turns the map into a place where people work. At the end you start with 
 
 The stage exists to settle how work reaches a villager and how goods exist in the world. Every later stage adds needs, jobs, and buildings on top of those two answers.
 
-The owner was away when this brief was written. Before leaving, the owner told the orchestrator to keep building toward the milestone and to keep approving pull requests. The orchestrator read that as leave to accept this brief, and the owner has not confirmed that reading. Every value marked as a proposal is open for the owner to change, and so is the brief as a whole.
-
 ## Rules and numbers
 
 These values come from `docs/design.md` or are new in this brief. New values are marked as proposals. A measurement or a playtest in this stage can replace a proposal.
