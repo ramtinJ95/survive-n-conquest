@@ -5,7 +5,7 @@ description: Launch the survive-n-conquest browser game from a production build,
 
 # Verify survive-n-conquest
 
-The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map.
+The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map, and `swarm=off` opens it without the 1500 villagers and 3000 monsters.
 
 Every command below runs from the root of the checkout under test. `scripts/verify.mjs` is the only harness, and it resolves Playwright from that checkout's `node_modules`.
 
@@ -59,10 +59,11 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day changes several times a second.
 - `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
-- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB.
+- `finishClip(context, page, label)` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
 - `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot.
+- `unitPixels(png)` counts the full-resolution pixels in villager yellow and in monster red.
 - `check(name, ok, detail)` records any other check.
 
 Drive the game through the page, as a player does: viewport changes, pointer, and keyboard. Do not call into the game's modules or add test-only hooks to prove a behavior.

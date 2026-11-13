@@ -19,6 +19,17 @@ export interface TileMap {
   readonly kinds: Uint8Array;
 }
 
+/** Units walk on grass and forest. Water and rock stop them. */
+export function walkable(map: TileMap, tile: number): boolean {
+  const kind = map.kinds[tile];
+  return kind === TileKind.Grass || kind === TileKind.Forest;
+}
+
+/** The index of the tile under a map position inside the map. */
+export function tileAt(map: TileMap, x: number, y: number): number {
+  return Math.floor(y) * map.size + Math.floor(x);
+}
+
 /** Ground height at a map position in tiles. Positions outside the map take the nearest edge. */
 export function heightAt(map: TileMap, x: number, y: number): number {
   const { size, heights } = map;

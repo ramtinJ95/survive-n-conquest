@@ -1,6 +1,7 @@
-import { type Command, type Sim, type Speed, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
+import type { TileMap } from './sim/map';
+import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
 
-export type ToSim = { readonly kind: 'start'; readonly seed: number } | Command;
+export type ToSim = { readonly kind: 'start'; readonly map: TileMap; readonly population: Population } | Command;
 
 export interface ClockSnapshot {
   readonly tick: number;
@@ -8,16 +9,36 @@ export interface ClockSnapshot {
   readonly paused: boolean;
 }
 
+/** What the worker posts after the clock moves. Positions are pairs of map x and y in tiles, one pair per unit in id order. */
+export interface SimFrame extends ClockSnapshot {
+  readonly villagers: Float32Array;
+  readonly monsters: Float32Array;
+}
+
 const PUMP_MS = 1000 / 60;
 // After a stall (a throttled tab, a sleeping laptop) the clock slows down instead of leaping ahead.
 const MAX_OWED_TICKS = 80;
 
-function publish(sim: Sim) {
-  self.postMessage({ tick: sim.tick, speed: sim.speed, paused: sim.paused } satisfies ClockSnapshot);
+function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Array }): Float32Array {
+  const pairs = new Float32Array(x.length * 2);
+  for (let id = 0; id < x.length; id++) {
+    pairs[id * 2] = x[id]!;
+    pairs[id * 2 + 1] = y[id]!;
+  }
+  return pairs;
 }
 
-function host(seed: number): (command: Command) => void {
-  const sim = createSim(seed);
+function publish(sim: Sim) {
+  const villagers = positions(sim.villagers);
+  const monsters = positions(sim.monsters);
+  self.postMessage(
+    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters } satisfies SimFrame,
+    { transfer: [villagers.buffer, monsters.buffer] },
+  );
+}
+
+function host(map: TileMap, population: Population): (command: Command) => void {
+  const sim = createSim(map, population);
   let owed = 0;
   let last = performance.now();
   const catchUp = () => {
@@ -44,7 +65,7 @@ let receive: ((command: Command) => void) | undefined;
 self.addEventListener('message', ({ data }: MessageEvent<ToSim>) => {
   if (data.kind === 'start') {
     if (receive) throw new Error('the simulation has already started');
-    receive = host(data.seed);
+    receive = host(data.map, data.population);
   } else if (receive) {
     receive(data);
   } else {
