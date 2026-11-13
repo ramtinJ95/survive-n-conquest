@@ -20,7 +20,8 @@ This directory is the maintained source for verifying what a player sees and doe
 - Choose the map with the `seed` URL parameter, through `open(viewport, { search: '?seed=7' })`.
 - The game opens with 1500 villagers and 3000 monsters on the map. They hold still while the clock is paused, so screenshots from one paused page compare cleanly. Two page loads pause at different ticks, so a comparison across page loads opens both with `swarm=off`.
 - Wait with `still(page)` before every screenshot. The camera eases into place.
-- Pause the clock before you compare screenshots. `open` presses Space to pause it unless you pass `clock: 'running'`. A paused game still shows the time it paused at, which differs by a few game minutes between page loads.
+- Pin the time before you compare screenshots, because the light and the colors of the map follow the clock. `open` runs every page to 12:00 on day 1 and pauses it there unless you pass another `clock`. `reach(page, { day, time })` pins any other time. Two pages pinned to the same time can still differ by up to 2 game minutes.
+- A check that reads the colors of the land opens the page with `swarm=off`. Villager yellow reads as an autumn leaf, and monster red over snow reads as blossom.
 
 ## Proof and skip reporting
 
@@ -46,3 +47,5 @@ Each feature file starts with an H1 title and one paragraph describing the playe
 - [Camera](./camera.md) covers panning, turning, tilting, and zooming by keyboard and mouse, and the limits that keep the camera on the map and above the ground.
 - [Swarm](./swarm.md) covers the 1500 villagers and 3000 monsters that move with the clock, hold still while it is paused, and leave the map with `swarm=off`.
 - [Clock and speed controls](./clock.md) covers the time of day and the date advancing in a Web Worker, pausing, and the four speeds by pointer and keyboard. It also says how to reach a chosen time.
+- [Daylight](./daylight.md) covers the sun, the sky, and the shadows following the clock through a day, and the night that stays light enough to play in.
+- [Seasons](./seasons.md) covers the colors of the ground and the trees in each season, and the nights that are short in summer and long in winter.

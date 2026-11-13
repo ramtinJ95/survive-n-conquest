@@ -20,6 +20,8 @@ function group(name: string, geometry: BufferGeometry, color: number, capacity: 
   mesh.name = name;
   mesh.count = 0;
   mesh.frustumCulled = false;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.instanceMatrix.setUsage(DynamicDrawUsage);
   return mesh;
 }
@@ -27,7 +29,8 @@ function group(name: string, geometry: BufferGeometry, color: number, capacity: 
 /**
  * Draws each group of units as one instanced mesh standing on the ground. Each
  * instance keeps the identity rotation and scale, so placing a unit writes only
- * the translation of its matrix.
+ * the translation of its matrix. The units take the light of the scene, and
+ * they cast and take its shadows.
  */
 export function createSwarm(map: TileMap, population: Population) {
   const half = map.size / 2;

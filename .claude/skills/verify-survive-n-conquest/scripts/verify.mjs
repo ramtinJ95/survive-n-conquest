@@ -19,12 +19,16 @@ const GIF_STEPS = [
   { width: 800, colors: 96, fps: 8 },
   { width: 640, colors: 256, fps: 8 },
   { width: 640, colors: 96, fps: 8 },
+  { width: 560, colors: 256, fps: 8 },
   { width: 480, colors: 256, fps: 8 },
   { width: 480, colors: 64, fps: 8 },
   { width: 640, colors: 96, fps: 4 },
   { width: 480, colors: 64, fps: 4 },
 ];
 const GIF_BYTE_LIMIT = 8_000_000;
+const MINUTES_PER_DAY = 1440;
+const GAME_MINUTES_PER_SECOND_AT_1X = MINUTES_PER_DAY / 300;
+const FASTEST_SPEED = 8;
 const PROBE = { width: 160, height: 90 };
 const UNIT_COLORS = {
   villagers: ([r, g, b]) => r > 170 && g > 0.55 * r && b < 0.25 * r,
@@ -185,16 +189,28 @@ async function doctor() {
   return printChecks(checks);
 }
 
-function ffmpeg(args) {
-  const result = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args], { maxBuffer: 64 * 1024 * 1024 });
+function ffmpeg(args, input) {
+  const result = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args], { input, maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) fail(`ffmpeg ${args.join(' ')} failed: ${result.stderr ?? result.error}`);
   return result.stdout;
 }
 
+/** The pixels of a PNG, given as a path or as the bytes of the file, scaled down to the probe size. */
 function probe(png) {
   const scale = `scale=${PROBE.width}:${PROBE.height}:flags=area`;
-  return ffmpeg(['-i', png, '-vf', scale, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const piped = Buffer.isBuffer(png);
+  const source = piped ? ['-f', 'png_pipe', '-i', '-'] : ['-i', png];
+  return ffmpeg([...source, '-vf', scale, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], piped ? png : undefined);
 }
+
+function meanColor(png) {
+  const pixels = probe(png);
+  const mean = [0, 0, 0];
+  for (let i = 0; i < pixels.length; i++) mean[i % 3] += (3 * pixels[i]) / pixels.length;
+  return mean;
+}
+
+const brightness = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 function difference(pngA, pngB) {
   const a = probe(pngA);
@@ -213,18 +229,32 @@ const SURFACES = {
   rock: ([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b) < 28 && r + g + b > 210 && r + g + b < 645,
 };
 
-function surfaceShares(png, [top, bottom] = [0, 1]) {
+/** What each season alone puts on the map. Snow is near white, autumn leaves are orange, and blossom is pink. */
+const SEASON_MARKS = {
+  plants: SURFACES.plants,
+  blossom: ([r, g, b]) => r > g + 25 && b > g,
+  orange: ([r, g, b]) => r > g + 30 && g > b + 30,
+  snow: ([r, g, b]) => Math.min(r, g, b) > 170 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
+};
+
+/** The share of the pixels between two rows that each kind claims. A pixel goes to the first kind that claims it. */
+function shares(kinds, png, [top, bottom] = [0, 1]) {
   const pixels = probe(png);
   const from = Math.floor(top * PROBE.height) * PROBE.width;
   const to = Math.floor(bottom * PROBE.height) * PROBE.width;
-  const shares = Object.fromEntries(Object.keys(SURFACES).map((surface) => [surface, 0]));
+  const found = Object.fromEntries(Object.keys(kinds).map((kind) => [kind, 0]));
   for (let i = from; i < to; i++) {
     const rgb = [pixels[i * 3], pixels[i * 3 + 1], pixels[i * 3 + 2]];
-    const surface = Object.keys(SURFACES).find((name) => SURFACES[name](rgb));
-    if (surface) shares[surface] += 1 / (to - from);
+    const kind = Object.keys(kinds).find((name) => kinds[name](rgb));
+    if (kind) found[kind] += 1 / (to - from);
   }
-  shares.ground = 1 - shares.sky;
-  return shares;
+  return found;
+}
+
+function surfaceShares(png, rows) {
+  const found = shares(SURFACES, png, rows);
+  found.ground = 1 - found.sky;
+  return found;
 }
 
 function unitPixels(png) {
@@ -237,14 +267,26 @@ function unitPixels(png) {
   return counts;
 }
 
-function toGif(video, gif) {
-  for (const { width, colors, fps } of GIF_STEPS) {
-    const palette = `fps=${fps},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
-    ffmpeg(['-i', video, '-vf', palette, gif]);
+/** Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until it is under the limit. */
+function toGif(video, gif, { from = 0, width = GIF_STEPS[0].width } = {}) {
+  for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
+    const palette = `fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+    ffmpeg(['-ss', from.toFixed(2), '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }
   rmSync(video);
 }
+
+const clockMinutes = ({ day, time }) => {
+  const [hours, minutes] = time.split(':').map(Number);
+  return (day - 1) * MINUTES_PER_DAY + hours * 60 + minutes;
+};
+
+const clockText = (minutes) => {
+  const pad = (value) => String(value).padStart(2, '0');
+  const ofDay = minutes % MINUTES_PER_DAY;
+  return `day ${Math.floor(minutes / MINUTES_PER_DAY) + 1} ${pad(Math.floor(ofDay / 60))}:${pad(ofDay % 60)}`;
+};
 
 function createSession(browser, instance, dir, evidence) {
   const check = (name, ok, detail) => evidence.checks.push({ name, ok, detail });
@@ -255,28 +297,76 @@ function createSession(browser, instance, dir, evidence) {
   return {
     check,
 
-    async open(viewport, { record = false, search = '', clock = 'paused' } = {}) {
+    async open(viewport, { record = false, search = '', clock = 'noon' } = {}) {
+      const start = {
+        noon: (page) => this.reach(page, { day: 1, time: '12:00' }),
+        paused: (page) => this.pause(page),
+        running: () => {},
+      }[clock];
+      if (!start) fail(`open cannot start the clock as "${clock}"; use noon, paused, or running`);
       const context = await browser.newContext({
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
       const page = await context.newPage();
+      const created = Date.now();
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
       await page.goto(instance.url + search);
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
-      if (clock === 'paused') {
-        await page.keyboard.press('Space');
-        await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
-      }
-      return { context, page, errors };
+      await start(page);
+      return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
 
     async settle(page) {
       await page.locator(WORLD).waitFor();
       await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    },
+
+    async gameMinutes(page) {
+      const panel = await page.getByRole('region', { name: 'Clock' }).textContent();
+      const read = /^(\d\d):(\d\d)Day (\d+) /.exec(panel);
+      if (!read) fail(`the clock panel reads "${panel}", not a time and a day`);
+      return clockMinutes({ day: Number(read[3]), time: `${read[1]}:${read[2]}` });
+    },
+
+    async pause(page) {
+      await page.keyboard.press('Space');
+      await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
+    },
+
+    async reach(page, target) {
+      const wanted = clockMinutes(target);
+      const from = await this.gameMinutes(page);
+      const fastest = FASTEST_SPEED * GAME_MINUTES_PER_SECOND_AT_1X;
+      const deadline = Date.now() + (2 * Math.max(wanted - from, 0) * 1000) / fastest + 60_000;
+      const inTime = () => {
+        if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in time`);
+      };
+      const runUntil = async (minutes) => {
+        while ((await this.gameMinutes(page)) < minutes) {
+          inTime();
+          await page.waitForTimeout(20);
+        }
+      };
+      await page.keyboard.press('4');
+      await runUntil(wanted - 30);
+      await page.keyboard.press('1');
+      await runUntil(wanted - 3);
+      await this.pause(page);
+      let now = await this.gameMinutes(page);
+      while (now < wanted) {
+        inTime();
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(100);
+        await page.keyboard.press('Space');
+        await this.settle(page);
+        await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
+        now = await this.gameMinutes(page);
+      }
+      if (now > wanted + 2) fail(`the clock stopped at ${clockText(now)}, past ${clockText(wanted)}`);
     },
 
     async screenshot(page, label) {
@@ -309,17 +399,30 @@ function createSession(browser, instance, dir, evidence) {
       await page.mouse.up({ button });
     },
 
-    async finishClip(context, page, label) {
+    async finishClip(context, page, label, cut) {
       await page.close();
       await context.close();
       const gif = capture(`${label}.gif`);
-      toGif(await page.video().path(), gif);
+      toGif(await page.video().path(), gif, cut);
       const bytes = statSync(gif).size;
       check(`${label}.gif stays under 8 MB`, bytes <= GIF_BYTE_LIMIT, `${(bytes / 1e6).toFixed(1)} MB`);
     },
 
     difference,
     unitPixels,
+
+    expectShares(name, kinds, png, { atLeast = {}, atMost = {} }, rows) {
+      const found = shares(kinds, png, rows);
+      const percent = (share) => `${(share * 100).toFixed(1)}%`;
+      const seen = [
+        ...Object.entries(atLeast).map(([kind, least]) => `${kind} ${percent(found[kind])} of at least ${percent(least)}`),
+        ...Object.entries(atMost).map(([kind, most]) => `${kind} ${percent(found[kind])} of at most ${percent(most)}`),
+      ];
+      const ok =
+        Object.entries(atLeast).every(([kind, least]) => found[kind] >= least) &&
+        Object.entries(atMost).every(([kind, most]) => found[kind] <= most);
+      check(name, ok, seen.join(', '));
+    },
 
     expectChanged(name, before, after) {
       const moved = difference(before, after);
@@ -352,12 +455,26 @@ const WIDE = { width: 1280, height: 720 };
 const CENTER = { x: WIDE.width / 2, y: WIDE.height / 2 };
 const CLIP = { width: 960, height: 540 };
 const SEEDS = ['7', '2026'];
+const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
+/** The sun rises and sets at these times through the spring. */
+const DAWN = '04:48';
+const DUSK = '19:12';
+/** The sun has set by this time in winter and is still up in summer. */
+const EVENING = '18:30';
+/** The share of the map, below the sky, that each season must and must not color at noon. */
+const SEASON_LOOKS = [
+  { season: 'Spring', atLeast: { plants: 0.4, blossom: 0.02 }, atMost: { orange: 0.02, snow: 0.02 } },
+  { season: 'Summer', atLeast: { plants: 0.4 }, atMost: { blossom: 0.005, orange: 0.02, snow: 0.02 } },
+  { season: 'Autumn', atLeast: { orange: 0.15 }, atMost: { plants: 0.2, blossom: 0.005, snow: 0.02 } },
+  { season: 'Winter', atLeast: { snow: 0.3 }, atMost: { plants: 0.02, blossom: 0.005, orange: 0.02 } },
+];
 
 const SCENARIOS = {
   async window(session) {
     const narrow = { width: 960, height: 600 };
-    const { context, page, errors } = await session.open(WIDE, { record: true });
+    const { context, page, errors, since } = await session.open(WIDE, { record: true });
     await session.still(page);
+    const atNoon = since();
     await session.expectFillsViewport(page, WIDE);
     const wide = await session.screenshot(page, 'window-1280x720');
     session.expectSurfaces('the map fills the 1280x720 window', wide, { plants: 0.3 });
@@ -370,7 +487,7 @@ const SCENARIOS = {
     await page.setViewportSize(WIDE);
     await session.settle(page);
     await session.still(page);
-    await session.finishClip(context, page, 'window-resize');
+    await session.finishClip(context, page, 'window-resize', { from: atNoon, width: 640 });
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
   },
 
@@ -409,7 +526,7 @@ const SCENARIOS = {
   },
 
   async camera(session) {
-    const flight = await session.open(CLIP, { record: true });
+    const flight = await session.open(CLIP, { record: true, clock: 'paused' });
     await session.hold(flight.page, 'KeyD', 800);
     await session.drag(flight.page, { x: 620, y: 220 }, { x: 380, y: 360 });
     await session.hold(flight.page, 'KeyQ', 1000);
@@ -423,7 +540,7 @@ const SCENARIOS = {
     await flight.page.waitForTimeout(500);
     await session.finishClip(flight.context, flight.page, 'camera-flight');
 
-    const { context, page, errors } = await session.open(WIDE);
+    const { context, page, errors } = await session.open(WIDE, { search: '?swarm=off' });
     await session.still(page);
     let shots = 0;
     const shoot = (label) => session.screenshot(page, `camera-${String(++shots).padStart(2, '0')}-${label}`);
@@ -451,6 +568,7 @@ const SCENARIOS = {
     await session.hold(page, 'KeyX', 4000);
     await session.still(page);
     const farthest = await shoot('farthest');
+    session.expectSurfaces('the sky shows around the map at the farthest view', farthest, { sky: 0.05 });
     await page.mouse.wheel(0, 2000);
     await session.hold(page, 'KeyX', 1000);
     await session.still(page);
@@ -492,7 +610,6 @@ const SCENARIOS = {
   },
 
   async clock(session) {
-    const GAME_MINUTES_PER_SECOND_AT_1X = 1440 / 300;
     const panels = async (page) => ({
       clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
       controls: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
@@ -505,7 +622,9 @@ const SCENARIOS = {
       session.check(`the clock and the camera controls fit apart at ${viewport.width}x${viewport.height}`, ok, `clock ${JSON.stringify(clock)}, controls ${JSON.stringify(controls)}`);
     };
 
-    const { context, page, errors } = await session.open(WIDE, { record: true, clock: 'running' });
+    const { context, page, errors, since } = await session.open(WIDE, { record: true, clock: 'running' });
+    const openedAt = await session.gameMinutes(page);
+    const latest = OPENS_AT + since() * GAME_MINUTES_PER_SECOND_AT_1X + 1;
     const date = page.getByRole('status', { name: 'Date' });
     const time = page.getByRole('timer', { name: 'Time of day' });
     const controls = page.getByRole('group', { name: 'Game speed' });
@@ -518,11 +637,7 @@ const SCENARIOS = {
       const box = await button.boundingBox();
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     };
-    const gameMinutes = async () => {
-      const day = Number(/^Day (\d+) /.exec(await date.textContent())?.[1]);
-      const [hours, minutes] = (await time.textContent()).split(':').map(Number);
-      return (day - 1) * 1440 + hours * 60 + minutes;
-    };
+    const gameMinutes = () => session.gameMinutes(page);
     const pressedButtons = async () => {
       const states = await Promise.all(Object.entries(buttons).map(async ([name, button]) => [name, await button.getAttribute('aria-pressed')]));
       return states.filter(([, state]) => state === 'true').map(([name]) => name).join(', ');
@@ -550,6 +665,11 @@ const SCENARIOS = {
 
     const opening = await date.textContent();
     session.check('opens on the first day of spring', opening === 'Day 1 · Early Spring · Year 1', `date "${opening}", time "${await time.textContent()}"`);
+    session.check(
+      'opens at 08:00 in the morning',
+      openedAt >= OPENS_AT && openedAt <= latest,
+      `the first reading is ${clockText(openedAt)}, and a clock that started at 08:00 reads no later than ${clockText(Math.floor(latest))} by then`,
+    );
     await expectPressed('Speed 1×');
     await expectApart(page, WIDE);
     await expectRate('1×', 1, 4000);
@@ -606,6 +726,123 @@ const SCENARIOS = {
     const seen = [...errors, ...small.errors];
     session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
+
+  async daylight(session) {
+    const { context, page, errors, since } = await session.open(CLIP, { record: true, clock: 'running' });
+    await page.keyboard.press('4');
+    const fastFrom = since();
+    let before = await session.gameMinutes(page);
+    const end = before + MINUTES_PER_DAY;
+    const deadline = Date.now() + 120_000;
+    const samples = [];
+    while (before < end) {
+      if (Date.now() > deadline) fail(`the clock reached only ${clockText(before)} in two minutes at 8×`);
+      const png = await page.screenshot();
+      const after = await session.gameMinutes(page);
+      samples.push({ minutes: (before + after) / 2, png });
+      before = after;
+    }
+    await session.pause(page);
+    await session.finishClip(context, page, 'day-at-8x', { from: fastFrom, width: 640 });
+
+    const stops = await session.open(CLIP, { clock: 'running' });
+    const moments = {
+      noon: { day: 1, time: '12:00' },
+      dusk: { day: 1, time: DUSK },
+      midnight: { day: 2, time: '00:00' },
+      dawn: { day: 2, time: DAWN },
+    };
+    const saved = {};
+    for (const [index, [moment, when]] of Object.entries(moments).entries()) {
+      await session.reach(stops.page, when);
+      await session.still(stops.page);
+      saved[moment] = await session.screenshot(stops.page, `day-${index + 1}-${moment}`);
+    }
+    await stops.context.close();
+    errors.push(...stops.errors);
+    const lit = session.unitPixels(saved.noon);
+    const unlit = session.unitPixels(saved.midnight);
+    session.check(
+      'villagers and monsters show their colors at noon',
+      lit.villagers >= 200 && lit.monsters >= 200,
+      `${lit.villagers} villager pixels and ${lit.monsters} monster pixels, needs 200 of each`,
+    );
+    session.check(
+      'no villager or monster glows at midnight',
+      unlit.villagers < 50 && unlit.monsters < 50,
+      `${unlit.villagers} villager pixels and ${unlit.monsters} monster pixels in their daylight colors, needs fewer than 50 of each`,
+    );
+
+    for (const sample of samples) sample.light = brightness(meanColor(sample.png));
+    const hourOf = ({ minutes }) => (minutes % MINUTES_PER_DAY) / 60;
+    const lights = (inside) => samples.filter((sample) => inside(hourOf(sample))).map((sample) => sample.light);
+    const day = lights((hour) => hour >= 9 && hour <= 15);
+    const night = lights((hour) => hour >= 20.5 || hour <= 3.5);
+    if (day.length === 0 || night.length === 0) fail(`${samples.length} screenshots in one day left none by day or none by night`);
+    const dimmestDay = Math.min(...day);
+    const brightestNight = Math.max(...night);
+    const darkestNight = Math.min(...night);
+    const levels = `${day.length} readings from 09:00 to 15:00 are ${dimmestDay.toFixed(0)} to ${Math.max(...day).toFixed(0)}, ${night.length} from 20:30 to 03:30 are ${darkestNight.toFixed(0)} to ${brightestNight.toFixed(0)}, on a scale of 255`;
+    session.check('the day is more than twice as bright as the night', dimmestDay > 2 * brightestNight, levels);
+    session.check('the night stays light enough to see the map', darkestNight >= 20, levels);
+
+    const halfway = (dimmestDay + brightestNight) / 2;
+    let dark = 0;
+    for (let i = 1; i < samples.length; i++) {
+      const [dimmer, brighter] = [samples[i - 1].light, samples[i].light].sort((a, b) => a - b);
+      const below = brighter === dimmer ? Number(dimmer < halfway) : (halfway - dimmer) / (brighter - dimmer);
+      dark += Math.min(Math.max(below, 0), 1) * (samples[i].minutes - samples[i - 1].minutes);
+    }
+    const share = dark / (samples.at(-1).minutes - samples[0].minutes);
+    session.check(
+      'a spring day is dark for about 40% of its length',
+      share > 0.33 && share < 0.47,
+      `${(share * 100).toFixed(1)}% of the day is darker than ${halfway.toFixed(0)}, needs 33% to 47%`,
+    );
+    session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
+  },
+
+  async seasons(session) {
+    const { context, page, errors } = await session.open(WIDE, { clock: 'running', search: '?swarm=off' });
+    const date = page.getByRole('status', { name: 'Date' });
+    const share = {};
+    let lastNoon = null;
+    for (const [index, { season, atLeast, atMost }] of SEASON_LOOKS.entries()) {
+      const day = 3 * index + 1;
+      const stops = { noon: { day, time: '12:00' }, evening: { day, time: EVENING }, midnight: { day: day + 1, time: '00:00' } };
+      const shots = {};
+      for (const [stop, when] of Object.entries(stops)) {
+        await session.reach(page, when);
+        await session.still(page);
+        shots[stop] = await session.screenshot(page, `season-${index + 1}-${season.toLowerCase()}-${stop}`);
+        const read = await date.textContent();
+        session.check(`the date reads ${season} at ${clockText(clockMinutes(when))}`, read.includes(season), `date "${read}"`);
+      }
+
+      session.expectShares(`${season} colors the map at noon`, SEASON_MARKS, shots.noon, { atLeast, atMost }, [0.35, 1]);
+      if (lastNoon) session.expectChanged(`${season} looks different from the season before it`, lastNoon, shots.noon);
+      lastNoon = shots.noon;
+
+      const noon = meanColor(shots.noon);
+      const midnight = meanColor(shots.midnight);
+      const blueness = ([red, , blue]) => blue / red;
+      share[season] = brightness(meanColor(shots.evening)) / brightness(noon);
+      session.check(
+        `midnight in ${season} is dark, cold, and light enough to see the map`,
+        brightness(midnight) < 0.6 * brightness(noon) &&
+          brightness(midnight) >= 20 &&
+          blueness(midnight) > 1.5 * blueness(noon),
+        `midnight is ${brightness(midnight).toFixed(0)} against ${brightness(noon).toFixed(0)} at noon, on a scale of 255, and has ${blueness(midnight).toFixed(2)} times as much blue as red against ${blueness(noon).toFixed(2)} at noon`,
+      );
+    }
+    session.check(
+      `at ${EVENING} it is still day in summer and already night in winter`,
+      share.Summer > 0.7 && share.Winter < 0.6,
+      `the summer evening keeps ${(share.Summer * 100).toFixed(0)}% of its noon brightness, needs more than 70%; the winter evening keeps ${(share.Winter * 100).toFixed(0)}%, needs less than 60%`,
+    );
+    await context.close();
+    session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
+  },
 };
 
 SCENARIOS.swarm = async (session) => {
@@ -629,13 +866,9 @@ SCENARIOS.swarm = async (session) => {
   await page.waitForTimeout(2000);
   session.expectUnchanged('the swarm holds still while the clock is paused', before, await session.screenshot(page, 'swarm-paused-later'));
 
-  await page.keyboard.press('4');
-  await pressed(page, 'Speed 8×');
-  await page.waitForTimeout(2500);
-  await page.keyboard.press('Space');
-  await pressed(page, 'Pause');
+  await session.reach(page, { day: 2, time: '12:00' });
   await session.still(page);
-  session.expectChanged('the swarm moves while the clock runs', before, await session.screenshot(page, 'swarm-after-8x'));
+  session.expectChanged('the swarm moves while the clock runs', before, await session.screenshot(page, 'swarm-a-day-later'));
   await context.close();
   seen.push(...errors);
 
@@ -645,6 +878,10 @@ SCENARIOS.swarm = async (session) => {
   const none = session.unitPixels(empty);
   session.check('?swarm=off shows no unit colors', none.villagers < 50 && none.monsters < 50, `${none.villagers} villager pixels and ${none.monsters} monster pixels, needs fewer than 50 of each`);
   session.expectChanged('the swarm draws units over the same map', empty, before);
+
+  await session.reach(bare.page, { day: 2, time: '12:00' });
+  await session.still(bare.page);
+  session.expectUnchanged('a day later the same noon lights the bare map the same way', empty, await session.screenshot(bare.page, 'swarm-off-a-day-later'));
   await bare.context.close();
   seen.push(...bare.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');

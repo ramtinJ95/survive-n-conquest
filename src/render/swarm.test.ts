@@ -1,4 +1,4 @@
-import { InstancedMesh, Matrix4, Vector3 } from 'three';
+import { InstancedMesh, Matrix4, type MeshLambertMaterial, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { heightAt } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
@@ -20,6 +20,13 @@ describe('createSwarm', () => {
       ['villagers', InstancedMesh, 0],
       ['monsters', InstancedMesh, 0],
     ]);
+  });
+
+  it('lets the light of the world fall on the units, with no glow of their own', () => {
+    for (const mesh of createSwarm(map, { villagers: 1, monsters: 1 }).meshes) {
+      expect([mesh.castShadow, mesh.receiveShadow], mesh.name).toEqual([true, true]);
+      expect((mesh.material as MeshLambertMaterial).emissive?.getHex(), mesh.name).toBe(0);
+    }
   });
 
   it('stands every unit on the ground at its map position', () => {

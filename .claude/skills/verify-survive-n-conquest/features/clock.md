@@ -5,7 +5,7 @@ A panel at the top center of the window, clear of the camera controls at the bot
 ## Sub-features
 
 - `clock-time` shows the time of day as `HH:MM` and advances it while the game runs.
-- `clock-date` shows `Day <n> · <Early|Mid|Late> <Spring|Summer|Autumn|Winter> · Year <n>`. The game opens on `Day 1 · Early Spring · Year 1` at `00:00`.
+- `clock-date` shows `Day <n> · <Early|Mid|Late> <Spring|Summer|Autumn|Winter> · Year <n>`. The game opens on `Day 1 · Early Spring · Year 1` at `08:00`.
 - `clock-speed` runs the clock at 1×, 2×, 4×, or 8×, where each step doubles the rate.
 - `clock-pause` holds the clock. Resuming keeps the speed that was chosen before the pause.
 - `clock-keys` drives the same controls from the keyboard. Space toggles the pause. The keys 1, 2, 3, and 4 choose 1×, 2×, 4×, and 8×. Tab reaches each button, and Enter or Space presses the focused button. None of these keys moves the camera, and no camera key changes the clock.
@@ -16,7 +16,7 @@ A panel at the top center of the window, clear of the camera controls at the bot
 - Open the game. The clock runs at 1× from the first frame. The `seed` URL parameter changes the map and also seeds the simulation.
 - Press the buttons in the `Game speed` group. The `Pause` button toggles. The `Speed N×` buttons choose a speed and resume a paused game.
 - Press Space or the keys 1 to 4 anywhere on the page.
-- To reach a chosen time, run at 8× and pause when the time of day or the date reads the target. At 8×, a game hour passes in about 1.6 seconds, a day in 37.5 seconds, a season in 1 minute 52 seconds, and a year in 7 minutes 30 seconds. Midnight of `Early Winter` on day 10 is 9 days in, which takes about 5 minutes 38 seconds at 8×.
+- To reach a chosen time, run at 8× and pause when the time of day or the date reads the target. At 8×, a game hour passes in about 1.6 seconds, a day in 37.5 seconds, a season in 1 minute 52 seconds, and a year in 7 minutes 30 seconds. The game opens at 08:00, so the first midnight of `Early Winter`, at 00:00 on day 10, is 8 days and 16 hours in, which takes about 5 minutes 25 seconds at 8×. A scenario does all of this with `reach(page, { day, time })`.
 
 ## Driving it with verify.mjs
 
@@ -24,7 +24,7 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run clock`, which runs doctor itself.
 
-- **Open the game.** Load the page at 1280 by 720 with recording on and `clock: 'running'`. The check `opens on the first day of spring` passes, and `pressed: Speed 1×` shows that 1× is the selected speed. The check `the clock and the camera controls fit apart at 1280x720` compares the two panels' boxes.
+- **Open the game.** Load the page at 1280 by 720 with recording on and `clock: 'running'`. The checks `opens on the first day of spring` and `opens at 08:00 in the morning` pass, and `pressed: Speed 1×` shows that 1× is the selected speed. The check `the clock and the camera controls fit apart at 1280x720` compares the two panels' boxes.
 - **Watch 1×.** Wait 4 seconds. The check `1× runs 4.8 game minutes per second` reads the date and the time before and after and passes within 25%. `clock-1x.png` shows the panel.
 - **Choose 2× with the pointer.** Click `Speed 2×`. The checks `pressed: Speed 2×` and `2× by pointer runs 9.6 game minutes per second` pass.
 - **Choose 4× and 8× with keys.** Press 3, then 4. The checks for `4× by the 3 key` and `8× by the 4 key` pass at 19.2 and 38.4 game minutes per second.
@@ -32,7 +32,7 @@ Preconditions:
 - **Fly while paused.** Hold W for 0.6 seconds. `the W key still moves the camera while paused` passes, and `the camera keys leave the clock alone` sees the same time and the same pressed buttons.
 - **Resume from the keyboard.** Press Tab until `Pause` has focus, then press Enter. The clock runs at 8× again.
 - **See the date turn.** Wait for the date to read `Day 2`. The check `the date turns to the second day at 8×` passes on `Day 2 · Mid Spring · Year 1`. Click `Pause`, and `clock-day-2.png` shows the paused second day.
-- **Check the small window.** Open a fresh page at 960 by 600, which pauses the clock. `the clock and the camera controls fit apart at 960x600` passes, and `clock-960x600.png` shows both panels.
+- **Check the small window.** Open a fresh page at 960 by 600, which runs to noon and pauses the clock. `the clock and the camera controls fit apart at 960x600` passes, and `clock-960x600.png` shows both panels.
 - **Proof.** Run `$V run clock`. The evidence folder holds `clock-speeds.gif`, six screenshots, and `result.json` with every check, including `clock-speeds.gif stays under 8 MB` and `no page errors`.
 
 ## Gotchas
@@ -42,6 +42,7 @@ Preconditions:
 - A button keeps focus after Tab, so Space then presses that button instead of toggling the pause. A pointer press never takes focus.
 - A paused game shows two pressed buttons, `Pause` and the speed it resumes at.
 - The buttons show the state that the worker reports, not the input. Read a pressed state only after it settles. The scenario polls for up to 2 seconds before it records the check or starts a rate measurement.
-- The clip runs about 55 seconds, because a day takes 37.5 seconds even at 8×. With the swarm moving in it, no 8 fps step fits under 8 MB, so the GIF comes out at 4 frames per second.
+- The clip runs about 45 seconds, because the 16 hours from the 08:00 start to the first midnight take 25 seconds even at 8×. The light changes and the swarm moves in every frame of it, so no 8 fps step fits under 8 MB and the GIF comes out at 4 frames per second.
+- The first reading is a few game minutes past 08:00, because the clock runs while the page loads. The check `opens at 08:00 in the morning` allows the game minutes that pass at 1× in the seconds since the page was created.
 - `still(page)` never returns while the clock runs. Use it only while paused.
 - Click the buttons with `page.mouse.click` at the center of their box, not with `locator.click`. A locator click waits for the button to hold still across animation frames, and SwiftShader draws the terrain so slowly that the wait takes tens of seconds and can time out.
