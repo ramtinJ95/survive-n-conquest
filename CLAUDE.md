@@ -22,7 +22,9 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 
 - One orchestrator session runs the program. It writes briefs, starts workers, and checks what they produce. It does not write game code.
 - Each pull request has one Claude Code worker, started through shepherdr in its own git worktree. The worker is the only writer of its branch.
-- Graphics work runs on `claude-fable-5-2` at high effort. Graphics work means models, materials, lighting, animation, and the look of the interface. Pass the model when you spawn the worker.
+- Design and visuals work runs on `claude-fable-5-2` at high effort. That is work whose main purpose is how the game looks: models, materials, lighting, animation, and the look of the world and the interface. Pass the model when you spawn the worker.
+- Every other Claude Code worker runs on `claude-opus-5-5` at high effort. A stage brief calls this the default model. Fable is only for design and visuals work.
+- After you spawn a Claude Code worker, read its status line and confirm that it runs on the right model.
 - A reviewer that is not the author checks each diff before the pull request opens. Use a reviewer from a different model family.
 
 ## Instructions to workers
