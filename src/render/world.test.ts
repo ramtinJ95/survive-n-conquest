@@ -10,6 +10,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
+import { hasTree } from '../sim/trees';
 import { TALLEST_TREE } from './scenery';
 import { createWorld } from './world';
 
@@ -53,6 +54,23 @@ describe('createWorld', () => {
   it('stands trees on forest tiles only', () => {
     expect(kindsUnder('broadleaves')).toEqual(new Set([TileKind.Forest]));
     expect(kindsUnder('pines')).toEqual(new Set([TileKind.Forest]));
+  });
+
+  it('stands one tree on each tile where the map has a tree, and none elsewhere', () => {
+    const matrix = new Matrix4();
+    const position = new Vector3();
+    const stood: number[] = [];
+    for (const name of ['pines', 'broadleaves']) {
+      const trees = scene.getObjectByName(name) as InstancedMesh;
+      for (let i = 0; i < trees.count; i++) {
+        trees.getMatrixAt(i, matrix);
+        position.setFromMatrixPosition(matrix);
+        stood.push(Math.floor(position.z + SIZE / 2) * SIZE + Math.floor(position.x + SIZE / 2));
+      }
+    }
+    const treeTiles = Array.from({ length: SIZE * SIZE }, (_, tile) => tile).filter((tile) => hasTree(map, tile));
+    expect(treeTiles.length).toBeGreaterThan(0);
+    expect(stood.sort((a, b) => a - b)).toEqual(treeTiles);
   });
 
   it('grows no tree taller than the height the camera clears', () => {

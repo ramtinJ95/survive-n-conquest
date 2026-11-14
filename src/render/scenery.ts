@@ -10,19 +10,22 @@ import {
   InstancedMesh,
   Matrix4,
   Object3D,
+  type Vector3,
   type Vector4,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TileKind, heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
+import { hasTree } from '../sim/trees';
 import { PALETTES, type Surface } from './palette';
 import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 
-const TREES_PER_FOREST_TILE = 0.17;
 const BOULDERS_PER_ROCK_TILE = 0.1;
 /** A tree is this many times the size of its shape, at most and at least. */
 const GROWTH = { min: 0.85, max: 1.6 };
 const PINE_TOP = 5.3;
+/** The top of the upper crown of a broadleaf tree, in meters at a growth of 1. */
+const BROADLEAF_TOP = 4.55;
 /** No tree stands taller than this, in meters. */
 export const TALLEST_TREE = PINE_TOP * GROWTH.max;
 /** Pines take over from broadleaf trees between these heights, in meters. */
@@ -113,6 +116,38 @@ function instanced(
   return mesh;
 }
 
+const roll = (map: TileMap, salt: number, x: number, y: number) => hashUnit(map.seed ^ salt, x, y);
+
+/** Where the tree on a tile stands, at what size, and whether it is a pine, or null when the tile holds no tree. */
+function treeOn(map: TileMap, tile: number): (Placement & { pine: boolean }) | null {
+  if (!hasTree(map, tile)) return null;
+  const { size } = map;
+  const x = tile % size;
+  const y = Math.floor(tile / size);
+  const px = x + 0.1 + 0.8 * roll(map, 1, x, y);
+  const py = y + 0.1 + 0.8 * roll(map, 2, x, y);
+  const ground = heightAt(map, px, py);
+  const grown = GROWTH.min + (GROWTH.max - GROWTH.min) * roll(map, 6, x, y);
+  const pineShare = (ground - PINE_LINE.from) / (PINE_LINE.to - PINE_LINE.from);
+  return {
+    tile,
+    x: px - size / 2,
+    y: ground - 0.1,
+    z: py - size / 2,
+    turn: roll(map, 3, x, y) * Math.PI * 2,
+    width: grown * (0.85 + 0.3 * roll(map, 8, x, y)),
+    height: grown,
+    shade: 0.82 + 0.3 * roll(map, 4, x, y),
+    pine: roll(map, 7, x, y) < pineShare,
+  };
+}
+
+/** Writes the world position of the top of the tree on a tile into `out`, or returns null when the tile holds no tree. */
+export function treeTop(map: TileMap, tile: number, out: Vector3): Vector3 | null {
+  const tree = treeOn(map, tile);
+  return tree && out.set(tree.x, tree.y + tree.height * (tree.pine ? PINE_TOP : BROADLEAF_TOP), tree.z);
+}
+
 /**
  * Trees on forest tiles and boulders on rock tiles, one instanced mesh for each
  * shape. The seed decides where each one stands, so a map always looks the same.
@@ -120,48 +155,32 @@ function instanced(
  * shows a tile's tree or boulder only while the tile keeps the kind it grew on.
  */
 export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
-  const { size, kinds, seed } = map;
+  const { size, kinds } = map;
   const half = size / 2;
   const pines: Placement[] = [];
   const broadleaves: Placement[] = [];
   const boulders: Placement[] = [];
-  const roll = (salt: number, x: number, y: number) => hashUnit(seed ^ salt, x, y);
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const kind = kinds[y * size + x];
-      if (kind !== TileKind.Forest && kind !== TileKind.Rock) continue;
-      const px = x + 0.1 + 0.8 * roll(1, x, y);
-      const py = y + 0.1 + 0.8 * roll(2, x, y);
-      const ground = heightAt(map, px, py);
-      const turn = roll(3, x, y) * Math.PI * 2;
-      const shade = 0.82 + 0.3 * roll(4, x, y);
+      const tile = y * size + x;
+      const kind = kinds[tile];
       if (kind === TileKind.Forest) {
-        if (roll(5, x, y) >= TREES_PER_FOREST_TILE) continue;
-        const grown = GROWTH.min + (GROWTH.max - GROWTH.min) * roll(6, x, y);
-        const pineShare = (ground - PINE_LINE.from) / (PINE_LINE.to - PINE_LINE.from);
-        (roll(7, x, y) < pineShare ? pines : broadleaves).push({
-          tile: y * size + x,
-          x: px - half,
-          y: ground - 0.1,
-          z: py - half,
-          turn,
-          width: grown * (0.85 + 0.3 * roll(8, x, y)),
-          height: grown,
-          shade,
-        });
-      } else {
-        if (roll(5, x, y) >= BOULDERS_PER_ROCK_TILE) continue;
-        const girth = 0.6 + 1.1 * roll(6, x, y);
+        const tree = treeOn(map, tile);
+        if (tree) (tree.pine ? pines : broadleaves).push(tree);
+      } else if (kind === TileKind.Rock && roll(map, 5, x, y) < BOULDERS_PER_ROCK_TILE) {
+        const px = x + 0.1 + 0.8 * roll(map, 1, x, y);
+        const py = y + 0.1 + 0.8 * roll(map, 2, x, y);
+        const girth = 0.6 + 1.1 * roll(map, 6, x, y);
         boulders.push({
-          tile: y * size + x,
+          tile,
           x: px - half,
-          y: ground + 0.1 * girth,
+          y: heightAt(map, px, py) + 0.1 * girth,
           z: py - half,
-          turn,
+          turn: roll(map, 3, x, y) * Math.PI * 2,
           width: girth,
-          height: girth * (0.55 + 0.4 * roll(8, x, y)),
-          shade,
+          height: girth * (0.55 + 0.4 * roll(map, 8, x, y)),
+          shade: 0.82 + 0.3 * roll(map, 4, x, y),
         });
       }
     }
