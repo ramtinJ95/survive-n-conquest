@@ -4,41 +4,45 @@ The five pull requests of stage 1 are merged. One measurement that the brief ask
 
 Every clip below was captured by the verification skill from a production build in headless Chromium. Headless Chromium renders on the CPU, so the clips are choppy and their frame rate says nothing about real hardware.
 
+The clips and screenshots below are the stage's demo set, on the `pr-media` branch under `stage-1/`. The media in the stage's pull requests is pruned from `pr-media` when the stage closes. The demo set drops the frames that repeat the one before, and the screenshots are WebP copies of the PNGs.
+
 ## The pull requests
 
 ### 1.1 Scaffold the app and the verification skill (#4)
 
 An empty lit scene, the checks that run on every pull request, and the skill that captures the proof for every later one.
 
-![The scene resizing with the window](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-4/empty-scene-resize.gif)
+![The scene resizing with the window](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-4-empty-scene-resize.gif)
 
 ### 1.2 Draw a seeded terrain with a free camera (#6)
 
 A 256 by 256 tile map of hills, water, forest, and rock outcrops from a seed, and a camera that pans, turns, tilts, and zooms.
 
-![The camera flying over the map](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-6/camera-flight.gif)
+![The camera flying over the map](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-6-camera-flight.gif)
 
 ### 1.3 Run the clock in a worker (#7)
 
 The simulation runs in a Web Worker at 10 ticks per second. The interface shows the time, the day, the season, and the year, with pause and four speeds.
 
-![The clock running at each speed over the terrain](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-7/clock-speeds.gif)
+The clip runs the clock at 1×, 2×, 4×, and 8×, pauses it, and resumes it at 8×. The demo set keeps the first 34 seconds, to 08:51 on Day 1. The pull request's clip ran on past midnight into Day 2, Mid Spring.
+
+![The clock running at each speed over the terrain](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-7-clock-speeds.gif)
 
 ### 1.5 Benchmark 1500 villagers and 3000 monsters (#8)
 
 Villagers walk between random points, and monsters follow one flow field to the center of the map. `bun run bench` measures the tick without a browser.
 
-![The swarm at 8×](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-8/swarm-8x.gif)
+![The swarm at 8×](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-8-swarm-8x.gif)
 
 ### 1.4 Light the world by the clock (#10)
 
 The sun, the sky, and the shadows follow the clock. The night is 30% of the day in summer, 40% in spring and autumn, and 55% in winter. The land changes color with the season.
 
-![A spring day at 8×](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-10/day-at-8x.gif)
+![A spring day at 8×](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-10-day-at-8x.gif)
 
 | Spring | Summer | Autumn | Winter |
 | --- | --- | --- | --- |
-| ![Spring at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-10/season-1-spring-noon.png) | ![Summer at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-10/season-2-summer-noon.png) | ![Autumn at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-10/season-3-autumn-noon.png) | ![Winter at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-10/season-4-winter-noon.png) |
+| ![Spring at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-10-season-1-spring-noon.webp) | ![Summer at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-10-season-2-summer-noon.webp) | ![Autumn at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-10-season-3-autumn-noon.webp) | ![Winter at noon](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-10-season-4-winter-noon.webp) |
 
 ## What the stage decided
 

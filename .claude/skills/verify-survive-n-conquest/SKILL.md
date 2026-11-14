@@ -83,20 +83,57 @@ Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git i
 - A check that reads pixels from a screenshot proves what the player sees. Report its detail line next to the image.
 - Report every `FAIL` line. A failed check is a finding, not a reason to loosen the check.
 - Headless Chromium renders WebGL through SwiftShader on the CPU. Its frame rate says nothing about the game's frame rate. Never report it as performance.
-- PR media goes to the `pr-media` branch under `pr-<number>/`. Copy it from the evidence folder, and never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
+- PR media goes to the `pr-media` branch under `pr-<number>/`. Upload only the files the pull request body embeds. Copy a GIF from the evidence folder as it is. Upload a screenshot as a lossy WebP copy at quality 85, and keep the PNG in the evidence folder, where the pixel checks read it. Never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
 
 ```sh
 git fetch origin pr-media
 git worktree add ../pr-media origin/pr-media
 mkdir -p ../pr-media/pr-<number>
-cp .verify/evidence/<run>/<file> ../pr-media/pr-<number>/
+cp .verify/evidence/<run>/<clip>.gif ../pr-media/pr-<number>/
+ffmpeg -v error -i .verify/evidence/<run>/<shot>.png -c:v libwebp -quality 85 ../pr-media/pr-<number>/<shot>.webp
 git -C ../pr-media add pr-<number>
 git -C ../pr-media commit -m "media: pr-<number>"
 git -C ../pr-media push origin HEAD:pr-media
+```
+
+Other workers push to `pr-media` too, and a stage's close rewrites it to a commit that shares no history with yours. If the push is refused because the branch moved, move only your upload commit onto the new tip and push again. A plain `pull --rebase` would replay the pruned history.
+
+```sh
+git -C ../pr-media fetch origin pr-media
+git -C ../pr-media rebase --onto origin/pr-media HEAD~1
+git -C ../pr-media push origin HEAD:pr-media
+```
+
+Remove the worktree once the push has gone through.
+
+```sh
 git worktree remove ../pr-media
 ```
 
 Embed each file in the pull request body by its raw URL, `https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-<number>/<file>`.
+
+### Closing a stage
+
+A pull request's media stays on `pr-media` only until its stage closes. The stage's demo summary embeds only its demo set, from `pr-media` under `stage-<n>/`, and the set stays under 15 MB. Build the set with a normal push, like any other upload. To fit a clip into the budget, drop its repeated frames first, because SwiftShader draws fewer frames than the GIF holds. Shorten the clip only if that is not enough.
+
+```sh
+ffmpeg -v error -i <clip>.gif -vf "mpdecimate,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=none" -fps_mode vfr stage-<n>/<clip>.gif
+```
+
+Once the owner has accepted the demo summary, and only when the orchestrator orders it, `pr-media` is rewritten to one commit with no parent. It keeps everything at the tip except the closed stage's `pr-<number>/` folders. The lease ties the push to the tip you read, so it fails if another worker pushed in between. Then fetch and run the recipe again. Never use a plain `--force`, and never point this at `main`.
+
+```sh
+git fetch origin pr-media
+old=$(git rev-parse origin/pr-media)
+index=$(mktemp -u)
+GIT_INDEX_FILE=$index git read-tree "$old"
+GIT_INDEX_FILE=$index git rm -r -q --cached --ignore-unmatch pr-<a> pr-<b>
+new=$(git commit-tree "$(GIT_INDEX_FILE=$index git write-tree)" -m "media: close stage <n>, pruned from $old")
+rm "$index"
+git push --force-with-lease=refs/heads/pr-media:"$old" origin "$new":refs/heads/pr-media
+```
+
+Report `$old`. GitHub keeps the pruned media reachable by that commit for a while.
 
 ## Cleanup
 

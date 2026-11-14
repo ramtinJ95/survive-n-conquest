@@ -16,7 +16,9 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - The milestone is a list of stages. A stage is three to six pull requests.
 - A pull request adds one behavior that a person can watch work. One clip proves it. A review takes about fifteen minutes.
 - Each stage opens with a brief in `docs/design/stage-<n>-<name>.md`. The brief states the rules, the numbers, and the pull requests of the stage. No code for a stage starts before the owner accepts its brief.
-- Each stage ends with a demo summary that collects every clip from the stage.
+- Each stage ends with a demo summary. It embeds only the stage's demo set, which lives on the `pr-media` branch under `stage-<n>/`. A demo set is at most 15 MB: one short clip for each pull request of the stage, and the few screenshots the summary needs.
+- Pull request media lives on `pr-media` only until its stage closes. When the owner has accepted a stage's demo summary, the orchestrator orders a rewrite of `pr-media` to one fresh commit. That commit keeps the demo set of each closed stage and the folders of pull requests whose stage is still open, and nothing else. The pictures in the merged pull requests of the closed stage go blank, and their text stays.
+- The rewrite is the only force-push in the project. It happens only at a stage's close, after the owner accepted the demo summary, and it never touches `main`. The verification skill holds the recipe.
 
 ## Who does the work
 
@@ -47,7 +49,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 ## Pushing and opening the pull request
 
 - The worker pushes its branch through `origin`.
-- The worker uploads its captures to the `pr-media` branch under `pr-<number>/`.
+- The worker uploads the captures its pull request body embeds to the `pr-media` branch under `pr-<number>/`.
 - The worker opens the pull request itself, ready for review. The body has the sections Why, What changed, Scope, Blast Radius, and Verification, with the media embedded by raw URL.
 - The GitHub MCP is the fallback for small text-only changes.
 
@@ -79,7 +81,9 @@ A PR is ready only when its body proves that the thing it set out to build works
 
 Proof comes from the project's verification skill, generated with pstack `create-verification-skill` and kept honest with `maintain-verification-skill`. That skill owns launching the game, driving it the way a player would, and capturing the evidence. Until it exists, creating it is part of the first PR.
 
-Capture files are pushed to the `pr-media` branch under `pr-<number>/` and embedded by raw URL, so they never land on `main`.
+Capture files are pushed to the `pr-media` branch under `pr-<number>/` and embedded by raw URL, so they never land on `main`. Upload only the files the body embeds. Upload a screenshot as a lossy WebP copy at quality 85, not as the PNG. The PNG stays in the evidence folder, where the pixel checks read it. Two screenshots of 262 KB and 722 KB became WebPs of 54 KB and 61 KB.
+
+The media of a pull request stays on `pr-media` only until its stage closes, as "Stages and pull requests" says. After that, only the stage's demo set remains.
 
 ## Performance rules
 
