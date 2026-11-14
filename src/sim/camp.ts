@@ -38,3 +38,14 @@ export function campTile(map: TileMap): number {
   if (camp < 0) throw new Error(`seed ${map.seed} has no walkable tile near the map edge`);
   return camp;
 }
+
+/** The camp is a disc of this radius around the center of its tile, in meters. */
+export const CAMP_RADIUS = 2;
+
+/** Whether any part of a tile lies under the camp's disc. */
+export function underCamp(map: TileMap, camp: number, tile: number): boolean {
+  const { size } = map;
+  const dx = Math.max(Math.abs((tile % size) - (camp % size)) - 0.5, 0);
+  const dy = Math.max(Math.abs(Math.floor(tile / size) - Math.floor(camp / size)) - 0.5, 0);
+  return dx * dx + dy * dy < CAMP_RADIUS * CAMP_RADIUS;
+}

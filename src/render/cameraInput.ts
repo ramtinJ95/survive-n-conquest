@@ -25,10 +25,10 @@ const LINE_PIXELS = 16;
 
 /**
  * Lets the player fly the camera. Keys pan, turn, tilt, and zoom while held. A
- * drag with the main button moves the ground, a drag with any other button
- * turns and tilts, and the wheel zooms.
+ * drag with the main button moves the ground while `mainButtonPans` says so,
+ * a drag with any other button turns and tilts, and the wheel zooms.
  */
-export function bindCameraInput(canvas: HTMLCanvasElement, rig: CameraRig): void {
+export function bindCameraInput(canvas: HTMLCanvasElement, rig: CameraRig, mainButtonPans: () => boolean = () => true): void {
   const held = new Set<string>();
   const steer = () => {
     for (const axis of Object.keys(rig.drive) as (keyof CameraDrive)[]) rig.drive[axis] = 0;
@@ -65,6 +65,7 @@ export function bindCameraInput(canvas: HTMLCanvasElement, rig: CameraRig): void
     last.x = event.clientX;
     last.y = event.clientY;
     if (event.buttons === PAN_BUTTONS) {
+      if (!mainButtonPans()) return;
       const { across, into } = rig.groundPerPixel(canvas.clientHeight);
       rig.pan(-dx * across, dy * into);
     } else {

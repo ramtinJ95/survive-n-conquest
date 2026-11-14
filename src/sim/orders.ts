@@ -1,4 +1,4 @@
-import { campTile } from './camp';
+import { campTile, underCamp } from './camp';
 import { TileKind, type TileMap, walkable } from './map';
 import { hasTree } from './trees';
 
@@ -159,7 +159,7 @@ const AREA_RULES: Record<AreaOrder, AreaRule> = {
     claim: Claim.Stockpile,
     refusal: 'no-open-ground',
     changes: (map, orders, tile) =>
-      orders.claims[tile] === Claim.None && tile !== orders.camp && openGround(map, tile),
+      orders.claims[tile] === Claim.None && !underCamp(map, orders.camp, tile) && openGround(map, tile),
   },
   cancel: {
     claim: Claim.None,
@@ -217,7 +217,7 @@ export function siteTileProblem(map: TileMap, orders: Orders, tile: number): Ref
   if (kind === TileKind.Water) return 'water';
   if (kind === TileKind.Rock) return 'rock';
   if (hasTree(map, tile)) return 'trees';
-  if (tile === orders.camp) return 'camp';
+  if (underCamp(map, orders.camp, tile)) return 'camp';
   const claim = orders.claims[tile];
   if (claim === Claim.Site) return 'site';
   if (claim === Claim.Stockpile) return 'stockpile';

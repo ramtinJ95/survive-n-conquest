@@ -18,6 +18,7 @@ import {
   takeOrderChanges,
 } from './orders';
 import { hasTree } from './trees';
+import { underCamp } from './camp';
 
 function plainMap(size: number): TileMap {
   return {
@@ -130,7 +131,7 @@ describe('area orders on a generated map', () => {
   });
 
   it('lays a stockpile on every open ground tile but the camp', () => {
-    const ground = tilesWhere(map, (tile) => openGround(map, tile) && tile !== orders.camp);
+    const ground = tilesWhere(map, (tile) => openGround(map, tile) && !underCamp(map, orders.camp, tile));
     expect(tilesWith(orders, Claim.Stockpile)).toEqual(ground);
     expect(stockpile).toEqual({ ok: true, order: 'stockpile', tiles: ground.length });
     expect(orders.claims[orders.camp]).toBe(Claim.None);
@@ -171,7 +172,10 @@ describe('area orders', () => {
     applyOrder(map, orders, house(4, 6));
     applyOrder(map, orders, mark('stockpile', WHOLE(map)));
 
-    const skipped = new Set([...tilesWhere(map, (tile) => tile < 21 || tile === tree), orders.camp, ...nine(map, 4, 6)]);
+    const skipped = new Set([
+      ...tilesWhere(map, (tile) => tile < 21 || tile === tree || underCamp(map, orders.camp, tile)),
+      ...nine(map, 4, 6),
+    ]);
     expect(tilesWith(orders, Claim.Stockpile)).toEqual(tilesWhere(map, (tile) => !skipped.has(tile)));
     expect(orders.claims[bare]).toBe(Claim.Stockpile);
   });
@@ -239,6 +243,13 @@ describe('placing a house', () => {
       },
     ],
     ['camp', (map, orders) => xy(map, orders.camp)],
+    [
+      'camp',
+      (map, orders) => {
+        const [x, y] = xy(map, orders.camp);
+        return [x + 3, y + 1];
+      },
+    ],
     ['trees', (map) => xy(map, forestTile(map, true, 3, 3, 7, 7))],
     [
       'water',
@@ -269,18 +280,18 @@ describe('placing a house', () => {
   });
 
   it('is refused where it would block a corridor one tile wide', () => {
-    const map = plainMap(20);
-    paint(map, TileKind.Water, 9, 0, 11, 9);
-    paint(map, TileKind.Water, 9, 11, 11, 19);
+    const map = plainMap(30);
+    paint(map, TileKind.Water, 21, 0, 23, 9);
+    paint(map, TileKind.Water, 21, 11, 23, 29);
     const orders = createOrders(map);
-    expect(siteRefusal(map, orders, 7, 10)).toBe('divides');
-    expect(siteRefusal(map, orders, 13, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, 19, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, 25, 10)).toBe('divides');
     expect(siteRefusal(map, orders, 4, 4)).toBeNull();
-    expect(siteRefusal(map, orders, 7, 13)).toBeNull();
+    expect(siteRefusal(map, orders, 19, 13)).toBeNull();
   });
 
   it('is refused where it would seal a pocket, counting the sites already placed', () => {
-    const map = plainMap(20);
+    const map = plainMap(24);
     paint(map, TileKind.Rock, 1, 1, 10, 1);
     paint(map, TileKind.Rock, 1, 1, 1, 8);
     paint(map, TileKind.Rock, 10, 1, 10, 8);
@@ -298,19 +309,20 @@ describe('placing a house', () => {
   });
 
   it(`holds ${MAX_SITES} sites and refuses the next as full`, () => {
-    const map = plainMap(70);
+    // The camp sits at the center of the map, clear of the grid of sites and of the one past the limit.
+    const map = plainMap(140);
     const orders = createOrders(map);
     for (let j = 0; j < 16; j++) {
       for (let i = 0; i < 16; i++) {
         expect(applyOrder(map, orders, house(4 + 4 * i, 4 + 4 * j))).toMatchObject({ ok: true });
       }
     }
-    expect(applyOrder(map, orders, house(67, 67))).toEqual({ ok: false, order: 'house', refusal: 'full' });
+    expect(applyOrder(map, orders, house(100, 100))).toEqual({ ok: false, order: 'house', refusal: 'full' });
 
     const freed = slotAt(orders, 8, 4);
     applyOrder(map, orders, mark('cancel', area(8, 4)));
-    expect(applyOrder(map, orders, house(67, 67))).toMatchObject({ ok: true });
-    expect(slotAt(orders, 67, 67)).toBe(freed);
+    expect(applyOrder(map, orders, house(100, 100))).toMatchObject({ ok: true });
+    expect(slotAt(orders, 100, 100)).toBe(freed);
   });
 });
 
@@ -383,5 +395,17 @@ describe('order changes', () => {
     expect(applyOrder(map, orders, house(4, 4)).ok).toBe(false);
     const changes = takeOrderChanges(orders);
     expect([changes.claims.length, changes.sites.length]).toEqual([0, 0]);
+  });
+});
+
+describe('the camp', () => {
+  it('keeps a house off every tile its disc touches, and lets one stand just beyond it', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    const [x, y] = xy(map, orders.camp);
+    expect(siteRefusal(map, orders, x + 3, y)).toBe('camp');
+    expect(siteRefusal(map, orders, x + 3, y + 2)).toBe('camp');
+    expect(siteRefusal(map, orders, x + 4, y)).toBeNull();
+    expect(siteRefusal(map, orders, x + 3, y + 3)).toBeNull();
   });
 });

@@ -1,16 +1,18 @@
-import { CylinderGeometry, type IUniform, Mesh, MeshLambertMaterial, PlaneGeometry, Scene, Vector4 } from 'three';
-import { campTile } from '../sim/camp';
+import { CylinderGeometry, type IUniform, type Material, Mesh, MeshLambertMaterial, PlaneGeometry, Scene, Vector4 } from 'three';
+import { CAMP_RADIUS, campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
+import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
 import { PALETTES } from './palette';
-import { TALLEST_TREE, createScenery } from './scenery';
+import { createOrderMarks } from './orderMarks';
+import { TALLEST_TREE, createScenery, treeTop } from './scenery';
 import { SEASON_COLORS, seasonMixAt, seasonalMaterial } from './seasonal';
 import { createTerrain } from './terrainMesh';
 
 const NEAREST_VIEW = 22;
 /** The camp is a disc of trodden earth, wide enough to hold the settlers' spots. */
-const CAMP = { radius: 2, color: 0x6e4b2e };
+const CAMP = { color: 0x6e4b2e };
 /** The camera flies this far above the tallest tree, in meters. */
 const TREETOP_MARGIN = 1;
 
@@ -31,12 +33,11 @@ function createWater(map: TileMap, seasonMix: IUniform<Vector4>): Mesh {
   return water;
 }
 
-function createCamp(map: TileMap): Mesh {
-  const tile = campTile(map);
+function createCamp(map: TileMap, tile: number): Mesh {
   const x = (tile % map.size) + 0.5;
   const y = Math.floor(tile / map.size) + 0.5;
   const camp = new Mesh(
-    new CylinderGeometry(CAMP.radius, CAMP.radius, 0.3, 12),
+    new CylinderGeometry(CAMP_RADIUS, CAMP_RADIUS, 0.3, 12),
     new MeshLambertMaterial({ color: CAMP.color, flatShading: true }),
   );
   camp.name = 'camp';
@@ -56,7 +57,8 @@ export function createWorld(map: TileMap) {
   const seasonMix = { value: new Vector4(1, 0, 0, 0) };
   const { terrain, repaint } = createTerrain(map, seasonMix);
   const scenery = createScenery(map, seasonMix);
-  scene.add(terrain, createWater(map, seasonMix), createCamp(map), ...scenery.meshes);
+  const camp = campTile(map);
+  scene.add(terrain, createWater(map, seasonMix), createCamp(map, camp), ...scenery.meshes);
   let lowest = WATER_LEVEL;
   let highest = WATER_LEVEL;
   for (const height of map.heights) {
@@ -76,6 +78,9 @@ export function createWorld(map: TileMap) {
     },
   );
 
+  const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
+  scene.add(...marks.meshes);
+
   const show = (tick: number) => light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
   show(0);
 
@@ -89,5 +94,14 @@ export function createWorld(map: TileMap) {
     }
   };
 
-  return { scene, rig, show, changeTiles };
+  /** The simulation's orders as the main thread knows them, for the interface's previews. */
+  const orders = createOrders(map, camp);
+  /** Applies order changes from the simulation to this copy of the orders and to the marks. */
+  const changeOrders = (changes: OrderChanges) => {
+    if (changes.claims.length === 0 && changes.sites.length === 0) return;
+    applyOrderChanges(orders, changes);
+    marks.showOrders(orders);
+  };
+
+  return { scene, rig, show, changeTiles, orders, marks, changeOrders };
 }
