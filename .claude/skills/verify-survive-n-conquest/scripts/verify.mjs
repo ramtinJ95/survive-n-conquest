@@ -30,13 +30,77 @@ const MINUTES_PER_DAY = 1440;
 const GAME_MINUTES_PER_SECOND_AT_1X = MINUTES_PER_DAY / 300;
 const FASTEST_SPEED = 8;
 const PROBE = { width: 160, height: 90 };
+// Pixels of page space kept clear around a covered region, so its shadow and border stay out of a comparison.
+const COVER_MARGIN = 8;
+// Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
+const LOW_FLIGHT_LEG_MS = 400;
+// Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
+const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
   villagers: ([r, g, b]) => r > 170 && g > 0.55 * r && b < 0.25 * r,
   monsters: ([r, g, b]) => r > 90 && r > 2.2 * g && r > 2 * b,
 };
 const BROWSER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+// A pylon cannot download Playwright's own Chromium, because its host is not on the allowlist, so .nexus/setup installs Debian's.
+const DEBIAN_HEADLESS_SHELL = '/usr/lib/chromium/chromium-headless-shell';
+const BROWSER_PATH = existsSync(DEBIAN_HEADLESS_SHELL) ? DEBIAN_HEADLESS_SHELL : undefined;
 
 class VerifyError extends Error {}
+
+const NO_FRAME_MS = 60_000;
+
+// Headless Chromium starts the next animation frame before SwiftShader has drawn the last one, so about 30 frames queue
+// and a screenshot waits behind all of them: 8 s on rj-firebat, up to 67 s on a 2 CPU pylon. This init script runs each
+// frame's callbacks only once the GPU has finished the frame before, as a real GPU would make the page wait.
+function paceFramesToTheGpu() {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  const contexts = new Set();
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const context = getContext.call(this, type, ...rest);
+    if (type === 'webgl2' && context) contexts.add(context);
+    return context;
+  };
+  const request = window.requestAnimationFrame.bind(window);
+  let callbacks = new Map();
+  let running = new Map();
+  let nextId = 1;
+  let fences = [];
+  let scheduled = false;
+  // A lost or restored context never signals its old fence, and the game must still get its frames to recover.
+  const drawn = () => fences.every(([gl, fence]) => !gl.isSync(fence) || gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    request(frame);
+  };
+  function frame(time) {
+    scheduled = false;
+    if (!drawn()) return schedule();
+    for (const [gl, fence] of fences) gl.deleteSync(fence);
+    running = callbacks;
+    callbacks = new Map();
+    for (const [id, callback] of running) {
+      running.delete(id);
+      try {
+        callback(time);
+      } catch (error) {
+        reportError(error);
+      }
+    }
+    fences = [...contexts].map((gl) => [gl, gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)]);
+    for (const [gl] of fences) gl.flush();
+    if (callbacks.size) schedule();
+  }
+  window.requestAnimationFrame = (callback) => {
+    callbacks.set(nextId, callback);
+    schedule();
+    return nextId++;
+  };
+  window.cancelAnimationFrame = (id) => {
+    callbacks.delete(id);
+    running.delete(id);
+  };
+}
 
 function fail(message) {
   throw new VerifyError(message);
@@ -149,9 +213,13 @@ async function stop() {
   console.log(`stopped; evidence kept in ${EVIDENCE_ROOT}`);
 }
 
+function launchBrowser() {
+  return playwright().chromium.launch({ args: BROWSER_ARGS, executablePath: BROWSER_PATH });
+}
+
 async function probeBrowser() {
   try {
-    const browser = await playwright().chromium.launch({ args: BROWSER_ARGS });
+    const browser = await launchBrowser();
     const page = await browser.newPage();
     await page.setContent('<canvas></canvas>');
     const renderer = await page.evaluate(() => {
@@ -161,7 +229,7 @@ async function probeBrowser() {
     });
     const version = browser.version();
     await browser.close();
-    return { ok: renderer !== null, detail: `chromium ${version}, WebGL2 ${renderer ?? 'unavailable'}` };
+    return { ok: renderer !== null, detail: `chromium ${version} at ${BROWSER_PATH ?? "Playwright's own path"}, WebGL2 ${renderer ?? 'unavailable'}` };
   } catch (error) {
     return { ok: false, detail: String(error.message).split('\n').slice(0, 3).join(' ') };
   }
@@ -213,13 +281,32 @@ function meanColor(png) {
 const brightness = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const blueness = ([red, , blue]) => blue / red;
 
-function difference(pngA, pngB) {
+// `cover` is a box in probe pixels that the comparison leaves out.
+function difference(pngA, pngB, cover) {
   const a = probe(pngA);
   const b = probe(pngB);
+  const covered = (pixel) => {
+    const x = pixel % PROBE.width;
+    const y = Math.floor(pixel / PROBE.width);
+    return cover && x >= cover.left && x < cover.right && y >= cover.top && y < cover.bottom;
+  };
   let total = 0;
-  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
-  return total / a.length;
+  let counted = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (covered(Math.floor(i / 3))) continue;
+    total += Math.abs(a[i] - b[i]);
+    counted++;
+  }
+  return total / counted;
 }
+
+const unionOf = (a, b) => ({
+  region: a.region,
+  left: Math.min(a.left, b.left),
+  top: Math.min(a.top, b.top),
+  right: Math.max(a.right, b.right),
+  bottom: Math.max(a.bottom, b.bottom),
+});
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -314,6 +401,7 @@ function createSession(browser, instance, dir, evidence) {
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
+      await context.addInitScript(paceFramesToTheGpu);
       const page = await context.newPage();
       const created = Date.now();
       const errors = [];
@@ -328,7 +416,12 @@ function createSession(browser, instance, dir, evidence) {
 
     async settle(page) {
       await page.locator(WORLD).waitFor();
-      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const twoFrames = page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      let timer;
+      const noFrame = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new VerifyError(`the page ran no frame for ${NO_FRAME_MS / 1000} s`)), NO_FRAME_MS);
+      });
+      await Promise.race([twoFrames, noFrame]).finally(() => clearTimeout(timer));
     },
 
     async gameMinutes(page) {
@@ -377,6 +470,7 @@ function createSession(browser, instance, dir, evidence) {
 
     async screenshot(page, label) {
       const path = capture(`${label}.png`);
+      await this.settle(page);
       await page.screenshot({ path });
       return path;
     },
@@ -385,11 +479,12 @@ function createSession(browser, instance, dir, evidence) {
       let last = await page.screenshot();
       for (let attempt = 0; attempt < 60; attempt++) {
         await page.waitForTimeout(250);
+        await this.settle(page);
         const next = await page.screenshot();
         if (next.equals(last)) return;
         last = next;
       }
-      check('the view comes to rest', false, 'two screenshots 250 ms apart still differ after 15 s');
+      check('the view comes to rest', false, 'two screenshots a drawn frame apart still differ after 60 tries');
     },
 
     async hold(page, key, ms) {
@@ -438,6 +533,26 @@ function createSession(browser, instance, dir, evidence) {
     expectUnchanged(name, before, after) {
       const moved = difference(before, after);
       check(name, moved < 0.2, `mean pixel difference ${moved.toFixed(2)}, needs less than 0.2`);
+    },
+
+    // The box, in probe pixels and with a margin, of the region with this accessible name.
+    async coverOf(page, region) {
+      const box = await page.getByRole('region', { name: region }).boundingBox();
+      const { width, height } = page.viewportSize();
+      const across = PROBE.width / width;
+      const down = PROBE.height / height;
+      return {
+        region,
+        left: Math.max(0, Math.floor((box.x - COVER_MARGIN) * across)),
+        top: Math.max(0, Math.floor((box.y - COVER_MARGIN) * down)),
+        right: Math.min(PROBE.width, Math.ceil((box.x + box.width + COVER_MARGIN) * across)),
+        bottom: Math.min(PROBE.height, Math.ceil((box.y + box.height + COVER_MARGIN) * down)),
+      };
+    },
+
+    expectSameOutside(name, before, after, cover, limit) {
+      const moved = difference(before, after, cover);
+      check(name, moved < limit, `mean pixel difference ${moved.toFixed(3)} outside the ${cover.region} region, needs less than ${limit}`);
     },
 
     expectSurfaces(name, png, minimums, rows) {
@@ -611,15 +726,22 @@ const SCENARIOS = {
     await session.hold(page, 'KeyF', 1000);
     await session.still(page);
     session.expectUnchanged('zooming in and tilting stop at the lowest view', nearest, await shoot('nearest-again'));
-    for (const leg of ['one', 'two', 'three', 'four']) {
-      await session.hold(page, 'KeyS', 2500);
-      await session.hold(page, 'KeyQ', 500);
-      await session.still(page);
-      const low = await shoot(`low-flight-${leg}`);
-      session.expectSurfaces(`the ground fills the lower view on low flight ${leg}`, low, { ground: 0.9 }, [0.6, 1]);
-    }
     await context.close();
-    const seen = [...flight.errors, ...errors];
+
+    const low = await session.open(WIDE, { search: '?swarm=off' });
+    await session.hold(low.page, 'KeyZ', 5000);
+    await session.hold(low.page, 'KeyF', 3000);
+    await low.page.mouse.wheel(0, -2000);
+    await session.hold(low.page, 'KeyF', 1000);
+    for (const leg of ['one', 'two', 'three', 'four']) {
+      await session.hold(low.page, 'KeyS', LOW_FLIGHT_LEG_MS);
+      await session.hold(low.page, 'KeyQ', 500);
+      await session.still(low.page);
+      const shot = await session.screenshot(low.page, `camera-${String(++shots).padStart(2, '0')}-low-flight-${leg}`);
+      session.expectSurfaces(`the ground fills the lower view on low flight ${leg}`, shot, { ground: 0.9 }, [0.6, 1]);
+    }
+    await low.context.close();
+    const seen = [...flight.errors, ...errors, ...low.errors];
     session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
 
@@ -888,13 +1010,16 @@ SCENARIOS.swarm = async (session) => {
   const bare = await session.open(WIDE, { search: '?swarm=off' });
   await session.still(bare.page);
   const empty = await session.screenshot(bare.page, 'swarm-off');
+  const panelBefore = await session.coverOf(bare.page, 'Clock');
   const none = session.unitPixels(empty);
   session.check('?swarm=off shows no unit colors', none.villagers < 50 && none.monsters < 50, `${none.villagers} villager pixels and ${none.monsters} monster pixels, needs fewer than 50 of each`);
   session.expectChanged('the swarm draws units over the same map', empty, before);
 
   await session.reach(bare.page, { day: 2, time: '12:00' });
   await session.still(bare.page);
-  session.expectUnchanged('a day later the same noon lights the bare map the same way', empty, await session.screenshot(bare.page, 'swarm-off-a-day-later'));
+  const dayLater = await session.screenshot(bare.page, 'swarm-off-a-day-later');
+  const panel = unionOf(panelBefore, await session.coverOf(bare.page, 'Clock'));
+  session.expectSameOutside('a day later the same noon lights the bare map the same way', empty, dayLater, panel, SAME_NOON_LIMIT);
   await bare.context.close();
   seen.push(...bare.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
@@ -915,7 +1040,7 @@ async function drive(name) {
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const browser = await playwright().chromium.launch({ args: BROWSER_ARGS });
+    const browser = await launchBrowser();
     evidence.browser = browser.version();
     try {
       await scenario(createSession(browser, instance, dir, evidence));

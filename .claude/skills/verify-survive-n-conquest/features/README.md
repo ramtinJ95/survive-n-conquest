@@ -5,7 +5,7 @@ This directory is the maintained source for verifying what a player sees and doe
 ## Baseline preconditions
 
 - The checkout under test has run `bun install`, and its working tree holds the change you are proving.
-- Headless Chromium is installed, and `ffmpeg` and `bun` are on `PATH`.
+- Headless Chromium and Playwright's ffmpeg are installed, and `ffmpeg` and `bun` are on `PATH`. In a Nexus pylon, `.nexus/setup` installs them.
 - The game runs from a production build that `verify.mjs launch` or `verify.mjs run` started on a free port.
 - `verify.mjs doctor` passes every check.
 - Never drive an instance that this verification run did not start.

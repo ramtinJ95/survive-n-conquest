@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs on every wake. Installs the packages from bun.lock, and the ffmpeg build that their Playwright records videos with, only when bun.lock or package.json changed since the last install.
+# With --strict a failed install fails, as .nexus/setup and .nexus/check ask. On a wake it only warns, so a registry blip never fails a wake and the next wake tries again.
+cd "$(dirname "$0")/.." || exit 1
+stamp=node_modules/.nexus-install-sha256
+sum=$(cat package.json bun.lock | sha256sum | cut -d " " -f 1)
+installed() { [ "$(cat "$stamp" 2>/dev/null)" = "$sum" ]; }
+
+installed && exit 0
+rm -f "$stamp"
+if bun install --frozen-lockfile && node_modules/.bin/playwright install ffmpeg; then
+  echo "$sum" > "$stamp"
+  exit 0
+fi
+echo "The packages are not installed: run .nexus/resume." >&2
+[ "${1:-}" = --strict ] && exit 1
+exit 0

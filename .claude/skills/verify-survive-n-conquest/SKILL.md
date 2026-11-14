@@ -15,9 +15,12 @@ V=.claude/skills/verify-survive-n-conquest/scripts/verify.mjs
 
 ## Prerequisites
 
+In a Nexus pylon, `.nexus/setup` installs all of these when the pylon is made, and `.nexus/resume` keeps the packages current on every wake.
+
 - `bun install` has run in the checkout.
 - `bun` and `ffmpeg` are on `PATH`.
-- Playwright's headless Chromium is installed once per machine. Run `node_modules/.bin/playwright install chromium-headless-shell`. It downloads from `cdn.playwright.dev` into `~/Library/Caches/ms-playwright` on macOS.
+- A headless Chromium is installed. In a pylon it is Debian's `chromium-headless-shell` package at `/usr/lib/chromium/chromium-headless-shell`, and `verify.mjs` launches that binary whenever it exists. A pylon cannot install Playwright's own Chromium, because it downloads from `storage.googleapis.com`, which the pylon's allowlist does not include. On a machine without the Debian package, run `node_modules/.bin/playwright install chromium-headless-shell`.
+- Playwright's ffmpeg build is installed, because Playwright records video with it. Run `node_modules/.bin/playwright install ffmpeg`.
 
 ## Launch
 
@@ -59,9 +62,9 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `pause(page)` presses Space and waits for the `Pause` button to report that it is pressed.
 - `reach(page, { day, time })` runs the clock to a day and an `HH:MM` time and leaves it paused there. It runs at 8×, slows to 1× half a game hour before the target, pauses, and then steps forward in short runs. It fails if the clock stops more than 2 game minutes past the target. A paused screenshot shows the same light on every run, give or take those 2 game minutes, so take any check that ties the picture to a time of day at a `reach` stop. Do not take it from screenshots of a running clock, because how many of those a game hour gets depends on the machine.
 - `settle(page)` waits for `canvas#world` and two animation frames.
-- `still(page)` waits until two screenshots 250 ms apart are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day and the light change several times a second.
-- `hold(page, key, ms)` holds a key, and `drag(page, from, to, button)` drags the mouse.
-- `screenshot(page, label)` saves `<label>.png`.
+- `still(page)` waits until two screenshots, at least 250 ms and two drawn frames apart, are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day and the light change several times a second.
+- `hold(page, key, ms)` holds a key for `ms` of wall time, and `drag(page, from, to, button)` drags the mouse. The game caps each frame's step at 0.1 s, so on a slow machine a held key moves the camera less far than on a fast one.
+- `screenshot(page, label)` waits for two drawn frames, then saves `<label>.png`.
 - `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`, and `width` caps the GIF's width. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
@@ -80,7 +83,20 @@ Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git i
 - A check that reads pixels from a screenshot proves what the player sees. Report its detail line next to the image.
 - Report every `FAIL` line. A failed check is a finding, not a reason to loosen the check.
 - Headless Chromium renders WebGL through SwiftShader on the CPU. Its frame rate says nothing about the game's frame rate. Never report it as performance.
-- PR media goes to the `pr-media` branch under `pr-<number>/`. Copy it from the evidence folder, and never commit `.verify/` itself.
+- PR media goes to the `pr-media` branch under `pr-<number>/`. Copy it from the evidence folder, and never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
+
+```sh
+git fetch origin pr-media
+git worktree add ../pr-media origin/pr-media
+mkdir -p ../pr-media/pr-<number>
+cp .verify/evidence/<run>/<file> ../pr-media/pr-<number>/
+git -C ../pr-media add pr-<number>
+git -C ../pr-media commit -m "media: pr-<number>"
+git -C ../pr-media push origin HEAD:pr-media
+git worktree remove ../pr-media
+```
+
+Embed each file in the pull request body by its raw URL, `https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-<number>/<file>`.
 
 ## Cleanup
 
@@ -89,6 +105,36 @@ $V stop
 ```
 
 `stop` signals only the process recorded in `.verify/state/instance.json`, and only while that port still serves this build. If the recorded process still runs but the port does not serve this build, `stop` keeps the record and refuses, because it cannot prove the process is its own. Otherwise it removes `.verify/state/` and keeps `.verify/evidence/`. It never kills by process name. `run` calls it in a `finally` block, so a failed scenario still tears down.
+
+## Speed
+
+SwiftShader renders every frame on the CPU, so a run's length depends on the machine, and its result must not. Run browser scenarios in a pylon with 6 CPUs and 8 GiB on rj-firebat, and run them one at a time, because two browsers slow each other down.
+
+Headless Chromium starts the next animation frame before SwiftShader has drawn the last one, so about 30 frames wait in a queue and a screenshot waits behind all of them. At 1280 by 720 on rj-firebat a frame takes 220 to 300 ms to draw, and a screenshot of a paused page took 6.6 to 8.4 s. On a 2 CPU pylon a frame took about 1.8 s and a screenshot 29 to 67 s.
+
+The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-firebat and on the owner's Mac. On a 2 CPU pylon a held key draws only one or two frames, so the camera stops short and its limit checks can fail for a reason that has nothing to do with the camera.
+
+## The frame pacer
+
+Every page that `open` makes runs an init script, `paceFramesToTheGpu`, before the game loads. It replaces `requestAnimationFrame` and `cancelAnimationFrame`, and it wraps `getContext` to find each WebGL2 context. It runs the frame callbacks only once a fence shows that the GPU has drawn the frame before, as a real GPU makes the page wait. With it, a screenshot of a paused page on rj-firebat took 0.18 to 0.42 s, and frames take as long to draw as without it.
+
+What it changes:
+
+- The page starts frames at the rate SwiftShader draws them, not at the rate Chromium would start them.
+- The game's frame callbacks receive Chromium's own timestamps, so its 0.1 s cap on a frame's step applies as it would without the pacer.
+- On rj-firebat the page runs 3.4 to 4.0 frames a second with the pacer and 2.7 to 3.6 without it. The game's step is capped per frame, so a held key moves the camera somewhat farther with the pacer, and the camera flies a slightly different path.
+- It runs all the callbacks of a frame in one go, so microtasks that one callback queues run after the others, not between them as in a browser. The game asks for one callback a frame, through `renderer.setAnimationLoop`.
+- The page can change its HTML before the canvas draws the frame that matches it. With a frame of 250 ms, a screenshot taken at once can show the new clock beside the old light, so `screenshot` waits for two drawn frames first.
+
+What it could hide:
+
+- It cannot show how fast the game runs. That was already true of SwiftShader.
+- A game that draws through a context the pacer does not find, such as an `OffscreenCanvas` in a worker, is not paced, and its screenshots slow down again.
+- A bug that shows only when frames pile up, or that depends on how `requestAnimationFrame` hands out ids, does not show here.
+
+A page whose game stops asking for frames, or loses or restores its WebGL context, does not hang. A fence of a lost context counts as drawn, so the game still gets its frames. `settle`, and so `screenshot` and `still`, fail when the page runs no frame for 60 s. They count frame callbacks, not pictures, so they do not prove that the game still draws. Only a check that compares screenshots proves that.
+
+The clips record what the paced page draws, so a clip shows the frames a player would see, at SwiftShader's frame rate.
 
 ## Sandboxes
 

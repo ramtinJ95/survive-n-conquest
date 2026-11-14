@@ -1,0 +1,15 @@
+#!/bin/sh
+# The check a pull request must pass: install if needed, then typecheck, test and build. Exits nonzero when any of them fails.
+cd "$(dirname "$0")/.." || exit 1
+# Exit 75 marks the failure as transient, such as a registry timeout, so the check can run again.
+.nexus/resume --strict || exit 75
+
+status=0
+for step in typecheck test build; do
+  echo "==> bun run $step"
+  bun run "$step"
+  code=$?
+  echo "==> bun run $step exited $code"
+  [ "$code" -eq 0 ] || status=1
+done
+exit "$status"

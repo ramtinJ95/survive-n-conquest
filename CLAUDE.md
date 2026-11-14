@@ -9,7 +9,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `main` is protected. Never push to it. Every change lands through a pull request.
 - Pull requests are squash-merged and the merged branch is deleted automatically.
 - PR titles are conventional commits, because the squash commit takes the PR title.
-- Claude Code sessions follow pstack poteto-mode and the skills it routes to. The orchestrator loads the skill in each Claude Code worker with `/pstack:poteto-mode`. A Claude Code session that did not receive that command reads `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before it starts. Pi workers cannot load pstack and are exempt.
+- Claude Code sessions follow pstack poteto-mode and the skills it routes to. The orchestrator loads the skill in each Claude Code worker, with `/poteto-mode` in a pylon and with `/pstack:poteto-mode` on the owner's machine. A Claude Code session that did not receive that command reads `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before it starts. Pi workers cannot load pstack and are exempt.
 
 ## Stages and pull requests
 
@@ -21,23 +21,34 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 ## Who does the work
 
 - One orchestrator session runs the program. It writes briefs, starts workers, and checks what they produce. It does not write game code.
-- Each pull request has one Claude Code worker, started through shepherdr in its own git worktree. The worker is the only writer of its branch.
-- Design and visuals work runs on `claude-fable-5-2` at high effort. That is work whose main purpose is how the game looks: models, materials, lighting, animation, and the look of the world and the interface. Pass the model when you spawn the worker.
-- Every other Claude Code worker runs on `claude-opus-5-5` at high effort. A stage brief calls this the default model. Fable is only for design and visuals work.
+- Each pull request has one Claude Code worker in a Nexus pylon, started by the orchestrator with `nexus start --claude`. The worker is the only writer of its branch.
+- A worker in a pylon runs on `claude-opus-5-5` at high effort. A stage brief calls this the default model. Fable is not available in a pylon, so design and visuals work in a pylon also runs on `claude-opus-5-5`, and its pull request says so.
+- Design and visuals work that the orchestrator runs on the owner's machine runs on `claude-fable-5-2` at high effort. That is work whose main purpose is how the game looks: models, materials, lighting, animation, and the look of the world and the interface. Pass the model when you spawn the worker.
 - After you spawn a Claude Code worker, read its status line and confirm that it runs on the right model.
-- A reviewer that is not the author checks each diff before the pull request opens. Use a reviewer from a different model family.
+- Before the pull request opens, the worker has a shepherdr reviewer from a different model family check the diff, as the pylon's `PYLON.md` says. After it opens, the project's Nexus review loop reviews it and runs `.nexus/check`. The worker resolves the findings of both.
 
 ## Instructions to workers
 
-- Every instruction that an orchestrator sends to a Claude Code worker starts with `/pstack:poteto-mode` on its own first line. The task follows on the next lines. This rule covers the first instruction and every later one.
-- Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
+- Every instruction that an orchestrator sends to a Claude Code worker starts with the poteto-mode command on its own first line. The task follows on the next lines. This rule covers the first instruction and every later one.
+- In a pylon the command is `/poteto-mode`. `nexus start --claude` puts it in front of the first prompt itself. A later message, sent with `nexus send`, starts with `/poteto-mode` on its own first line.
+- A prompt for `nexus start --claude` is limited to 16384 characters. Send a longer brief in a second message.
+- Wait for a pylon worker's reply with `nexus watch <thread> --until-idle`. Then read the pull request and the thread's state yourself, not only the worker's summary.
+- On the owner's machine the command is `/pstack:poteto-mode`. Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
 - Pi workers do not have pstack. Give them plain instructions.
 
-## Pushing and capturing
+## Building in a pylon
 
-- Claude Code workers run in a sandbox that blocks `git push` and `gh`. They commit in their worktree and never push.
-- A pi worker pushes the branch, uploads the media, and opens the pull request from the draft that the owner of the pull request wrote.
-- If the sandbox stops a Claude Code worker from capturing proof, a pi worker runs the verification skill.
+- `.nexus/setup` runs once when a pylon is made. It installs ffmpeg and Debian's Chromium headless shell from apt, bun from npm at the version CI pins, the packages from `bun.lock`, and the ffmpeg build that Playwright records video with.
+- `.nexus/resume` runs on every wake and installs again only when `bun.lock` or `package.json` changed.
+- `.nexus/check` is the check a pull request must pass. It installs if needed, then runs `bun run typecheck`, `bun run test`, and `bun run build`, and exits nonzero if any of them fails.
+- The verification skill runs in the pylon, in headless Chromium.
+- A thread that runs the browser scenarios or the benchmark is started on rj-firebat with 6 CPUs and 8 GiB, because a 2 CPU pylon is too slow for headless Chromium. The review loop's check threads keep the project's default size.
+
+## Pushing and opening the pull request
+
+- The worker pushes its branch through `origin`.
+- The worker uploads its captures to the `pr-media` branch under `pr-<number>/`.
+- The worker opens the pull request itself, ready for review. The body has the sections Why, What changed, Scope, Blast Radius, and Verification, with the media embedded by raw URL.
 - The GitHub MCP is the fallback for small text-only changes.
 
 ## What merges without the owner
@@ -74,6 +85,7 @@ Capture files are pushed to the `pr-media` branch under `pr-<number>/` and embed
 
 - The per-tick simulation loop allocates nothing. Use the fixed-capacity tables and reuse scratch buffers.
 - The benchmark runs 1500 villagers and 3000 monsters. A pull request that touches the simulation reports the tick time against the limit in the stage brief.
+- The 4 ms limit in the stage briefs is defined on the owner's machine. A pull request built in a pylon reports the pylon's numbers and says they are pylon numbers.
 
 ## Assets
 
