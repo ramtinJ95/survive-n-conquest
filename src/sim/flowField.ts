@@ -19,8 +19,6 @@ export interface FlowField {
   readonly goal: number;
   /** For each tile, the next tile on its shortest walk to the goal. The goal holds itself, and a tile with no walk holds -1. */
   readonly next: Int32Array;
-  /** For each tile, the length in tiles of its shortest walk to the goal. A tile with no walk holds Infinity. */
-  readonly walk: Float32Array;
   /** The walkable tiles within `ENTRY_BAND` of the map edge that have a walk to the goal. */
   readonly entrances: Int32Array;
 }
@@ -123,5 +121,5 @@ export function createFlowField(map: TileMap, goal: number): FlowField {
   for (let tile = 0; tile < size * size; tile++) {
     if (inEntryBand(size, tile) && next[tile] !== -1) entrances.push(tile);
   }
-  return { goal, next, walk: Float32Array.from(walk), entrances: Int32Array.from(entrances) };
+  return { goal, next, entrances: Int32Array.from(entrances) };
 }

@@ -4,7 +4,6 @@ import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar'
 import { type TileMap, tileAt, walkable } from '../src/sim/map';
 import { generateMap } from '../src/sim/mapgen';
 import { BENCHMARK_POPULATION, type Sim, createSim, step } from '../src/sim/sim';
-import { CAMP_REACH } from '../src/sim/villagers';
 
 const SEED = 7;
 const SIZES = [256, 512];
@@ -31,7 +30,8 @@ function offLand(map: TileMap, x: Float32Array, y: Float32Array): number {
 function atCamp(sim: Sim): number {
   let count = 0;
   for (let id = 0; id < sim.villagers.x.length; id++) {
-    if (sim.flow.walk[tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!)]! <= CAMP_REACH) count++;
+    const { x, y, spotX, spotY } = sim.villagers;
+    if (x[id] === spotX[id] && y[id] === spotY[id]) count++;
   }
   return count;
 }
@@ -76,7 +76,7 @@ function measure(size: number): boolean {
     `  work in the measured ticks: ${(sum(sim.villagers.draws) - villagerDraws) / 2} villager targets drawn by day, ` +
       `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
   );
-  console.log(`  villagers at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${sim.villagers.x.length}`);
+  console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${sim.villagers.x.length}`);
   console.log(
     `  units off land at the end: ${offLand(map, sim.villagers.x, sim.villagers.y) + offLand(map, sim.monsters.x, sim.monsters.y)}; ` +
       `camp ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,

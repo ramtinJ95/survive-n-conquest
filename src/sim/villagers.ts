@@ -7,10 +7,14 @@ import { hashUnit } from './noise';
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
 /** By day a villager picks its next point within this many tiles of the camp center, on both axes. */
 export const WANDER_REACH = 8;
-/** A villager whose walk to the camp is this many tiles or shorter has reached the camp, and heads straight for its spot there. */
-export const CAMP_REACH = 3;
 /** Each villager's spot at the camp lies this many tiles from the camp center. */
 const SPOT_RADIUS = 1.5;
+/** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
+const SPOT_CHECKS = 16;
+
+/** What a villager is doing. By night it walks the flow field to the camp center, then out to its spot, where it stays. */
+export const Activity = { Wandering: 0, GoingHome: 1, Settling: 2 } as const;
+export type Activity = (typeof Activity)[keyof typeof Activity];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
 
@@ -24,9 +28,11 @@ export interface Villagers {
   /** Where the villager walks by day. */
   readonly targetX: Float32Array;
   readonly targetY: Float32Array;
-  /** Where the villager stands at the camp through the night. */
+  /** Where the villager stands at the camp through the night. A straight walk from the camp center reaches it. */
   readonly spotX: Float32Array;
   readonly spotY: Float32Array;
+  /** One `Activity` for each villager. */
+  readonly activity: Uint8Array;
   /** How many random numbers each villager has drawn. Each draw hashes the seed, the id, and this count, so no villager's draws depend on another's. */
   readonly draws: Uint32Array;
 }
@@ -50,9 +56,24 @@ function chooseTarget(map: TileMap, camp: FlowField, villagers: Villagers, id: n
   targetY[id] = reachable ? ty : y[id]!;
 }
 
+/** Whether a straight walk from one point to another stays on land and cuts no blocked corner. */
+function clearLine(map: TileMap, fromX: number, fromY: number, toX: number, toY: number): boolean {
+  let x = fromX;
+  let y = fromY;
+  for (let check = 1; check <= SPOT_CHECKS; check++) {
+    const nx = fromX + ((toX - fromX) * check) / SPOT_CHECKS;
+    const ny = fromY + ((toY - fromY) * check) / SPOT_CHECKS;
+    if (!canStep(map, x, y, nx, ny)) return false;
+    x = nx;
+    y = ny;
+  }
+  return true;
+}
+
 /**
  * Gives every villager a spot around the camp center and stands it there. A
- * spot that falls off the camp's land moves to the camp center.
+ * spot that a straight walk from the camp center cannot reach moves to the
+ * camp center.
  */
 export function createVillagers(map: TileMap, camp: FlowField, count: number): Villagers {
   const villagers: Villagers = {
@@ -62,6 +83,7 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     targetY: new Float32Array(count),
     spotX: new Float32Array(count),
     spotY: new Float32Array(count),
+    activity: new Uint8Array(count),
     draws: new Uint32Array(count),
   };
   const campX = (camp.goal % map.size) + 0.5;
@@ -70,9 +92,9 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     const angle = id * GOLDEN_ANGLE;
     const sx = Math.fround(campX + Math.cos(angle) * SPOT_RADIUS);
     const sy = Math.fround(campY + Math.sin(angle) * SPOT_RADIUS);
-    const onCampLand = camp.walk[tileAt(map, sx, sy)]! <= CAMP_REACH;
-    villagers.spotX[id] = onCampLand ? sx : campX;
-    villagers.spotY[id] = onCampLand ? sy : campY;
+    const reachable = clearLine(map, campX, campY, sx, sy);
+    villagers.spotX[id] = reachable ? sx : campX;
+    villagers.spotY[id] = reachable ? sy : campY;
     villagers.x[id] = villagers.targetX[id] = villagers.spotX[id]!;
     villagers.y[id] = villagers.targetY[id] = villagers.spotY[id]!;
   }
@@ -116,25 +138,43 @@ function wander(map: TileMap, camp: FlowField, villagers: Villagers, id: number)
 }
 
 /**
- * By night, walks the villager along the camp's flow field until it reaches the
- * camp, then to its spot there, where it stays. A villager with no walk to the
- * camp stays where it stands.
+ * By night, walks the villager along the camp's flow field to the camp center,
+ * then straight out to its spot, where it stays. A villager with no walk to
+ * the camp stays where it stands.
  */
 function goToCamp(map: TileMap, camp: FlowField, villagers: Villagers, id: number): void {
-  const tile = tileAt(map, villagers.x[id]!, villagers.y[id]!);
-  if (camp.walk[tile]! <= CAMP_REACH) {
+  const { x, y, activity } = villagers;
+  if (activity[id] === Activity.Settling) {
     stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
     return;
   }
+  const tile = tileAt(map, x[id]!, y[id]!);
   const next = camp.next[tile]!;
   if (next === -1) return;
-  stepToward(map, villagers, id, (next % map.size) + 0.5, Math.floor(next / map.size) + 0.5);
+  const toX = (next % map.size) + 0.5;
+  const toY = Math.floor(next / map.size) + 0.5;
+  if (tile === camp.goal && x[id] === toX && y[id] === toY) {
+    activity[id] = Activity.Settling;
+    stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
+    return;
+  }
+  stepToward(map, villagers, id, toX, toY);
 }
 
-/** Moves every villager one tick: wandering near the camp by day, and to the camp by night. */
+/** Moves every villager one tick: wandering near the camp by day, and to its spot at the camp by night. */
 export function moveVillagers(map: TileMap, camp: FlowField, villagers: Villagers, night: boolean): void {
-  for (let id = 0; id < villagers.x.length; id++) {
-    if (night) goToCamp(map, camp, villagers, id);
-    else wander(map, camp, villagers, id);
+  const { activity } = villagers;
+  for (let id = 0; id < activity.length; id++) {
+    if (night) {
+      if (activity[id] === Activity.Wandering) activity[id] = Activity.GoingHome;
+      goToCamp(map, camp, villagers, id);
+    } else {
+      if (activity[id] !== Activity.Wandering) {
+        activity[id] = Activity.Wandering;
+        villagers.targetX[id] = villagers.x[id]!;
+        villagers.targetY[id] = villagers.y[id]!;
+      }
+      wander(map, camp, villagers, id);
+    }
   }
 }

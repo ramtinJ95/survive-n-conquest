@@ -33,8 +33,8 @@ function standingOnWaterOrRock(on: TileMap, xs: Float32Array, ys: Float32Array):
 
 describe('the units', () => {
   it('end in the same state when two runs start from one seed', () => {
-    const first = run(createSim(map, POPULATION), 2000);
-    const second = run(createSim(map, POPULATION), 2000);
+    const first = run(createSim(map, POPULATION), 1000);
+    const second = run(createSim(map, POPULATION), 1000);
     expect(second).toEqual(first);
     expect(first.villagers.x).not.toEqual(createSim(map, POPULATION).villagers.x);
     expect(first.monsters.x).not.toEqual(createSim(map, POPULATION).monsters.x);

@@ -5,7 +5,7 @@ import { createFlowField } from './flowField';
 import { TileKind, type TileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { type Command, SETTLERS, type Sim, applyCommand, changeTile, createSim, step, takeTileChanges } from './sim';
-import { CAMP_REACH, WANDER_REACH, createVillagers, moveVillagers } from './villagers';
+import { WANDER_REACH, createVillagers, moveVillagers } from './villagers';
 
 const map = generateMap(7);
 const KINDS: Readonly<Record<string, TileKind>> = { '.': TileKind.Grass, '~': TileKind.Water, '#': TileKind.Rock };
@@ -23,7 +23,7 @@ function runUntil(sim: Sim, done: (sim: Sim) => boolean, afterEach: () => void =
   }
 }
 
-const atCamp = (sim: Sim, id: number) => sim.flow.walk[tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!)]! <= CAMP_REACH;
+const atCamp = (sim: Sim, id: number) => sim.villagers.x[id] === sim.villagers.spotX[id] && sim.villagers.y[id] === sim.villagers.spotY[id];
 const everyone = (sim: Sim, test: (id: number) => boolean) => Array.from(sim.villagers.x, (_, id) => test(id)).every(Boolean);
 
 describe('the settlers', () => {
@@ -69,6 +69,14 @@ describe('the settlers', () => {
     runUntil(sim, (s) => s.tick === dusk + 1800 + 100, watch);
     expect(everyone(sim, (id) => atCamp(sim, id))).toBe(false);
     expect(offLand).toBe(0);
+  });
+
+  it.each([7, 18, 24, 2026])('all reach their spots at the camp by night on seed %i', (seed) => {
+    const sim = createSim(generateMap(seed), SETTLERS);
+    runUntil(sim, (s) => isNight(s.tick));
+    const dusk = sim.tick;
+    runUntil(sim, (s) => s.tick === dusk + 600);
+    expect(Array.from(sim.villagers.x, (_, id) => atCamp(sim, id))).toEqual(Array(8).fill(true));
   });
 
   it('walk around water and rock to reach the camp', () => {
