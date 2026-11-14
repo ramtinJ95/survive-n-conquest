@@ -121,7 +121,9 @@ Every page that `open` makes runs an init script, `paceFramesToTheGpu`, before t
 What it changes:
 
 - The page starts frames at the rate SwiftShader draws them, not at the rate Chromium would start them.
-- The game's frame callbacks receive Chromium's own timestamps, so its 0.1 s cap on a frame's step applies as it would without the pacer, and a `hold` moves the camera as far as it would without the pacer.
+- The game's frame callbacks receive Chromium's own timestamps, so its 0.1 s cap on a frame's step applies as it would without the pacer.
+- On rj-firebat the page runs 3.4 to 4.0 frames a second with the pacer and 2.7 to 3.6 without it. The game's step is capped per frame, so a held key moves the camera somewhat farther with the pacer, and the camera flies a slightly different path.
+- It runs all the callbacks of a frame in one go, so microtasks that one callback queues run after the others, not between them as in a browser. The game asks for one callback a frame, through `renderer.setAnimationLoop`.
 - The page can change its HTML before the canvas draws the frame that matches it. With a frame of 250 ms, a screenshot taken at once can show the new clock beside the old light, so `screenshot` waits for two drawn frames first.
 
 What it could hide:
