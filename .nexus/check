@@ -2,7 +2,7 @@
 # The check a pull request must pass: install if needed, then typecheck, test and build. Exits nonzero when any of them fails.
 cd "$(dirname "$0")/.." || exit 1
 # Exit 75 marks the failure as transient, such as a registry timeout, so the check can run again.
-.nexus/resume --installed || bun install --frozen-lockfile || exit 75
+.nexus/resume --strict || exit 75
 
 status=0
 for step in typecheck test build; do

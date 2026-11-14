@@ -12,4 +12,4 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends f
 if [ "$(bun --version 2>/dev/null)" != "$BUN_VERSION" ]; then
   sudo --preserve-env=NODE_EXTRA_CA_CERTS npm install --global --no-audit --no-fund "bun@$BUN_VERSION"
 fi
-exec .nexus/resume --setup
+exec .nexus/resume --strict
