@@ -9,7 +9,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `main` is protected. Never push to it. Every change lands through a pull request.
 - Pull requests are squash-merged and the merged branch is deleted automatically.
 - PR titles are conventional commits, because the squash commit takes the PR title.
-- Claude Code sessions follow pstack poteto-mode and the skills it routes to. The orchestrator loads the skill in each Claude Code worker with `/pstack:poteto-mode`. A Claude Code session that did not receive that command reads `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before it starts. Pi workers cannot load pstack and are exempt.
+- Claude Code sessions follow pstack poteto-mode and the skills it routes to. The orchestrator loads the skill in each Claude Code worker, with `/poteto-mode` in a pylon and with `/pstack:poteto-mode` on the owner's machine. A Claude Code session that did not receive that command reads `skills/poteto-mode/SKILL.md` in the installed pstack plugin in full before it starts. Pi workers cannot load pstack and are exempt.
 
 ## Stages and pull requests
 
@@ -29,8 +29,11 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 
 ## Instructions to workers
 
-- Every instruction that an orchestrator sends to a Claude Code worker starts with `/pstack:poteto-mode` on its own first line. The task follows on the next lines. This rule covers the first instruction and every later one.
-- Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
+- Every instruction that an orchestrator sends to a Claude Code worker starts with the poteto-mode command on its own first line. The task follows on the next lines. This rule covers the first instruction and every later one.
+- In a pylon the command is `/poteto-mode`. `nexus start --claude` puts it in front of the first prompt itself. A later message, sent with `nexus send`, starts with `/poteto-mode` on its own first line.
+- A prompt for `nexus start --claude` is limited to 16384 characters. Send a longer brief in a second message.
+- Wait for a pylon worker's reply with `nexus watch <thread> --until-idle`. Then read the pull request and the thread's state yourself, not only the worker's summary.
+- On the owner's machine the command is `/pstack:poteto-mode`. Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
 - Pi workers do not have pstack. Give them plain instructions.
 
 ## Building in a pylon
