@@ -1,5 +1,5 @@
 import type { TileMap } from './sim/map';
-import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
+import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, takeTileChanges, ticksPerSecond } from './sim/sim';
 
 export type ToSim = { readonly kind: 'start'; readonly map: TileMap; readonly population: Population } | Command;
 
@@ -13,6 +13,8 @@ export interface ClockSnapshot {
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
+  /** The tiles changed since the last frame, as pairs of a tile index and its kind now. */
+  readonly tiles: Int32Array;
 }
 
 const PUMP_MS = 1000 / 60;
@@ -31,9 +33,10 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
 function publish(sim: Sim) {
   const villagers = positions(sim.villagers);
   const monsters = positions(sim.monsters);
+  const tiles = takeTileChanges(sim);
   self.postMessage(
-    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters } satisfies SimFrame,
-    { transfer: [villagers.buffer, monsters.buffer] },
+    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, tiles } satisfies SimFrame,
+    { transfer: [villagers.buffer, monsters.buffer, tiles.buffer] },
   );
 }
 
