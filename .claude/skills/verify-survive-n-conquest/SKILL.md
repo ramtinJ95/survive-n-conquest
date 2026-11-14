@@ -63,7 +63,7 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `reach(page, { day, time })` runs the clock to a day and an `HH:MM` time and leaves it paused there. It runs at 8×, slows to 1× half a game hour before the target, pauses, and then steps forward in short runs. It fails if the clock stops more than 2 game minutes past the target. A paused screenshot shows the same light on every run, give or take those 2 game minutes, so take any check that ties the picture to a time of day at a `reach` stop. Do not take it from screenshots of a running clock, because how many of those a game hour gets depends on the machine.
 - `settle(page)` waits for `canvas#world` and two animation frames.
 - `still(page)` waits until two screenshots, at least 250 ms and two drawn frames apart, are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day and the light change several times a second.
-- `hold(page, key, ms)` holds a key until the page has drawn `ms` of frame time, counting each frame's step only up to the game's 0.1 s cap. A held key then moves the camera as far on a slow machine as on a fast one. `drag(page, from, to, button)` drags the mouse.
+- `hold(page, key, ms)` holds a key until the page has drawn `ms` of frame time, counting each frame's step only up to the game's 0.1 s cap. A held key then moves the camera as far on a slow machine as on a fast one. It fails when the page draws no frame for 60 s. `drag(page, from, to, button)` drags the mouse.
 - `screenshot(page, label)` saves `<label>.png`.
 - `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`, and `width` caps the GIF's width. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
@@ -110,4 +110,28 @@ $V stop
 
 SwiftShader renders every frame on the CPU, so a run's length depends on the machine, and its result must not. Run browser scenarios in a pylon with 6 CPUs and 8 GiB on rj-firebat, and run them one at a time, because two browsers slow each other down.
 
-Headless Chromium starts the next animation frame before SwiftShader has drawn the last one. On a 2 CPU pylon a frame of the bare map takes about 1.8 s to draw while the page starts about 10 frames a second, and a screenshot then waited 29 to 67 s behind the queued frames. Every page that `open` makes therefore runs an init script that starts a frame only once the GPU has drawn the one before, as a real GPU makes the page wait. With it, a screenshot on that pylon took 2 to 3.5 s.
+Headless Chromium starts the next animation frame before SwiftShader has drawn the last one, so about 30 frames wait in a queue and a screenshot waits behind all of them. At 1280 by 720 on rj-firebat a frame takes 220 to 300 ms to draw, and a screenshot of a paused page took 6.6 to 8.4 s. On a 2 CPU pylon a frame took about 1.8 s and a screenshot 29 to 67 s.
+
+## The frame pacer
+
+Every page that `open` makes runs an init script, `paceFramesToTheGpu`, before the game loads. It replaces `requestAnimationFrame` and `cancelAnimationFrame`, and it wraps `getContext` to find each WebGL2 context. It runs the frame callbacks only once a fence shows that the GPU has drawn the frame before, as a real GPU makes the page wait. With it, a screenshot of a paused page on rj-firebat took 0.18 to 0.42 s, and frames take as long to draw as without it.
+
+What it changes:
+
+- The page starts frames at the rate SwiftShader draws them, not at the rate Chromium would start them.
+- The game's frame callbacks receive Chromium's own timestamps, so its 0.1 s cap on a frame's step applies as it would without the pacer.
+- It sums each frame's step, up to that cap, into `window.__verifyFrameSeconds`, which `hold` waits on.
+
+What it could hide:
+
+- It cannot show how fast the game runs. A game that draws ten times slower still passes every check, only later. That was already true of SwiftShader.
+- A game that draws through a context the pacer does not find, such as an `OffscreenCanvas` in a worker, is not paced, and its screenshots slow down again.
+- A bug that shows only when frames pile up, or that depends on how `requestAnimationFrame` hands out ids, does not show here.
+
+A page whose game stops asking for frames, or loses its WebGL context, does not hang. A lost context counts as drawn, so the game still gets its frames, and `hold` fails when no frame is drawn for 60 s.
+
+The clips record what the paced page draws, so a clip shows the frames a player would see, at SwiftShader's frame rate.
+
+## Sandboxes
+
+A sandboxed shell often cannot see or signal a process that an earlier command started. In that case doctor reports `preview pid can be stopped from this shell: ... denied`, and `stop` refuses with the exact `kill <pid>` to run outside the sandbox. Use `run`, which keeps the whole lifecycle in one process, to avoid stranding a server.
