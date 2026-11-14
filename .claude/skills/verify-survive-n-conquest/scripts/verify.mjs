@@ -41,6 +41,57 @@ const BROWSER_PATH = existsSync(DEBIAN_HEADLESS_SHELL) ? DEBIAN_HEADLESS_SHELL :
 
 class VerifyError extends Error {}
 
+// The game's cap on one frame's step, in src/main.ts.
+const LONGEST_FRAME_MS = 100;
+
+// Headless Chromium starts the next animation frame before SwiftShader has drawn the last one. On a pylon a frame of the
+// bare map takes 1.8 s to draw and the page starts about 10 a second, so a screenshot waits 50 s behind the queued frames.
+// This init script runs each frame's callbacks only once the GPU has finished the frame before, as a real GPU would make
+// the page wait. It also sums each frame's step up to the game's cap into window.__verifyFrameSeconds, the time the camera
+// has moved by, which `hold` waits on.
+function paceFramesToTheGpu(longestFrameMs) {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  const contexts = new Set();
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const context = getContext.call(this, type, ...rest);
+    if (type === 'webgl2' && context) contexts.add(context);
+    return context;
+  };
+  const request = window.requestAnimationFrame.bind(window);
+  let callbacks = new Map();
+  let nextId = 1;
+  let fences = [];
+  let scheduled = false;
+  let last = null;
+  window.__verifyFrameSeconds = 0;
+  const drawn = () => fences.every(([gl, fence]) => gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    request(frame);
+  };
+  function frame(time) {
+    scheduled = false;
+    if (!drawn()) return schedule();
+    for (const [gl, fence] of fences) gl.deleteSync(fence);
+    if (last !== null) window.__verifyFrameSeconds += Math.min(time - last, longestFrameMs) / 1000;
+    last = time;
+    const due = callbacks;
+    callbacks = new Map();
+    for (const callback of due.values()) callback(time);
+    fences = [...contexts].map((gl) => [gl, gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)]);
+    for (const [gl] of fences) gl.flush();
+    if (callbacks.size) schedule();
+  }
+  window.requestAnimationFrame = (callback) => {
+    callbacks.set(nextId, callback);
+    schedule();
+    return nextId++;
+  };
+  window.cancelAnimationFrame = (id) => callbacks.delete(id);
+}
+
+
 function fail(message) {
   throw new VerifyError(message);
 }
@@ -321,6 +372,7 @@ function createSession(browser, instance, dir, evidence) {
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
+      await context.addInitScript(paceFramesToTheGpu, LONGEST_FRAME_MS);
       const page = await context.newPage();
       const created = Date.now();
       const errors = [];
@@ -392,16 +444,18 @@ function createSession(browser, instance, dir, evidence) {
       let last = await page.screenshot();
       for (let attempt = 0; attempt < 60; attempt++) {
         await page.waitForTimeout(250);
+        await this.settle(page);
         const next = await page.screenshot();
         if (next.equals(last)) return;
         last = next;
       }
-      check('the view comes to rest', false, 'two screenshots 250 ms apart still differ after 15 s');
+      check('the view comes to rest', false, 'two screenshots a drawn frame apart still differ after 60 tries');
     },
 
     async hold(page, key, ms) {
+      const until = (await page.evaluate(() => window.__verifyFrameSeconds)) + ms / 1000;
       await page.keyboard.down(key);
-      await page.waitForTimeout(ms);
+      await page.waitForFunction((until) => window.__verifyFrameSeconds >= until, until, { polling: 100, timeout: 0 });
       await page.keyboard.up(key);
     },
 
