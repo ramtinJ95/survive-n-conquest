@@ -8,6 +8,7 @@ import {
   type IUniform,
   IcosahedronGeometry,
   InstancedMesh,
+  Matrix4,
   Object3D,
   type Vector4,
 } from 'three';
@@ -66,6 +67,7 @@ function boulderGeometry(): BufferGeometry {
 }
 
 interface Placement {
+  tile: number;
   x: number;
   y: number;
   z: number;
@@ -75,11 +77,22 @@ interface Placement {
   shade: number;
 }
 
+/** Where a tile's tree or boulder stands, so that it can leave when the tile changes. */
+interface Standing {
+  readonly mesh: InstancedMesh;
+  readonly instance: number;
+  readonly matrix: Matrix4;
+  /** The tile kind it stands on. */
+  readonly kind: TileKind;
+}
+
 function instanced(
   name: string,
   geometry: BufferGeometry,
   placements: Placement[],
   seasonMix: IUniform<Vector4>,
+  standing: Map<number, Standing>,
+  kind: TileKind,
 ): InstancedMesh {
   const mesh = new InstancedMesh(geometry, seasonalMaterial(seasonMix), placements.length);
   mesh.name = name;
@@ -93,6 +106,7 @@ function instanced(
     pose.scale.set(placement.width, placement.height, placement.width);
     pose.updateMatrix();
     mesh.setMatrixAt(i, pose.matrix);
+    standing.set(placement.tile, { mesh, instance: i, matrix: pose.matrix.clone(), kind });
     mesh.setColorAt(i, tint.setScalar(placement.shade));
   });
   mesh.computeBoundingSphere();
@@ -102,9 +116,10 @@ function instanced(
 /**
  * Trees on forest tiles and boulders on rock tiles, one instanced mesh for each
  * shape. The seed decides where each one stands, so a map always looks the same.
- * `seasonMix` blends the colors that each shape has in each season.
+ * `seasonMix` blends the colors that each shape has in each season. `refresh`
+ * shows a tile's tree or boulder only while the tile keeps the kind it grew on.
  */
-export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>): InstancedMesh[] {
+export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
   const { size, kinds, seed } = map;
   const half = size / 2;
   const pines: Placement[] = [];
@@ -126,6 +141,7 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>): Insta
         const grown = GROWTH.min + (GROWTH.max - GROWTH.min) * roll(6, x, y);
         const pineShare = (ground - PINE_LINE.from) / (PINE_LINE.to - PINE_LINE.from);
         (roll(7, x, y) < pineShare ? pines : broadleaves).push({
+          tile: y * size + x,
           x: px - half,
           y: ground - 0.1,
           z: py - half,
@@ -138,6 +154,7 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>): Insta
         if (roll(5, x, y) >= BOULDERS_PER_ROCK_TILE) continue;
         const girth = 0.6 + 1.1 * roll(6, x, y);
         boulders.push({
+          tile: y * size + x,
           x: px - half,
           y: ground + 0.1 * girth,
           z: py - half,
@@ -150,9 +167,21 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>): Insta
     }
   }
 
-  return [
-    instanced('pines', pineGeometry(), pines, seasonMix),
-    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix),
-    instanced('boulders', boulderGeometry(), boulders, seasonMix),
+  const standing = new Map<number, Standing>();
+  const meshes = [
+    instanced('pines', pineGeometry(), pines, seasonMix, standing, TileKind.Forest),
+    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix, standing, TileKind.Forest),
+    instanced('boulders', boulderGeometry(), boulders, seasonMix, standing, TileKind.Rock),
   ];
+  const hidden = new Matrix4().makeScale(0, 0, 0);
+
+  const refresh = (tile: number) => {
+    const found = standing.get(tile);
+    if (!found) return;
+    const { mesh, instance, matrix, kind } = found;
+    mesh.setMatrixAt(instance, kinds[tile] === kind ? matrix : hidden);
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+
+  return { meshes, refresh };
 }

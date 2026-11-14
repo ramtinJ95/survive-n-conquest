@@ -355,6 +355,25 @@ function unitPixels(png) {
   return counts;
 }
 
+/** Where two screenshots of one size differ by more than `threshold` in some channel: how many pixels, their centroid, and their spread around it, in pixels. */
+function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
+  const a = ffmpeg(['-i', pngA, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const b = ffmpeg(['-i', pngB, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const xs = [];
+  const ys = [];
+  for (let i = 0; i < a.length; i += 3) {
+    const delta = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+    if (delta <= threshold) continue;
+    xs.push((i / 3) % width);
+    ys.push(Math.floor(i / 3 / width));
+  }
+  const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
+  const x = mean(xs);
+  const y = mean(ys);
+  const spread = Math.sqrt(mean(xs.map((px, i) => (px - x) ** 2 + (ys[i] - y) ** 2)));
+  return { count: xs.length, x, y, spread };
+}
+
 /** Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until it is under the limit. */
 function toGif(video, gif, { from = 0, width = GIF_STEPS[0].width } = {}) {
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
@@ -576,6 +595,18 @@ const WIDE = { width: 1280, height: 720 };
 const CENTER = { x: WIDE.width / 2, y: WIDE.height / 2 };
 const CLIP = { width: 960, height: 540 };
 const SEEDS = ['7', '2026'];
+/** The game opens with 8 settlers. This opens it with the benchmark load of 1500 villagers and 3000 monsters instead. */
+const SWARM = '?swarm=on';
+/** One wheel turn of this many pixels zooms the opening view in on the camp. A wheel zoom lands on the same view on every run. */
+const SETTLER_VIEW_WHEEL = -900;
+/** A pixel differs between the settlers and the bare map when one of its channels differs by more than this. */
+const SETTLER_THRESHOLD = 25;
+/** At the camp zoom, a tile is about 20 pixels wide. The settlers' spots lie 1.5 tiles from the camp center. */
+const SETTLER_GATHERED_SPREAD = 40;
+/** The camera opens looking at the map center, and the camp is the walkable tile nearest it. */
+const SETTLER_CAMP_OFF_CENTER = 60;
+/** Between 21:00 and 04:30 the light changes the shading of the settlers, so the outline they leave moves by a few pixels. */
+const SETTLER_STAYED = 10;
 const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
 /** The sun rises and sets at these times through the spring. */
 const DAWN = '04:48';
@@ -864,7 +895,7 @@ const SCENARIOS = {
   },
 
   async daylight(session) {
-    const { context, page, errors, since } = await session.open(CLIP, { record: true, clock: 'running' });
+    const { context, page, errors, since } = await session.open(CLIP, { record: true, clock: 'running', search: SWARM });
     await page.keyboard.press('4');
     const fastFrom = since();
     const end = (await session.gameMinutes(page)) + MINUTES_PER_DAY;
@@ -876,7 +907,7 @@ const SCENARIOS = {
     await session.pause(page);
     await session.finishClip(context, page, 'day-at-8x', { from: fastFrom, width: 640 });
 
-    const paused = await session.open(CLIP, { clock: 'running' });
+    const paused = await session.open(CLIP, { clock: 'running', search: SWARM });
     const turnsBlue = clockMinutes({ day: 1, time: DUSK }) + BLUE_LAG;
     const turnsBack = clockMinutes({ day: 2, time: DAWN }) - BLUE_LAG;
     const stops = Object.entries({
@@ -984,7 +1015,7 @@ SCENARIOS.swarm = async (session) => {
   const seen = [];
   const pressed = (page, name) => page.getByRole('button', { name, exact: true, pressed: true }).waitFor();
 
-  const flight = await session.open(CLIP, { record: true, clock: 'running' });
+  const flight = await session.open(CLIP, { record: true, clock: 'running', search: SWARM });
   await flight.page.keyboard.press('4');
   await pressed(flight.page, 'Speed 8×');
   await flight.page.waitForTimeout(5000);
@@ -993,7 +1024,7 @@ SCENARIOS.swarm = async (session) => {
   await session.finishClip(flight.context, flight.page, 'swarm-8x');
   seen.push(...flight.errors);
 
-  const { context, page, errors } = await session.open(WIDE);
+  const { context, page, errors } = await session.open(WIDE, { search: SWARM });
   await session.still(page);
   const before = await session.screenshot(page, 'swarm-paused');
   const counted = session.unitPixels(before);
@@ -1022,6 +1053,83 @@ SCENARIOS.swarm = async (session) => {
   session.expectSameOutside('a day later the same noon lights the bare map the same way', empty, dayLater, panel, SAME_NOON_LIMIT);
   await bare.context.close();
   seen.push(...bare.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+SCENARIOS.settlers = async (session) => {
+  const zoomToCamp = async (page) => {
+    await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+    await page.mouse.wheel(0, SETTLER_VIEW_WHEEL);
+    await session.still(page);
+  };
+  const runTo = async (page, key, when) => {
+    await page.keyboard.press(key);
+    const wanted = clockMinutes(when);
+    const deadline = Date.now() + 120_000;
+    while ((await session.gameMinutes(page)) < wanted) {
+      if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in two minutes`);
+      await page.waitForTimeout(100);
+    }
+  };
+
+  const clip = await session.open(CLIP, { record: true, clock: 'paused' });
+  await zoomToCamp(clip.page);
+  await session.reach(clip.page, { day: 1, time: '19:00' });
+  const duskFrom = clip.since();
+  await runTo(clip.page, '1', { day: 1, time: '19:35' });
+  await runTo(clip.page, '4', { day: 2, time: '04:35' });
+  await runTo(clip.page, '1', { day: 2, time: '05:10' });
+  await session.pause(clip.page);
+  await session.finishClip(clip.context, clip.page, 'settlers-dusk-and-dawn', { from: duskFrom });
+
+  const stops = Object.entries({
+    afternoon: { day: 1, time: '15:00' },
+    'before-dusk': { day: 1, time: '19:00' },
+    night: { day: 1, time: '21:00' },
+    'before-dawn': { day: 2, time: '04:30' },
+    morning: { day: 2, time: '07:00' },
+  });
+  const visit = async (search, label) => {
+    const opened = await session.open(CLIP, { search, clock: 'paused' });
+    await zoomToCamp(opened.page);
+    const shots = {};
+    for (const [name, when] of stops) {
+      await session.reach(opened.page, when);
+      await session.still(opened.page);
+      shots[name] = await session.screenshot(opened.page, `${label}-${name}`);
+    }
+    await opened.context.close();
+    return { shots, errors: opened.errors };
+  };
+  const settled = await visit('', 'settlers');
+  const bare = await visit('?swarm=off', 'bare');
+  const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width)]));
+  const describe = (name) => `${name} ${at[name].count} pixels around (${at[name].x.toFixed(0)}, ${at[name].y.toFixed(0)}) with a spread of ${at[name].spread.toFixed(1)}`;
+
+  const lit = session.unitPixels(settled.shots.afternoon);
+  const none = session.unitPixels(bare.shots.afternoon);
+  session.check('the settlers show by day', lit.villagers >= 400 && none.villagers < 50, `${lit.villagers} villager pixels with the settlers and ${none.villagers} on the bare map at 15:00, needs 400 and fewer than 50`);
+  const gathered = at.night;
+  const offCenter = Math.hypot(gathered.x - CLIP.width / 2, gathered.y - CLIP.height / 2);
+  session.check(
+    'at night the settlers stand together at the camp in the middle of the view',
+    gathered.spread < SETTLER_GATHERED_SPREAD && offCenter < SETTLER_CAMP_OFF_CENTER,
+    `${describe('night')}, ${offCenter.toFixed(0)} pixels from the view center; needs a spread under ${SETTLER_GATHERED_SPREAD} and under ${SETTLER_CAMP_OFF_CENTER} pixels from the center`,
+  );
+  const moved = Math.hypot(at['before-dawn'].x - gathered.x, at['before-dawn'].y - gathered.y);
+  session.check(
+    'the settlers stay at the camp until dawn',
+    moved < SETTLER_STAYED && Math.abs(at['before-dawn'].spread - gathered.spread) < SETTLER_STAYED,
+    `${describe('before-dawn')} against ${describe('night')}; needs the centroid and the spread to move less than ${SETTLER_STAYED} pixels`,
+  );
+  for (const [name, label] of [
+    ['afternoon', 'by day the settlers wander away from the camp'],
+    ['before-dusk', 'before dusk the settlers are still out'],
+    ['morning', 'after dawn the settlers leave the camp again'],
+  ]) {
+    session.check(label, at[name].spread > 2 * gathered.spread, `${describe(name)} against ${describe('night')}; needs more than twice the night spread`);
+  }
+  const seen = [...clip.errors, ...settled.errors, ...bare.errors];
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 

@@ -57,7 +57,7 @@ function tileColors(map: TileMap, palette: Palette, meadow: Float32Array): Float
  * and matches `heightAt`. The map center sits at the world origin. Every
  * vertex carries its color in each season, and `seasonMix` blends them.
  */
-export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh {
+export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>) {
   const { size, heights } = map;
   const rows = size + 2;
   const cells = size + 1;
@@ -76,6 +76,7 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh 
     colors: new Uint8ClampedArray(vertexCount * 3),
   }));
   let cursor = 0;
+  const scratch = new Color();
 
   const vertex = (x: number, y: number, z: number) => {
     positions[cursor] = x;
@@ -90,7 +91,8 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh 
     colors[at + 2] = b * 255;
   };
 
-  const facet = (a: number, b: number, c: number) => {
+  /** Colors the facet whose first vertex is at `at`, in each season, from the tiles of its corners. */
+  const colorFacet = (at: number, a: number, b: number, c: number) => {
     const shimmer = (1 + FACET_SHIMMER * (hashUnit(map.seed, a, b ^ c) - 0.5)) / 3;
     const ta = tileAt(a) * 3;
     const tb = tileAt(b) * 3;
@@ -99,25 +101,34 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh 
       const r = (tiles[ta]! + tiles[tb]! + tiles[tc]!) * shimmer;
       const g = (tiles[ta + 1]! + tiles[tb + 1]! + tiles[tc + 1]!) * shimmer;
       const bl = (tiles[ta + 2]! + tiles[tb + 2]! + tiles[tc + 2]!) * shimmer;
-      for (let corner = 0; corner < 9; corner += 3) paint(colors, cursor + corner, r, g, bl);
+      for (let corner = 0; corner < 9; corner += 3) paint(colors, at + corner, r, g, bl);
     }
-    for (const corner of [a, b, c]) {
-      vertex(along(corner % rows), heights[tileAt(corner)]!, along(Math.floor(corner / rows)));
-    }
+  };
+
+  /** The corners of the two facets of the cell whose top left vertex is at (x, y). */
+  const cellFacets = (x: number, y: number): [number, number, number][] => {
+    const nw = y * rows + x;
+    const ne = nw + 1;
+    const sw = nw + rows;
+    const se = sw + 1;
+    return (x + y) % 2 === 0
+      ? [
+          [nw, sw, se],
+          [nw, se, ne],
+        ]
+      : [
+          [nw, sw, ne],
+          [ne, sw, se],
+        ];
   };
 
   for (let y = 0; y < cells; y++) {
     for (let x = 0; x < cells; x++) {
-      const nw = y * rows + x;
-      const ne = nw + 1;
-      const sw = nw + rows;
-      const se = sw + 1;
-      if ((x + y) % 2 === 0) {
-        facet(nw, sw, se);
-        facet(nw, se, ne);
-      } else {
-        facet(nw, sw, ne);
-        facet(ne, sw, se);
+      for (const [a, b, c] of cellFacets(x, y)) {
+        colorFacet(cursor, a, b, c);
+        for (const corner of [a, b, c]) {
+          vertex(along(corner % rows), heights[tileAt(corner)]!, along(Math.floor(corner / rows)));
+        }
       }
     }
   }
@@ -170,5 +181,28 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>): Mesh 
   terrain.name = 'terrain';
   terrain.castShadow = true;
   terrain.receiveShadow = true;
-  return terrain;
+
+  /** The vertex lines, along one axis, that take their height and color from tile line `line`. */
+  const linesOf = (line: number) => [line + 1, ...(line === 0 ? [0] : []), ...(line === size - 1 ? [size + 1] : [])];
+  const cellsBeside = (line: number) => {
+    const lines = linesOf(line);
+    return { from: Math.max(Math.min(...lines) - 1, 0), to: Math.min(Math.max(...lines), cells - 1) };
+  };
+
+  /** Colors a tile again after its kind changed. Its height never changes, so the shape stays. */
+  const repaint = (tile: number) => {
+    for (const { palette, tiles } of seasons) {
+      GROUND_COLOR[map.kinds[tile] as TileKind](palette, heights[tile]!, meadow[tile]!, scratch).toArray(tiles, tile * 3);
+    }
+    const across = cellsBeside(tile % size);
+    const down = cellsBeside(Math.floor(tile / size));
+    for (let y = down.from; y <= down.to; y++) {
+      for (let x = across.from; x <= across.to; x++) {
+        cellFacets(x, y).forEach(([a, b, c], facet) => colorFacet(((y * cells + x) * 2 + facet) * 9, a, b, c));
+      }
+    }
+    for (const name of SEASON_COLORS) geometry.getAttribute(name).needsUpdate = true;
+  };
+
+  return { terrain, repaint };
 }

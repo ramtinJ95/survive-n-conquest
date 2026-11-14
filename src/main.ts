@@ -4,7 +4,7 @@ import { createSwarm } from './render/swarm';
 import { createWorld } from './render/world';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
-import { BENCHMARK_POPULATION, type Population } from './sim/sim';
+import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import './ui/style.css';
@@ -18,8 +18,8 @@ document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
-const population: Population = params.get('swarm') === 'off' ? { villagers: 0, monsters: 0 } : BENCHMARK_POPULATION;
-const { scene, rig, show } = createWorld(map);
+const population = populationFor(params.get('swarm'));
+const { scene, rig, show, changeTiles } = createWorld(map);
 const swarm = createSwarm(map, population);
 scene.add(...swarm.meshes);
 const camera = rig.camera;
@@ -49,6 +49,7 @@ const sim = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module'
 mountClock(document.body, sim);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   tick = data.tick;
+  changeTiles(data.tiles);
   swarm.show(data);
 });
 sim.postMessage({ kind: 'start', map, population } satisfies ToSim);
