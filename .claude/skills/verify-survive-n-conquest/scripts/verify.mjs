@@ -30,6 +30,10 @@ const MINUTES_PER_DAY = 1440;
 const GAME_MINUTES_PER_SECOND_AT_1X = MINUTES_PER_DAY / 300;
 const FASTEST_SPEED = 8;
 const PROBE = { width: 160, height: 90 };
+// Pixels of page space kept clear around a covered region, so its shadow and border stay out of a comparison.
+const COVER_MARGIN = 8;
+// Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
+const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
   villagers: ([r, g, b]) => r > 170 && g > 0.55 * r && b < 0.25 * r,
   monsters: ([r, g, b]) => r > 90 && r > 2.2 * g && r > 2 * b,
@@ -275,13 +279,32 @@ function meanColor(png) {
 const brightness = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const blueness = ([red, , blue]) => blue / red;
 
-function difference(pngA, pngB) {
+// `cover` is a box in probe pixels that the comparison leaves out.
+function difference(pngA, pngB, cover) {
   const a = probe(pngA);
   const b = probe(pngB);
+  const covered = (pixel) => {
+    const x = pixel % PROBE.width;
+    const y = Math.floor(pixel / PROBE.width);
+    return cover && x >= cover.left && x < cover.right && y >= cover.top && y < cover.bottom;
+  };
   let total = 0;
-  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
-  return total / a.length;
+  let counted = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (covered(Math.floor(i / 3))) continue;
+    total += Math.abs(a[i] - b[i]);
+    counted++;
+  }
+  return total / counted;
 }
+
+const unionOf = (a, b) => ({
+  region: a.region,
+  left: Math.min(a.left, b.left),
+  top: Math.min(a.top, b.top),
+  right: Math.max(a.right, b.right),
+  bottom: Math.max(a.bottom, b.bottom),
+});
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -508,6 +531,26 @@ function createSession(browser, instance, dir, evidence) {
     expectUnchanged(name, before, after) {
       const moved = difference(before, after);
       check(name, moved < 0.2, `mean pixel difference ${moved.toFixed(2)}, needs less than 0.2`);
+    },
+
+    // The box, in probe pixels and with a margin, of the region with this accessible name.
+    async coverOf(page, region) {
+      const box = await page.getByRole('region', { name: region }).boundingBox();
+      const { width, height } = page.viewportSize();
+      const across = PROBE.width / width;
+      const down = PROBE.height / height;
+      return {
+        region,
+        left: Math.max(0, Math.floor((box.x - COVER_MARGIN) * across)),
+        top: Math.max(0, Math.floor((box.y - COVER_MARGIN) * down)),
+        right: Math.min(PROBE.width, Math.ceil((box.x + box.width + COVER_MARGIN) * across)),
+        bottom: Math.min(PROBE.height, Math.ceil((box.y + box.height + COVER_MARGIN) * down)),
+      };
+    },
+
+    expectSameOutside(name, before, after, cover, limit) {
+      const moved = difference(before, after, cover);
+      check(name, moved < limit, `mean pixel difference ${moved.toFixed(3)} outside the ${cover.region} region, needs less than ${limit}`);
     },
 
     expectSurfaces(name, png, minimums, rows) {
@@ -958,13 +1001,16 @@ SCENARIOS.swarm = async (session) => {
   const bare = await session.open(WIDE, { search: '?swarm=off' });
   await session.still(bare.page);
   const empty = await session.screenshot(bare.page, 'swarm-off');
+  const panelBefore = await session.coverOf(bare.page, 'Clock');
   const none = session.unitPixels(empty);
   session.check('?swarm=off shows no unit colors', none.villagers < 50 && none.monsters < 50, `${none.villagers} villager pixels and ${none.monsters} monster pixels, needs fewer than 50 of each`);
   session.expectChanged('the swarm draws units over the same map', empty, before);
 
   await session.reach(bare.page, { day: 2, time: '12:00' });
   await session.still(bare.page);
-  session.expectUnchanged('a day later the same noon lights the bare map the same way', empty, await session.screenshot(bare.page, 'swarm-off-a-day-later'));
+  const dayLater = await session.screenshot(bare.page, 'swarm-off-a-day-later');
+  const panel = unionOf(panelBefore, await session.coverOf(bare.page, 'Clock'));
+  session.expectSameOutside('a day later the same noon lights the bare map the same way', empty, dayLater, panel, SAME_NOON_LIMIT);
   await bare.context.close();
   seen.push(...bare.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
