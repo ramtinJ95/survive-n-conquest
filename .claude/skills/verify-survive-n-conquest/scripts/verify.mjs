@@ -43,6 +43,7 @@ class VerifyError extends Error {}
 
 // The game's cap on one frame's step, in src/main.ts.
 const LONGEST_FRAME_MS = 100;
+const NO_FRAME_MS = 60_000;
 
 // Headless Chromium starts the next animation frame before SwiftShader has drawn the last one. On a pylon a frame of the
 // bare map takes 1.8 s to draw and the page starts about 10 a second, so a screenshot waits 50 s behind the queued frames.
@@ -454,9 +455,16 @@ function createSession(browser, instance, dir, evidence) {
     },
 
     async hold(page, key, ms) {
-      const until = (await page.evaluate(() => window.__verifyFrameSeconds)) + ms / 1000;
+      const frameSeconds = () => page.evaluate(() => window.__verifyFrameSeconds);
+      let drawn = await frameSeconds();
+      const until = drawn + ms / 1000;
       await page.keyboard.down(key);
-      await page.waitForFunction((until) => window.__verifyFrameSeconds >= until, until, { polling: 100, timeout: 0 });
+      while (drawn < until) {
+        await page
+          .waitForFunction((drawn) => window.__verifyFrameSeconds > drawn, drawn, { polling: 100, timeout: NO_FRAME_MS })
+          .catch(() => fail(`the page drew no frame for ${NO_FRAME_MS / 1000} s while ${key} was held`));
+        drawn = await frameSeconds();
+      }
       await page.keyboard.up(key);
     },
 
