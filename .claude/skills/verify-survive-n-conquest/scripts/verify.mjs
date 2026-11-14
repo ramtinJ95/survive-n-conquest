@@ -60,6 +60,7 @@ function paceFramesToTheGpu(longestFrameMs) {
   };
   const request = window.requestAnimationFrame.bind(window);
   let callbacks = new Map();
+  let running = new Map();
   let nextId = 1;
   let fences = [];
   let scheduled = false;
@@ -79,9 +80,16 @@ function paceFramesToTheGpu(longestFrameMs) {
     for (const [gl, fence] of fences) gl.deleteSync(fence);
     if (last !== null) window.__verifyFrameSeconds += Math.min(time - last, longestFrameMs) / 1000;
     last = time;
-    const due = callbacks;
+    running = callbacks;
     callbacks = new Map();
-    for (const callback of due.values()) callback(time);
+    for (const [id, callback] of running) {
+      running.delete(id);
+      try {
+        callback(time);
+      } catch (error) {
+        reportError(error);
+      }
+    }
     fences = [...contexts].map((gl) => [gl, gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)]);
     for (const [gl] of fences) gl.flush();
     if (callbacks.size) schedule();
@@ -91,7 +99,10 @@ function paceFramesToTheGpu(longestFrameMs) {
     schedule();
     return nextId++;
   };
-  window.cancelAnimationFrame = (id) => callbacks.delete(id);
+  window.cancelAnimationFrame = (id) => {
+    callbacks.delete(id);
+    running.delete(id);
+  };
 }
 
 function fail(message) {
