@@ -1,9 +1,10 @@
 import { fullGC } from 'bun:jsc';
 import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
-import { TICKS_PER_SECOND } from '../src/sim/calendar';
+import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
 import { type TileMap, tileAt, walkable } from '../src/sim/map';
 import { generateMap } from '../src/sim/mapgen';
-import { BENCHMARK_POPULATION, createSim, step } from '../src/sim/sim';
+import { BENCHMARK_POPULATION, type Sim, createSim, step } from '../src/sim/sim';
+import { CAMP_REACH } from '../src/sim/villagers';
 
 const SEED = 7;
 const SIZES = [256, 512];
@@ -27,6 +28,14 @@ function offLand(map: TileMap, x: Float32Array, y: Float32Array): number {
   return count;
 }
 
+function atCamp(sim: Sim): number {
+  let count = 0;
+  for (let id = 0; id < sim.villagers.x.length; id++) {
+    if (sim.flow.walk[tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!)]! <= CAMP_REACH) count++;
+  }
+  return count;
+}
+
 function measure(size: number): boolean {
   const setupStart = performance.now();
   const map = generateMap(SEED, size);
@@ -39,11 +48,15 @@ function measure(size: number): boolean {
   const samples = new Float64Array(MEASURED_TICKS);
 
   // JavaScriptCore reports its heap size only at a collection, so this sees what the ticks keep, not short-lived garbage.
+  atCamp(sim);
+  const midnights = new Int32Array(Math.ceil(MEASURED_TICKS / TICKS_PER_DAY) + 1);
+  let nights = 0;
   const heapBefore = fullGC();
   for (let tick = 0; tick < MEASURED_TICKS; tick++) {
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
+    if (tickOfDay(sim.tick) === 0) midnights[nights++] = atCamp(sim);
   }
   const heapGrowth = fullGC() - heapBefore;
 
@@ -60,12 +73,13 @@ function measure(size: number): boolean {
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${pass ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
-    `  work in the measured ticks: ${(sum(sim.villagers.draws) - villagerDraws) / 2} villager targets drawn, ` +
+    `  work in the measured ticks: ${(sum(sim.villagers.draws) - villagerDraws) / 2} villager targets drawn by day, ` +
       `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
   );
+  console.log(`  villagers at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${sim.villagers.x.length}`);
   console.log(
     `  units off land at the end: ${offLand(map, sim.villagers.x, sim.villagers.y) + offLand(map, sim.monsters.x, sim.monsters.y)}; ` +
-      `goal ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,
+      `camp ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,
   );
   return pass;
 }

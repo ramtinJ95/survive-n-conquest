@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { campTile } from './camp';
 import { ENTRY_BAND, createFlowField } from './flowField';
 import { type TileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { MONSTER_STEP } from './monsters';
 import { BENCHMARK_POPULATION, type Population, type Sim, createSim, step } from './sim';
-import { VILLAGER_STEP } from './villagers';
+import { VILLAGER_STEP, WANDER_REACH } from './villagers';
 
 const SIZE = 96;
 const map = generateMap(7, SIZE);
@@ -104,16 +105,19 @@ describe('the villagers', () => {
     expect(fullSteps / (1000 * x.length)).toBeGreaterThan(0.9);
   });
 
-  it('wander across the map instead of staying near where they start', () => {
+  it('wander away from the camp by day and stay within reach of it', () => {
     const sim = createSim(map, POPULATION);
-    const startX = Float32Array.from(sim.villagers.x);
-    const startY = Float32Array.from(sim.villagers.y);
-    run(sim, 3000);
-    let far = 0;
-    for (let id = 0; id < startX.length; id++) {
-      if (Math.hypot(sim.villagers.x[id]! - startX[id]!, sim.villagers.y[id]! - startY[id]!) > 5) far++;
-    }
-    expect(far / startX.length).toBeGreaterThan(0.7);
+    const campX = (sim.camp % SIZE) + 0.5;
+    const campY = Math.floor(sim.camp / SIZE) + 0.5;
+    const farthest = new Float32Array(POPULATION.villagers);
+    run(sim, 1000, () => {
+      for (let id = 0; id < farthest.length; id++) {
+        const away = Math.max(Math.abs(sim.villagers.x[id]! - campX), Math.abs(sim.villagers.y[id]! - campY));
+        farthest[id] = Math.max(farthest[id]!, away);
+      }
+    });
+    expect(Math.max(...farthest)).toBeLessThanOrEqual(WANDER_REACH);
+    expect(farthest.filter((away) => away > WANDER_REACH / 2).length / farthest.length).toBeGreaterThan(0.9);
   });
 });
 
@@ -161,7 +165,7 @@ describe('the monsters', () => {
 
 describe('the flow field', () => {
   function expectRoutesEndAtGoal(on: TileMap) {
-    const flow = createFlowField(on);
+    const flow = createFlowField(on, campTile(on));
     const { size } = on;
     const badSteps: number[] = [];
     let routes = 0;
@@ -203,7 +207,7 @@ describe('the flow field', () => {
   });
 
   it('lists entrances only near the map edge and only where a route starts', () => {
-    const flow = createFlowField(map);
+    const flow = createFlowField(map, campTile(map));
     expect(flow.entrances.length).toBeGreaterThan(0);
     for (const tile of flow.entrances) {
       const [x, y] = tileCenter(map, tile).map(Math.floor) as [number, number];

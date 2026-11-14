@@ -16,10 +16,11 @@ const NEIGHBORS = [
 
 /** Shortest walks over land from every tile to one goal tile, for any number of walkers. */
 export interface FlowField {
-  /** The walkable tile nearest the map center that a walk from the map edge reaches. */
   readonly goal: number;
   /** For each tile, the next tile on its shortest walk to the goal. The goal holds itself, and a tile with no walk holds -1. */
   readonly next: Int32Array;
+  /** For each tile, the length in tiles of its shortest walk to the goal. A tile with no walk holds Infinity. */
+  readonly walk: Float32Array;
   /** The walkable tiles within `ENTRY_BAND` of the map edge that have a walk to the goal. */
   readonly entrances: Int32Array;
 }
@@ -28,7 +29,7 @@ export interface FlowField {
  * Calls `visit` with each tile one step from `tile` and the length of that step.
  * A step goes to one of the eight neighbors and cuts a corner only when both tiles beside it are walkable.
  */
-function eachStep(map: TileMap, tile: number, visit: (neighbor: number, length: number) => void): void {
+export function eachStep(map: TileMap, tile: number, visit: (neighbor: number, length: number) => void): void {
   const { size } = map;
   const x = tile % size;
   const y = Math.floor(tile / size);
@@ -44,44 +45,10 @@ function eachStep(map: TileMap, tile: number, visit: (neighbor: number, length: 
   }
 }
 
-function inEntryBand(size: number, tile: number): boolean {
+export function inEntryBand(size: number, tile: number): boolean {
   const x = tile % size;
   const y = Math.floor(tile / size);
   return Math.min(x, y, size - 1 - x, size - 1 - y) < ENTRY_BAND;
-}
-
-/** The walkable tile nearest the map center among those that a walk from the entry band reaches. */
-function findGoal(map: TileMap): number {
-  const { size } = map;
-  const reached = new Uint8Array(size * size);
-  const open: number[] = [];
-  for (let tile = 0; tile < size * size; tile++) {
-    if (inEntryBand(size, tile) && walkable(map, tile)) {
-      reached[tile] = 1;
-      open.push(tile);
-    }
-  }
-  while (open.length > 0) {
-    eachStep(map, open.pop()!, (neighbor) => {
-      if (reached[neighbor]) return;
-      reached[neighbor] = 1;
-      open.push(neighbor);
-    });
-  }
-
-  let goal = -1;
-  let nearest = Infinity;
-  for (let tile = 0; tile < size * size; tile++) {
-    if (!reached[tile]) continue;
-    const dx = (tile % size) + 0.5 - size / 2;
-    const dy = Math.floor(tile / size) + 0.5 - size / 2;
-    if (dx * dx + dy * dy < nearest) {
-      goal = tile;
-      nearest = dx * dx + dy * dy;
-    }
-  }
-  if (goal < 0) throw new Error(`seed ${map.seed} has no walkable tile near the map edge`);
-  return goal;
 }
 
 /** A binary min-heap of tiles keyed by walk length. A tile can sit in it more than once. */
@@ -131,13 +98,9 @@ class TileQueue {
   }
 }
 
-/**
- * Builds the flow field to the map center. When water or rock cuts the center
- * off from the map edge, the goal moves to the nearest land that the edge reaches.
- */
-export function createFlowField(map: TileMap): FlowField {
+/** Builds the flow field to one goal tile, such as the camp. */
+export function createFlowField(map: TileMap, goal: number): FlowField {
   const { size } = map;
-  const goal = findGoal(map);
   const walk = new Float64Array(size * size).fill(Infinity);
   const next = new Int32Array(size * size).fill(-1);
   const queue = new TileQueue();
@@ -160,5 +123,5 @@ export function createFlowField(map: TileMap): FlowField {
   for (let tile = 0; tile < size * size; tile++) {
     if (inEntryBand(size, tile) && next[tile] !== -1) entrances.push(tile);
   }
-  return { goal, next, entrances: Int32Array.from(entrances) };
+  return { goal, next, walk: Float32Array.from(walk), entrances: Int32Array.from(entrances) };
 }
