@@ -35,6 +35,9 @@ const UNIT_COLORS = {
   monsters: ([r, g, b]) => r > 90 && r > 2.2 * g && r > 2 * b,
 };
 const BROWSER_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+// A pylon cannot download Playwright's own Chromium, because its host is not on the allowlist, so .nexus/setup installs Debian's.
+const DEBIAN_HEADLESS_SHELL = '/usr/lib/chromium/chromium-headless-shell';
+const BROWSER_PATH = existsSync(DEBIAN_HEADLESS_SHELL) ? DEBIAN_HEADLESS_SHELL : undefined;
 
 class VerifyError extends Error {}
 
@@ -149,9 +152,13 @@ async function stop() {
   console.log(`stopped; evidence kept in ${EVIDENCE_ROOT}`);
 }
 
+function launchBrowser() {
+  return playwright().chromium.launch({ args: BROWSER_ARGS, executablePath: BROWSER_PATH });
+}
+
 async function probeBrowser() {
   try {
-    const browser = await playwright().chromium.launch({ args: BROWSER_ARGS });
+    const browser = await launchBrowser();
     const page = await browser.newPage();
     await page.setContent('<canvas></canvas>');
     const renderer = await page.evaluate(() => {
@@ -161,7 +168,7 @@ async function probeBrowser() {
     });
     const version = browser.version();
     await browser.close();
-    return { ok: renderer !== null, detail: `chromium ${version}, WebGL2 ${renderer ?? 'unavailable'}` };
+    return { ok: renderer !== null, detail: `chromium ${version} at ${BROWSER_PATH ?? "Playwright's own path"}, WebGL2 ${renderer ?? 'unavailable'}` };
   } catch (error) {
     return { ok: false, detail: String(error.message).split('\n').slice(0, 3).join(' ') };
   }
@@ -915,7 +922,7 @@ async function drive(name) {
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const browser = await playwright().chromium.launch({ args: BROWSER_ARGS });
+    const browser = await launchBrowser();
     evidence.browser = browser.version();
     try {
       await scenario(createSession(browser, instance, dir, evidence));
