@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateMap } from './mapgen';
+import { type OrderOutcome, createOrders, siteRefusal } from './orders';
 import {
   BENCHMARK_POPULATION,
   type Command,
@@ -26,17 +27,35 @@ interface Scheduled {
   readonly command: Command;
 }
 
-function runScript(script: readonly Scheduled[], ticks: number): Sim {
+function runScript(script: readonly Scheduled[], ticks: number): { sim: Sim; outcomes: (OrderOutcome | undefined)[] } {
   const sim = createSim(map, { villagers: 50, monsters: 50 });
+  const outcomes: (OrderOutcome | undefined)[] = [];
   while (sim.tick < ticks) {
-    for (const { tick, command } of script) if (tick === sim.tick) applyCommand(sim, command);
+    for (const { tick, command } of script) if (tick === sim.tick) outcomes.push(applyCommand(sim, command));
     step(sim);
   }
-  return sim;
+  return { sim, outcomes };
 }
+
+function firstHouseSpot(): { x: number; y: number } {
+  const orders = createOrders(map);
+  for (let y = 1; y < map.size - 1; y++) {
+    for (let x = 1; x < map.size - 1; x++) if (siteRefusal(map, orders, x, y) === null) return { x, y };
+  }
+  throw new Error('no house fits on the test map');
+}
+
+const HOUSE = firstHouseSpot();
+const WHOLE_MAP = { x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 };
 
 const SCRIPT: readonly Scheduled[] = [
   { tick: 0, command: { kind: 'setSpeed', speed: 4 } },
+  { tick: 10, command: { kind: 'placeHouse', ...HOUSE } },
+  { tick: 10, command: { kind: 'placeHouse', ...HOUSE } },
+  { tick: 20, command: { kind: 'markArea', order: 'chop', area: WHOLE_MAP } },
+  { tick: 30, command: { kind: 'markArea', order: 'quarry', area: WHOLE_MAP } },
+  { tick: 40, command: { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: 9, y1: 9 } } },
+  { tick: 500, command: { kind: 'markArea', order: 'cancel', area: { x0: 0, y0: 0, x1: 4, y1: 4 } } },
   { tick: 1200, command: { kind: 'togglePause' } },
   { tick: 1200, command: { kind: 'setSpeed', speed: 8 } },
   { tick: 2999, command: { kind: 'togglePause' } },
@@ -50,7 +69,22 @@ describe('the simulation', () => {
     const first = runScript(SCRIPT, 9000);
     const second = runScript(SCRIPT, 9000);
     expect(second).toEqual(first);
-    expect(clockOf(first)).toEqual({ seed: 1234, tick: 9000, speed: 2, paused: true });
+    expect(clockOf(first.sim)).toEqual({ seed: 1234, tick: 9000, speed: 2, paused: true });
+    expect(first.outcomes.filter((outcome) => outcome !== undefined).map(({ ok, order }) => [order, ok])).toEqual([
+      ['house', true],
+      ['house', false],
+      ['chop', true],
+      ['quarry', true],
+      ['stockpile', true],
+      ['cancel', true],
+    ]);
+  });
+
+  it('answers an order with its outcome and a clock command with nothing', () => {
+    const sim = createSim(map, NOBODY);
+    expect(applyCommand(sim, { kind: 'togglePause' })).toBeUndefined();
+    expect(applyCommand(sim, { kind: 'placeHouse', ...HOUSE })).toEqual({ ok: true, order: 'house', tiles: 9 });
+    expect(applyCommand(sim, { kind: 'placeHouse', ...HOUSE })).toEqual({ ok: false, order: 'house', refusal: 'site' });
   });
 
   it('starts at the first tick, running at 1x', () => {
