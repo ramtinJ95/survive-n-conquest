@@ -39,6 +39,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `.nexus/resume` runs on every wake and installs again only when `bun.lock` or `package.json` changed.
 - `.nexus/check` is the check a pull request must pass. It installs if needed, then runs `bun run typecheck`, `bun run test`, and `bun run build`, and exits nonzero if any of them fails.
 - The verification skill runs in the pylon, in headless Chromium.
+- A thread that runs the browser scenarios or the benchmark is started on rj-firebat with 6 CPUs and 8 GiB, because a 2 CPU pylon is too slow for headless Chromium. The review loop's check threads keep the project's default size.
 
 ## Pushing and opening the pull request
 
