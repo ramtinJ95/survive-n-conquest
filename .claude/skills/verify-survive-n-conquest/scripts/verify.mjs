@@ -41,16 +41,12 @@ const BROWSER_PATH = existsSync(DEBIAN_HEADLESS_SHELL) ? DEBIAN_HEADLESS_SHELL :
 
 class VerifyError extends Error {}
 
-// The game's cap on one frame's step, in src/main.ts.
-const LONGEST_FRAME_MS = 100;
 const NO_FRAME_MS = 60_000;
 
-// Headless Chromium starts the next animation frame before SwiftShader has drawn the last one. On a pylon a frame of the
-// bare map takes 1.8 s to draw and the page starts about 10 a second, so a screenshot waits 50 s behind the queued frames.
-// This init script runs each frame's callbacks only once the GPU has finished the frame before, as a real GPU would make
-// the page wait. It also sums each frame's step up to the game's cap into window.__verifyFrameSeconds, the time the camera
-// has moved by, which `hold` waits on.
-function paceFramesToTheGpu(longestFrameMs) {
+// Headless Chromium starts the next animation frame before SwiftShader has drawn the last one, so about 30 frames queue
+// and a screenshot waits behind all of them: 8 s on rj-firebat, up to 67 s on a 2 CPU pylon. This init script runs each
+// frame's callbacks only once the GPU has finished the frame before, as a real GPU would make the page wait.
+function paceFramesToTheGpu() {
   const getContext = HTMLCanvasElement.prototype.getContext;
   const contexts = new Set();
   HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
@@ -64,8 +60,6 @@ function paceFramesToTheGpu(longestFrameMs) {
   let nextId = 1;
   let fences = [];
   let scheduled = false;
-  let last = null;
-  window.__verifyFrameSeconds = 0;
   // A lost context never signals its fence, and the game must still get its frames to notice the loss.
   const drawn = () =>
     fences.every(([gl, fence]) => gl.isContextLost() || gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
@@ -78,8 +72,6 @@ function paceFramesToTheGpu(longestFrameMs) {
     scheduled = false;
     if (!drawn()) return schedule();
     for (const [gl, fence] of fences) gl.deleteSync(fence);
-    if (last !== null) window.__verifyFrameSeconds += Math.min(time - last, longestFrameMs) / 1000;
-    last = time;
     running = callbacks;
     callbacks = new Map();
     for (const [id, callback] of running) {
@@ -385,7 +377,7 @@ function createSession(browser, instance, dir, evidence) {
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
-      await context.addInitScript(paceFramesToTheGpu, LONGEST_FRAME_MS);
+      await context.addInitScript(paceFramesToTheGpu);
       const page = await context.newPage();
       const created = Date.now();
       const errors = [];
@@ -472,16 +464,8 @@ function createSession(browser, instance, dir, evidence) {
     },
 
     async hold(page, key, ms) {
-      const frameSeconds = () => page.evaluate(() => window.__verifyFrameSeconds);
-      let drawn = await frameSeconds();
-      const until = drawn + ms / 1000;
       await page.keyboard.down(key);
-      while (drawn < until) {
-        await page
-          .waitForFunction((drawn) => window.__verifyFrameSeconds > drawn, drawn, { polling: 100, timeout: NO_FRAME_MS })
-          .catch(() => fail(`the page ran no frame for ${NO_FRAME_MS / 1000} s while ${key} was held`));
-        drawn = await frameSeconds();
-      }
+      await page.waitForTimeout(ms);
       await page.keyboard.up(key);
     },
 
