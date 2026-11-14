@@ -400,7 +400,12 @@ function createSession(browser, instance, dir, evidence) {
 
     async settle(page) {
       await page.locator(WORLD).waitFor();
-      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const twoFrames = page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      let timer;
+      const noFrame = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new VerifyError(`the page ran no frame for ${NO_FRAME_MS / 1000} s`)), NO_FRAME_MS);
+      });
+      await Promise.race([twoFrames, noFrame]).finally(() => clearTimeout(timer));
     },
 
     async gameMinutes(page) {
@@ -449,6 +454,7 @@ function createSession(browser, instance, dir, evidence) {
 
     async screenshot(page, label) {
       const path = capture(`${label}.png`);
+      await this.settle(page);
       await page.screenshot({ path });
       return path;
     },
@@ -473,7 +479,7 @@ function createSession(browser, instance, dir, evidence) {
       while (drawn < until) {
         await page
           .waitForFunction((drawn) => window.__verifyFrameSeconds > drawn, drawn, { polling: 100, timeout: NO_FRAME_MS })
-          .catch(() => fail(`the page drew no frame for ${NO_FRAME_MS / 1000} s while ${key} was held`));
+          .catch(() => fail(`the page ran no frame for ${NO_FRAME_MS / 1000} s while ${key} was held`));
         drawn = await frameSeconds();
       }
       await page.keyboard.up(key);
