@@ -1,0 +1,15 @@
+#!/bin/sh
+# Runs once per pylon. Installs the system packages and bun, then the packages from bun.lock through resume.
+set -eu
+cd "$(dirname "$0")/.."
+BUN_VERSION=1.3.14
+
+# From deb.debian.org: ffmpeg for the GIF clips, and Debian's Chromium headless shell with its libraries.
+# Playwright's own Chromium downloads from storage.googleapis.com, which a pylon cannot reach.
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg chromium-headless-shell
+# From registry.npmjs.org, pinned to the version CI uses. sudo drops NODE_EXTRA_CA_CERTS, which holds the CA of the pylon's network proxy.
+if [ "$(bun --version 2>/dev/null)" != "$BUN_VERSION" ]; then
+  sudo --preserve-env=NODE_EXTRA_CA_CERTS npm install --global --no-audit --no-fund "bun@$BUN_VERSION"
+fi
+exec .nexus/resume --setup
