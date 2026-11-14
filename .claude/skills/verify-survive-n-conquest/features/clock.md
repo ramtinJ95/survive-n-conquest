@@ -42,7 +42,7 @@ Preconditions:
 - A button keeps focus after Tab, so Space then presses that button instead of toggling the pause. A pointer press never takes focus.
 - A paused game shows two pressed buttons, `Pause` and the speed it resumes at.
 - The buttons show the state that the worker reports, not the input. Read a pressed state only after it settles. The scenario polls for up to 2 seconds before it records the check or starts a rate measurement.
-- The clip runs about 45 seconds, because the 16 hours from the 08:00 start to the first midnight take 25 seconds even at 8×. The light changes and the swarm moves in every frame of it, so no 8 fps step fits under 8 MB and the GIF comes out at 4 frames per second.
+- The clip runs about 45 seconds, because the 16 hours from the 08:00 start to the first midnight take 25 seconds even at 8×. The game opens with the 8 settlers. The clip ran at 4 frames per second while it showed the swarm, because the light changes and the swarm moved in every frame. With the settlers `finishClip` may fit a higher frame rate.
 - The first reading is a few game minutes past 08:00, because the clock runs while the page loads. The check `opens at 08:00 in the morning` allows the game minutes that pass at 1× in the seconds since the page was created.
 - `still(page)` never returns while the clock runs. Use it only while paused.
 - Click the buttons with `page.mouse.click` at the center of their box, not with `locator.click`. A locator click waits for the button to hold still across animation frames, and SwiftShader draws the terrain so slowly that the wait takes tens of seconds and can time out.

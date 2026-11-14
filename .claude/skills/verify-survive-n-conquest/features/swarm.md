@@ -1,9 +1,10 @@
 # Swarm
 
-The game opens with the benchmark load on the map: 1500 villagers in yellow and 3000 monsters in deep red. Villagers walk between random nearby points at 1.5 tiles per second. Monsters walk at 1 tile per second along one flow field to the land nearest the map center, and a monster that arrives enters again at the map edge. Neither group steps onto water or rock. The simulation moves them in the Web Worker, so they move only while the clock runs. The `swarm=off` URL parameter opens the same map with no units.
+The `swarm=on` URL parameter opens the game with the benchmark load on the map: 1500 villagers in yellow and 3000 monsters in deep red. The villagers follow the rule of the settlers in [Settlers](./settlers.md). They start at the camp, walk between random points near it by day at 1.5 tiles per second, and walk back to it at dusk. Monsters walk at 1 tile per second along one flow field to the land nearest the map center, and a monster that arrives enters again at the map edge. Neither group steps onto water or rock. The simulation moves them in the Web Worker, so they move only while the clock runs. The `swarm=off` URL parameter opens the same map with no units.
 
 ## Sub-features
 
+- `swarm-on` opens the map with the benchmark load when the URL has `swarm=on`.
 - `swarm-shows` draws every villager and every monster standing on the ground, one instanced mesh for each group.
 - `swarm-moves` moves the units with the clock, faster at higher speeds.
 - `swarm-holds` keeps every unit in place while the clock is paused.
@@ -11,7 +12,7 @@ The game opens with the benchmark load on the map: 1500 villagers in yellow and 
 
 ## How to get to it (user POV)
 
-- Open the game. The units are on the map from the first frame and move at 1×.
+- Open the game with `?swarm=on`. The units are on the map from the first frame and move at 1×.
 - Press 4 to run at 8× and watch the monsters stream toward the center.
 - Press Space to pause. Every unit stops where it stands.
 - Add `?swarm=off` to the URL, with or without a seed, to open the map with no units.
@@ -22,8 +23,8 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run swarm`, which runs doctor itself.
 
-- **Watch the swarm at 8×.** Open the game at 960 by 540 with recording on and `clock: 'running'`, press 4, wait 5 seconds, hold `X` for 1.2 seconds to zoom out, and wait 5 seconds more. `swarm-8x.gif` shows the units moving close up and then from farther away. The check `swarm-8x.gif stays under 8 MB` passes.
-- **See both groups.** Open a fresh page at 1280 by 720, which pauses the clock at noon, and wait with `still(page)`. `swarm-paused.png` shows the units. The check `villagers and monsters both show` counts the pixels of each unit color with `unitPixels` and needs 500 of each.
+- **Watch the swarm at 8×.** Open the game with `?swarm=on` at 960 by 540 with recording on and `clock: 'running'`, press 4, wait 5 seconds, hold `X` for 1.2 seconds to zoom out, and wait 5 seconds more. `swarm-8x.gif` shows the units moving close up and then from farther away. The check `swarm-8x.gif stays under 8 MB` passes.
+- **See both groups.** Open a fresh page with `?swarm=on` at 1280 by 720, which pauses the clock at noon, and wait with `still(page)`. `swarm-paused.png` shows the units. The check `villagers and monsters both show` counts the pixels of each unit color with `unitPixels` and needs 500 of each.
 - **Hold while paused.** Wait 2 seconds. The check `the swarm holds still while the clock is paused` compares `swarm-paused.png` with `swarm-paused-later.png`.
 - **Run for a day and pause again.** Run `reach(page, { day: 2, time: '12:00' })` and wait with `still(page)`. The check `the swarm moves while the clock runs` compares `swarm-paused.png` with `swarm-a-day-later.png` from the same camera. Both are at noon in spring, so the light is the same and only the units differ.
 - **Open without the swarm.** Load `?swarm=off`. `swarm-off.png` shows the bare map from the same camera. The check `?swarm=off shows no unit colors` needs fewer than 50 pixels of each unit color, which also shows that the color test does not match the terrain. The check `the swarm draws units over the same map` compares it with `swarm-paused.png`.
@@ -35,6 +36,7 @@ Preconditions:
 ## Gotchas
 
 - `unitPixels` matches the saturated yellow of villagers and the deep red of monsters in `src/render/swarm.ts`. Update `UNIT_COLORS` in `verify.mjs` when those colors or the lighting change on purpose, and say so in the pull request.
+- The villagers crowd around the camp near the map center, so most of the yellow is in the middle of the first view. The monsters walk to the same camp.
 - Two page loads pause at different ticks, so their units stand in different places. Compare screenshots across page loads only with `swarm=off`. Within one paused page the units hold still and `still(page)` returns.
 - The frame rate in headless Chromium says nothing about the game with 4500 units. SwiftShader draws on the CPU. The tick time comes from `bun run bench`, and the frame rate comes from a real browser on the owner's machine.
 - The 8× clip runs about 12 seconds.
