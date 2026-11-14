@@ -32,6 +32,8 @@ const FASTEST_SPEED = 8;
 const PROBE = { width: 160, height: 90 };
 // Pixels of page space kept clear around a covered region, so its shadow and border stay out of a comparison.
 const COVER_MARGIN = 8;
+// Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
+const LOW_FLIGHT_LEG_MS = 800;
 // Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
 const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
@@ -724,15 +726,22 @@ const SCENARIOS = {
     await session.hold(page, 'KeyF', 1000);
     await session.still(page);
     session.expectUnchanged('zooming in and tilting stop at the lowest view', nearest, await shoot('nearest-again'));
-    for (const leg of ['one', 'two', 'three', 'four']) {
-      await session.hold(page, 'KeyS', 2500);
-      await session.hold(page, 'KeyQ', 500);
-      await session.still(page);
-      const low = await shoot(`low-flight-${leg}`);
-      session.expectSurfaces(`the ground fills the lower view on low flight ${leg}`, low, { ground: 0.9 }, [0.6, 1]);
-    }
     await context.close();
-    const seen = [...flight.errors, ...errors];
+
+    const low = await session.open(WIDE, { search: '?swarm=off' });
+    await session.hold(low.page, 'KeyZ', 5000);
+    await session.hold(low.page, 'KeyF', 3000);
+    await low.page.mouse.wheel(0, -2000);
+    await session.hold(low.page, 'KeyF', 1000);
+    for (const leg of ['one', 'two', 'three', 'four']) {
+      await session.hold(low.page, 'KeyS', LOW_FLIGHT_LEG_MS);
+      await session.hold(low.page, 'KeyQ', 500);
+      await session.still(low.page);
+      const shot = await session.screenshot(low.page, `camera-${String(++shots).padStart(2, '0')}-low-flight-${leg}`);
+      session.expectSurfaces(`the ground fills the lower view on low flight ${leg}`, shot, { ground: 0.9 }, [0.6, 1]);
+    }
+    await low.context.close();
+    const seen = [...flight.errors, ...errors, ...low.errors];
     session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
   },
 
