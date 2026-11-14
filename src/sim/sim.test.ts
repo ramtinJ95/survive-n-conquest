@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { generateMap } from './mapgen';
-import { type Command, type Population, SPEEDS, type Sim, applyCommand, createSim, step, ticksPerSecond } from './sim';
+import {
+  BENCHMARK_POPULATION,
+  type Command,
+  type Population,
+  SETTLERS,
+  SPEEDS,
+  type Sim,
+  applyCommand,
+  createSim,
+  populationFor,
+  step,
+  ticksPerSecond,
+} from './sim';
 
 const NOBODY: Population = { villagers: 0, monsters: 0 };
 const map = generateMap(1234, 32);
@@ -74,5 +86,19 @@ describe('the simulation', () => {
     applyCommand(sim, { kind: 'togglePause' });
     applyCommand(sim, { kind: 'setSpeed', speed: 2 });
     expect(ticksPerSecond(sim)).toBe(20);
+  });
+
+  it.each([
+    ['on', BENCHMARK_POPULATION],
+    ['off', { villagers: 0, monsters: 0 }],
+    [null, SETTLERS],
+    ['', SETTLERS],
+    ['constructor', SETTLERS],
+    ['toString', SETTLERS],
+    ['__proto__', SETTLERS],
+    ['ON', SETTLERS],
+  ] as const)('opens swarm=%s with its population', (swarm, population) => {
+    expect(populationFor(swarm)).toEqual(population);
+    expect(structuredClone(populationFor(swarm))).toEqual(population);
   });
 });

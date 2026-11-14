@@ -20,6 +20,14 @@ export interface Population {
 export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000 };
 /** A new game: a few settlers at the camp and nothing else. */
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
+export const NOBODY: Population = { villagers: 0, monsters: 0 };
+
+/** The population for the `swarm` URL setting: `on` for the benchmark load, `off` for none, and the settlers for anything else. */
+export function populationFor(swarm: string | null): Population {
+  if (swarm === 'on') return BENCHMARK_POPULATION;
+  if (swarm === 'off') return NOBODY;
+  return SETTLERS;
+}
 
 /** The tiles whose kind changed since the last `takeTileChanges`, each listed once, in the order of their first change. */
 interface TileChanges {

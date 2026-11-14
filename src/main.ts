@@ -4,7 +4,7 @@ import { createSwarm } from './render/swarm';
 import { createWorld } from './render/world';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
-import { BENCHMARK_POPULATION, type Population, SETTLERS } from './sim/sim';
+import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import './ui/style.css';
@@ -18,8 +18,7 @@ document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
-const OPENINGS: Readonly<Record<string, Population>> = { on: BENCHMARK_POPULATION, off: { villagers: 0, monsters: 0 } };
-const population = OPENINGS[params.get('swarm') ?? ''] ?? SETTLERS;
+const population = populationFor(params.get('swarm'));
 const { scene, rig, show, changeTiles } = createWorld(map);
 const swarm = createSwarm(map, population);
 scene.add(...swarm.meshes);
