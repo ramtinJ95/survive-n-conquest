@@ -94,10 +94,21 @@ ffmpeg -v error -i .verify/evidence/<run>/<shot>.png -c:v libwebp -quality 85 ..
 git -C ../pr-media add pr-<number>
 git -C ../pr-media commit -m "media: pr-<number>"
 git -C ../pr-media push origin HEAD:pr-media
-git worktree remove ../pr-media
 ```
 
-Other workers push to `pr-media` too. If the push is refused because the branch moved, run `git -C ../pr-media pull --rebase origin pr-media` and push again.
+Other workers push to `pr-media` too, and a stage's close rewrites it to a commit that shares no history with yours. If the push is refused because the branch moved, move only your upload commit onto the new tip and push again. A plain `pull --rebase` would replay the pruned history.
+
+```sh
+git -C ../pr-media fetch origin pr-media
+git -C ../pr-media rebase --onto origin/pr-media HEAD~1
+git -C ../pr-media push origin HEAD:pr-media
+```
+
+Remove the worktree once the push has gone through.
+
+```sh
+git worktree remove ../pr-media
+```
 
 Embed each file in the pull request body by its raw URL, `https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/pr-<number>/<file>`.
 

@@ -24,7 +24,7 @@ A 256 by 256 tile map of hills, water, forest, and rock outcrops from a seed, an
 
 The simulation runs in a Web Worker at 10 ticks per second. The interface shows the time, the day, the season, and the year, with pause and four speeds.
 
-The clip runs the clock at 1×, 2×, 4×, and 8×, pauses it, and resumes it at 8×. The demo set keeps the first 34 seconds, to 08:45 on Day 1. The pull request's clip ran on past midnight into Day 2, Mid Spring.
+The clip runs the clock at 1×, 2×, 4×, and 8×, pauses it, and resumes it at 8×. The demo set keeps the first 34 seconds, to 08:51 on Day 1. The pull request's clip ran on past midnight into Day 2, Mid Spring.
 
 ![The clock running at each speed over the terrain](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-1/pr-7-clock-speeds.gif)
 
