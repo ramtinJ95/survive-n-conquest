@@ -64,7 +64,9 @@ function paceFramesToTheGpu(longestFrameMs) {
   let scheduled = false;
   let last = null;
   window.__verifyFrameSeconds = 0;
-  const drawn = () => fences.every(([gl, fence]) => gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
+  // A lost context never signals its fence, and the game must still get its frames to notice the loss.
+  const drawn = () =>
+    fences.every(([gl, fence]) => gl.isContextLost() || gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
@@ -90,7 +92,6 @@ function paceFramesToTheGpu(longestFrameMs) {
   };
   window.cancelAnimationFrame = (id) => callbacks.delete(id);
 }
-
 
 function fail(message) {
   throw new VerifyError(message);
