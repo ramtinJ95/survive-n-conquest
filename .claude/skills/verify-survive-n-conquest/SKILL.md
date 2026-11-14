@@ -130,7 +130,7 @@ What it could hide:
 - A game that draws through a context the pacer does not find, such as an `OffscreenCanvas` in a worker, is not paced, and its screenshots slow down again.
 - A bug that shows only when frames pile up, or that depends on how `requestAnimationFrame` hands out ids, does not show here.
 
-A page whose game stops asking for frames, or loses its WebGL context, does not hang. A lost context counts as drawn, so the game still gets its frames. `settle`, and so `screenshot` and `still`, fail when the page runs no frame for 60 s. They count frame callbacks, not pictures, so they do not prove that the game still draws. Only a check that compares screenshots proves that.
+A page whose game stops asking for frames, or loses or restores its WebGL context, does not hang. A fence of a lost context counts as drawn, so the game still gets its frames. `settle`, and so `screenshot` and `still`, fail when the page runs no frame for 60 s. They count frame callbacks, not pictures, so they do not prove that the game still draws. Only a check that compares screenshots proves that.
 
 The clips record what the paced page draws, so a clip shows the frames a player would see, at SwiftShader's frame rate.
 
