@@ -33,7 +33,7 @@ const PROBE = { width: 160, height: 90 };
 // Pixels of page space kept clear around a covered region, so its shadow and border stay out of a comparison.
 const COVER_MARGIN = 8;
 // Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
-const LOW_FLIGHT_LEG_MS = 800;
+const LOW_FLIGHT_LEG_MS = 400;
 // Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
 const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
