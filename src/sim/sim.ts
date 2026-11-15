@@ -23,10 +23,12 @@ export type Command =
 export interface Population {
   readonly villagers: number;
   readonly monsters: number;
+  /** Marks every tree and every rock tile on the map at the start, through the same orders a player gives. */
+  readonly markAll?: boolean;
 }
 
-/** The load the performance budget is set for: a full city under a late assault. */
-export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000 };
+/** The load the performance budget is set for: a full city at work under a late assault. */
+export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true };
 /** A new game: a few settlers at the camp and nothing else. */
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
@@ -62,7 +64,7 @@ export function createSim(source: TileMap, population: Population): Sim {
   const map = copyMap(source);
   const camp = campTile(map);
   const flow = createFlowField(map, camp);
-  return {
+  const sim: Sim = {
     seed: map.seed,
     map,
     camp,
@@ -78,6 +80,12 @@ export function createSim(source: TileMap, population: Population): Sim {
     speed: 1,
     paused: false,
   };
+  if (population.markAll) {
+    const whole = { x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 };
+    applyCommand(sim, { kind: 'markArea', order: 'chop', area: whole });
+    applyCommand(sim, { kind: 'markArea', order: 'quarry', area: whole });
+  }
+  return sim;
 }
 
 /** Returns what became of an order, and nothing for a clock command. */

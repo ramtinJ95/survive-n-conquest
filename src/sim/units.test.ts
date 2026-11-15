@@ -70,7 +70,7 @@ describe('the units', () => {
           const [fromX, fromY] = [Math.floor(lastX[table]![id]!), Math.floor(lastY[table]![id]!)];
           const [toX, toY] = [Math.floor(x[id]!), Math.floor(y[id]!)];
           if (Math.abs(toX - fromX) !== 1 || Math.abs(toY - fromY) !== 1) continue;
-          const besideClear = walkable(big, fromY * big.size + toX) && walkable(big, toY * big.size + fromX);
+          const besideClear = walkable(sim.map, fromY * big.size + toX) && walkable(sim.map, toY * big.size + fromX);
           if (!besideClear) squeezes.push(`table ${table} unit ${id} at tick ${tick}`);
         }
       });

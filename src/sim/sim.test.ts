@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { TileKind } from './map';
 import { generateMap } from './mapgen';
-import { type OrderOutcome, createOrders, siteRefusal } from './orders';
+import { Claim, type OrderOutcome, createOrders, siteRefusal } from './orders';
 import {
   BENCHMARK_POPULATION,
   type Command,
@@ -78,6 +79,18 @@ describe('the simulation', () => {
       ['stockpile', true],
       ['cancel', true],
     ]);
+  });
+
+  it('opens the swarm with every tree and rock tile marked, as a player marks them', () => {
+    const swarm = createSim(map, populationFor('on'));
+    const byHand = createSim(map, { villagers: 1500, monsters: 3000 });
+    applyCommand(byHand, { kind: 'markArea', order: 'chop', area: WHOLE_MAP });
+    applyCommand(byHand, { kind: 'markArea', order: 'quarry', area: WHOLE_MAP });
+    const claimed = (sim: Sim, claim: Claim) => sim.orders.claims.filter((value) => value === claim).length;
+    expect(claimed(swarm, Claim.Chop)).toBe(map.trees.filter((tree) => tree === 1).length);
+    expect(claimed(swarm, Claim.Quarry)).toBe(map.kinds.filter((kind) => kind === TileKind.Rock).length);
+    expect(swarm).toEqual(byHand);
+    expect(createSim(map, SETTLERS).orders.claims.every((claim) => claim === Claim.None)).toBe(true);
   });
 
   it('answers an order with its outcome and a clock command with nothing', () => {
