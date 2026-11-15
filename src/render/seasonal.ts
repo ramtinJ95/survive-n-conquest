@@ -86,6 +86,14 @@ export function sway(clock: IUniform<number>, bend: number): Motion {
   };
 }
 
+/**
+ * Adds to `motion` that the mesh shrinks into the ground as the look of winter
+ * comes, and grows back as it leaves. Only a seasonal material can move so.
+ */
+export function goneInWinter(motion: Motion): Motion {
+  return { ...motion, moves: `${motion.moves}\n  transformed *= 1.0 - seasonMix.w;` };
+}
+
 /** The material that draws the shadow of a mesh that moves as `motion` says, so the shadow moves with it. */
 export function movedShadow(motion: Motion): MeshDepthMaterial {
   return moved(new MeshDepthMaterial({ depthPacking: RGBADepthPacking }), motion);

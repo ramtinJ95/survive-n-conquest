@@ -12,7 +12,7 @@ import {
 import { TileKind, heightAt, type TileMap } from '../sim/map';
 import { fractalNoise, hashUnit } from '../sim/noise';
 import { type CoverKind, TREE_KINDS, TREE_TOPS, type TreeKind, boulderShape, coverShapes, treeShapes } from './plants';
-import { type Motion, movedShadow, seasonalMaterial, sway } from './seasonal';
+import { type Motion, goneInWinter, movedShadow, seasonalMaterial, sway } from './seasonal';
 
 const BOULDERS_PER_ROCK_TILE = 0.1;
 /** A tree is this many times the size of its shape, at most and at least. */
@@ -28,14 +28,23 @@ export const TREE_MESHES: Readonly<Record<TreeKind, string>> = { pine: 'pines', 
 /** Meters that the top of a tree swings in the strongest gust, for each meter of its shape's height, squared. */
 const TREE_BEND = 0.008;
 
-/** How the small things on open ground are drawn: the name of the mesh, the bend in the wind, and whether they cast shadows. */
-const COVER: Readonly<Record<CoverKind, { readonly mesh: string; readonly bend: number; readonly shadow: boolean }>> = {
-  tuft: { mesh: 'grass tufts', bend: 0.5, shadow: false },
-  flowers: { mesh: 'flowers', bend: 0.6, shadow: false },
-  bush: { mesh: 'bushes', bend: 0.04, shadow: true },
-  pebbles: { mesh: 'pebbles', bend: 0, shadow: false },
-  reeds: { mesh: 'reeds', bend: 0.22, shadow: false },
+/** How the small things on open ground are drawn: the name of the mesh, the bend in the wind, whether they cast shadows, and whether they last the winter. */
+const COVER: Readonly<Record<CoverKind, { readonly mesh: string; readonly bend: number; readonly shadow: boolean; readonly hardy: boolean }>> = {
+  tuft: { mesh: 'grass tufts', bend: 0.5, shadow: false, hardy: true },
+  flowers: { mesh: 'flowers', bend: 0.6, shadow: false, hardy: false },
+  bush: { mesh: 'bushes', bend: 0.04, shadow: true, hardy: true },
+  pebbles: { mesh: 'pebbles', bend: 0, shadow: false, hardy: true },
+  reeds: { mesh: 'reeds', bend: 0.22, shadow: false, hardy: true },
 };
+
+/** How a kind of ground cover moves: with the wind, and into the ground for the winter if it is not hardy. */
+function coverMotion(kind: CoverKind, clock: IUniform<number>): Motion | undefined {
+  const { bend, hardy } = COVER[kind];
+  const wind = bend > 0 ? sway(clock, bend) : undefined;
+  if (hardy) return wind;
+  if (!wind) throw new Error(`${kind} must sway to leave in winter`);
+  return goneInWinter(wind);
+}
 /** No flower is yellow, orange, red, white, or violet: those are the colors of the settlers, the monsters, the stone, and the marks of the orders. */
 const PETALS = [0xf48fb1, 0xff8f86, 0x6f8fff, 0xf48fb1].map((hex) => new Color(hex));
 /** Nothing grows this close to the middle of the camp, in meters, where the settlers stand at night. */
@@ -246,7 +255,7 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>, clock:
           geometry: coverGeometry[kind],
           placements: cover[kind],
           stands: COVER_STANDS,
-          motion: COVER[kind].bend > 0 ? sway(clock, COVER[kind].bend) : undefined,
+          motion: coverMotion(kind, clock),
           shadow: COVER[kind].shadow,
           bothSides: true,
         },
