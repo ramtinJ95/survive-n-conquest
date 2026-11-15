@@ -1,6 +1,6 @@
 # Orders to the land
 
-The player tells the land what should happen on it. A toolbar at the right edge offers Chop, Quarry, Stockpile, House, and Cancel. With Chop, Quarry, Stockpile, or Cancel active, a drag with the main button outlines a rectangle of tiles and, on release, marks the trees in it for felling, marks its rock for quarrying, adds its open ground to the stockpile zone, or removes those marks and every unfinished house site it touches. With House active, a see-through house stands on the 3 by 3 tiles under the pointer, green when it fits and red when it does not, and the status line under the clock says why. A click places the site. Marks show on the map in the color of their tool, by day and by night, in every season. Chopped trees carry an amber pin. No villager acts on an order yet.
+The player tells the land what should happen on it. A toolbar at the right edge offers Chop, Quarry, Stockpile, House, and Cancel. With Chop, Quarry, Stockpile, or Cancel active, a drag with the main button outlines a rectangle of tiles and, on release, marks the trees in it for felling, marks its rock for quarrying, adds its open ground to the stockpile zone, or removes those marks and every unfinished house site it touches. With House active, a see-through house stands on the 3 by 3 tiles under the pointer, green when it fits and red when it does not, and the status line under the clock says why. A click places the site. Marks show on the map in the color of their tool, by day and by night, in every season. Chopped trees carry an amber pin. Settlers act on Chop and Quarry marks, as [Gathering](./gathering.md) says.
 
 ## Sub-features
 
@@ -26,7 +26,7 @@ The player tells the land what should happen on it. A toolbar at the right edge 
 Preconditions:
 
 - `$V doctor` passes, or you use `$V run orders`, which runs doctor itself.
-- Every page opens on seed 7 at its opening view, paused at noon, with the settlers.
+- Every page opens on seed 7 at its opening view, paused at noon. The clip page and the layout page open with the settlers. The page that reads every mark opens with `swarm=off`, because it runs the clock to midnight and to winter, and settlers would fell the marked trees and quarry the marked rock on the way.
 
 - **Use each tool.** A recorded page at 960 by 540 zooms in by one wheel step and uses Chop, Quarry, Stockpile, House, and Cancel by their keys. The checks read the status line after each order, such as `a Chop drag marks trees`, and count the pure order colors in a screenshot, such as `marked trees show pins and outlines`. `a main-button drag with a tool marks instead of moving the camera` compares the view outside the dragged rectangle, the toolbar, and the status line. `a refused house changes nothing on the map` compares the view before and after a refused click. One GIF per tool: `orders-chop.gif`, `orders-quarry.gif`, `orders-stockpile.gif`, `orders-house.gif`, and `orders-cancel.gif`.
 - **Read every mark.** A second page at 1280 by 720 places one of each order, hovers a house over the stockpile's edge, and takes the near, opening, and farthest views at spring noon, spring midnight, winter noon, and winter midnight. Each `every kind of mark reads ...` check counts the pure color of each kind, and the green or red of the preview, which follows the tile under the resting pointer as the view zooms. At each stop it also hovers a house over rock and over forest, and `a refused house reads over rock, ...` and `... over forest, ...` count its red.
@@ -42,4 +42,5 @@ Preconditions:
 - The toolbar's chop orange and cancel raspberry are chosen so that `unitPixels` counts neither as a villager or a monster. The `swarm` and `daylight` scenarios count unit colors over the whole screen, toolbar included.
 - Every extra Tab stop delays the clock scenario's walk to the Pause button, which allows 6 presses. Keep the toolbar one stop.
 - The settlers walk while the clock runs. Keep the page paused for every comparison.
+- With the settlers, a running clock removes marks: a felled tree loses its pin and a spent rock tile its outline. Open with `swarm=off` any page that runs the clock and counts marks.
 - A drag preview and the status line update when the worker answers. Wait for the status text before you take a screenshot.

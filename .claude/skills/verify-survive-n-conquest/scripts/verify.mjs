@@ -1339,7 +1339,8 @@ SCENARIOS.orders = async (session) => {
   await session.finishClips(clip.context, page, cuts.map((cut) => ({ ...cut, width: 800 })));
   seen.push(...clip.errors);
 
-  const wide = await session.open(WIDE);
+  // Settlers fell marked trees and quarry marked rock while the clock runs, so the marks would not last to winter.
+  const wide = await session.open(WIDE, { search: '?swarm=off' });
   const view = wide.page;
   await session.still(view);
   const bare = await session.screenshot(view, 'orders-11-bare');
