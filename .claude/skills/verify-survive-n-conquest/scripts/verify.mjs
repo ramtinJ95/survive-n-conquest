@@ -1669,6 +1669,239 @@ SCENARIOS.hauling = async (session) => {
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
+/**
+ * The building pages look north over the camp on seed 7 at 960 by 540, from the opening view: a wheel step in, a turn
+ * of half a radian by a right-drag, and a pan forward, as `takeView` takes them. The rock face lies to the north-west,
+ * the grove to the east, and the camp below the middle. The drags are in clip pixels, and each picks its corner tile
+ * exactly. Chop covers tiles (139, 120) to (142, 126), 7 trees and 14 logs. Quarry covers (117, 111) to (124, 115), 23
+ * rock tiles. The stockpile covers (131, 120) to (132, 121), 4 tiles between the site and the grove. The house page
+ * then zooms in by `BUILD_CLOSER` toward the middle, to 31 m, and places the house on center tile (128, 120) from
+ * there. The label page places it on the same tile from the first view.
+ */
+const BUILD_VIEW = { wheel: -500, turn: { x: 100, y: 0 }, pan: 60 };
+const BUILD_CLOSER = -400;
+const BUILD_SPOTS = {
+  chop: [{ x: 619, y: 278 }, { x: 671, y: 316 }],
+  quarry: [{ x: 377, y: 181 }, { x: 449, y: 238 }],
+  stockpile: [{ x: 525, y: 286 }, { x: 537, y: 292 }],
+  closerHouse: { x: 499, y: 286 },
+  house: { x: 490, y: 279 },
+};
+/**
+ * The boxes are in clip pixels of the closer view: the nine tiles of the site up to the top of the roof, and the land
+ * a tile or two around them, with the near edge of the stockpile. The walkers beside the house are those in `around`
+ * and not in `site`.
+ */
+const BUILD_BOXES = {
+  site: { x: 460, y: 195, width: 80, height: 120 },
+  around: { x: 425, y: 185, width: 150, height: 150 },
+};
+/** The clip keeps the clock, the site with its label, the stockpile, the camp's edge, and the rock face's foot. */
+const BUILD_CLIP = { crop: { x: 230, y: 0, width: 480, height: 440 }, width: 480, colors: 64 };
+/**
+ * The marks go down at 08:15 and the house at 11:30, once carriers have stocked logs, so that the site takes some of
+ * its units from the stockpile. Both are `reach` stops, so each command lands within 4 ticks of the same tick on every
+ * run. On rj-firebat the site held 4 logs and 2 stone at 12:29, 12 and 6 by 16:38, and became a house at 17:53. The
+ * settlers carry stone past the house after dawn on day 2, and those stops have full daylight, as the evening stops
+ * after 17:53 do not.
+ */
+const BUILD_STOPS = {
+  marked: { day: 1, time: '08:15' },
+  placed: { day: 1, time: '11:30' },
+  around: [{ day: 2, time: '08:30' }, { day: 2, time: '09:30' }, { day: 2, time: '10:30' }],
+  day: { day: 1, time: '12:00' },
+  midnight: { day: 2, time: '00:00' },
+};
+/** Wheel pixels that reach the nearest view of 22 m and the farthest of 243 m from any view. */
+const READ_WHEELS = { near: -3000, far: 3000 };
+/** The slate of the house roof, as it looks in the late afternoon: a dark grey with a cool cast. */
+const HOUSE_ROOF = ([r, g, b]) => Math.abs(r - g) <= 8 && b >= g && b - r <= 24 && Math.max(r, g, b) < 100;
+/** The label's text is near white, on a dark panel. */
+const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
+/**
+ * On rj-firebat the stockpile held 5 logs at 11:30. The site held 237 log and 69 stone pixels half supplied, and 228 log
+ * pixels at half its work. Its box held 15 roof pixels at half the work and 3017 once the house stood, and 0 log pixels.
+ * Beside the house stood 340, 308, and 37 villager pixels at the three stops of day 2, a carrier or two. Each label
+ * held 129 to 136 near-white text pixels.
+ */
+const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, roof: 1500, walkers: 150, ink: 60 };
+const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, logsAfter: 10 };
+
+SCENARIOS.building = async (session) => {
+  const seen = [];
+  const site = (page) => page.getByRole('status', { name: 'House site' });
+  const order = (page) => page.getByRole('status', { name: 'Order' });
+  const said = async (page, pattern) => {
+    await order(page).filter({ hasText: pattern }).waitFor({ timeout: 15_000 }).catch(() => {});
+    return (await order(page).textContent()) ?? '';
+  };
+  const reads = async (page) => {
+    if ((await site(page).count()) === 0) return null;
+    const text = await site(page).innerText();
+    const read = /Logs\s*(\d+)\/12\s*Stone\s*(\d+)\/6\s*(?:(Waiting for materials)|(\d+)%)/.exec(text);
+    if (!read) fail(`the site label reads "${text}", not the logs, the stone, and the work`);
+    return { text: text.replace(/\s+/g, ' '), logs: Number(read[1]), stone: Number(read[2]), waiting: Boolean(read[3]), percent: read[4] === undefined ? null : Number(read[4]) };
+  };
+  const totals = async (page) => {
+    const text = (await page.getByRole('status', { name: 'Stockpiles' }).textContent()) ?? '';
+    const read = /Logs(\d+)Stone(\d+)/.exec(text);
+    if (!read) fail(`the Stockpiles panel reads "${text}", not a Logs and a Stone total`);
+    return { logs: Number(read[1]), stone: Number(read[2]) };
+  };
+  const placeHouse = async (page, at) => {
+    await page.keyboard.press('KeyH');
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    const line = await said(page, /House site placed/);
+    await page.keyboard.press('Escape');
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+    return line;
+  };
+  // Runs the clock at 8× until the label shows what `done` waits for, then pauses, so that every check reads a paused frame.
+  const runUntil = async (page, what, done) => {
+    await page.keyboard.press('4');
+    const deadline = Date.now() + 180_000;
+    for (;;) {
+      const label = await reads(page);
+      if (done(label)) break;
+      if (Date.now() > deadline) fail(`the site never ${what} in three minutes at 8×; the label reads "${label?.text ?? 'nothing'}"`);
+      await page.waitForTimeout(100);
+    }
+    await session.pause(page);
+    await session.still(page);
+  };
+  const stop = async (page, label) => ({
+    png: await session.screenshot(page, label),
+    label: await reads(page),
+    totals: await totals(page),
+    at: clockText(await session.gameMinutes(page)),
+  });
+  const count = (png, box, matches) => pixelsIn(png, CLIP.width, box, matches).count;
+  const labelText = (label) => label?.text ?? 'no label';
+
+  const build = await session.open(CLIP, { record: true, clock: 'paused' });
+  const { page } = build;
+  await session.reach(page, BUILD_STOPS.marked);
+  await takeView(session, page, BUILD_VIEW);
+  for (const [key, name, pattern] of [
+    ['KeyC', 'Chop', /^7 trees marked for felling/],
+    ['KeyM', 'Quarry', /^23 rock tiles marked for quarrying/],
+    ['KeyP', 'Stockpile', /^4 tiles join the stockpile zone/],
+  ]) {
+    await page.keyboard.press(key);
+    await session.drag(page, ...BUILD_SPOTS[name.toLowerCase()]);
+    const line = await said(page, pattern);
+    session.check(`a ${name} drag marks its tiles`, pattern.test(line), `the status line reads "${line}"`);
+    await page.keyboard.press('Escape');
+  }
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, BUILD_CLOSER);
+  await session.still(page);
+  await session.reach(page, BUILD_STOPS.placed);
+  const stocked = await totals(page);
+  const placed = await placeHouse(page, BUILD_SPOTS.closerHouse);
+  session.check('a House click places the site', /^House site placed/.test(placed), `the status line reads "${placed}"`);
+  const from = build.since();
+  const empty = await stop(page, 'building-empty');
+  await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
+  const half = await stop(page, 'building-half-supplied');
+  await runUntil(page, 'got half its work done', (label) => label?.percent >= 50);
+  const work = await stop(page, 'building-work');
+  await runUntil(page, 'was finished', (label) => label === null);
+  const done = await stop(page, 'building-finished');
+  const to = build.since() + 2;
+  await page.waitForTimeout(2000);
+  const around = [];
+  for (const when of BUILD_STOPS.around) {
+    await session.reach(page, when);
+    await session.still(page);
+    around.push(await stop(page, `building-around-${when.time.replace(':', '')}`));
+  }
+  await session.finishClips(build.context, page, [{ label: 'building', from, to, ...BUILD_CLIP }]);
+  seen.push(...build.errors);
+
+  session.check(
+    `at ${empty.at} the empty site's label reads 0 of 12 logs and 0 of 6 stone, and no work`,
+    empty.label?.logs === 0 && empty.label.stone === 0 && empty.label.waiting,
+    `the label reads "${labelText(empty.label)}"`,
+  );
+  const goods = (shot) => ({ logs: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.logs), stone: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.stone) });
+  const goodsAt = { empty: goods(empty), half: goods(half), work: goods(work), done: goods(done) };
+  session.check(
+    `at ${empty.at} nothing lies on the site`,
+    goodsAt.empty.logs <= BUILD_MOST.goodsBefore && goodsAt.empty.stone <= BUILD_MOST.goodsBefore,
+    `${goodsAt.empty.logs} log and ${goodsAt.empty.stone} stone pixels on the site, needs at most ${BUILD_MOST.goodsBefore} of each`,
+  );
+  session.check(
+    `at ${half.at} the label shows some but not all of each good`,
+    half.label?.logs > 0 && half.label.logs < 12 && half.label.stone > 0 && half.label.stone < 6 && half.label.waiting,
+    `the label reads "${labelText(half.label)}"`,
+  );
+  session.check(
+    `at ${half.at} the delivered units lie on the site's tiles`,
+    goodsAt.half.logs >= BUILD_LEAST.logs && goodsAt.half.stone >= BUILD_LEAST.stone,
+    `${goodsAt.half.logs} log and ${goodsAt.half.stone} stone pixels on the site, needs ${BUILD_LEAST.logs} and ${BUILD_LEAST.stone}`,
+  );
+  const leastStocked = Math.min(half.totals.logs, work.totals.logs);
+  session.check(
+    'the site takes logs from the stockpile',
+    stocked.logs >= BUILD_LEAST.stocked && leastStocked < stocked.logs,
+    `Logs ${stocked.logs} in the stockpile when the house was placed, ${half.totals.logs} at ${half.at}, and ${work.totals.logs} at ${work.at}`,
+  );
+  session.check(
+    `at ${work.at} every unit has arrived and the work bar reads above 0 and below 100`,
+    work.label?.logs === 12 && work.label.stone === 6 && work.label.percent > 0 && work.label.percent < 100,
+    `the label reads "${labelText(work.label)}"`,
+  );
+  const roof = { work: count(work.png, BUILD_BOXES.site, HOUSE_ROOF), done: count(done.png, BUILD_BOXES.site, HOUSE_ROOF) };
+  session.check(
+    `at ${done.at} the label is gone and the house stands on the site`,
+    done.label === null && roof.work <= BUILD_MOST.roofBefore && roof.done >= BUILD_LEAST.roof,
+    `${done.label ? `the label reads "${done.label.text}"` : 'no label'}; ${roof.work} roof pixels on the site at ${work.at} and ${roof.done} at ${done.at}, needs at most ${BUILD_MOST.roofBefore} and then ${BUILD_LEAST.roof}`,
+  );
+  session.check(
+    `at ${done.at} the house has used up the units on its tiles`,
+    goodsAt.work.logs >= BUILD_LEAST.logs && goodsAt.done.logs <= BUILD_MOST.logsAfter,
+    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logs} and then at most ${BUILD_MOST.logsAfter}`,
+  );
+  const walkers = around.map((shot) => ({
+    at: shot.at,
+    beside: count(shot.png, BUILD_BOXES.around, UNIT_COLORS.villagers) - count(shot.png, BUILD_BOXES.site, UNIT_COLORS.villagers),
+  }));
+  session.check(
+    'on the morning of day 2 settlers walk beside the house',
+    Math.max(...walkers.map((stop) => stop.beside)) >= BUILD_LEAST.walkers,
+    walkers.map((stop) => `${stop.beside} villager pixels around the house at ${stop.at}`).join(', ') + `; needs ${BUILD_LEAST.walkers} at one of them`,
+  );
+
+  const labels = await session.open(CLIP, { clock: 'paused' });
+  await takeView(session, labels.page, BUILD_VIEW);
+  await placeHouse(labels.page, BUILD_SPOTS.house);
+  for (const stopName of ['day', 'midnight']) {
+    await session.reach(labels.page, BUILD_STOPS[stopName]);
+    for (const zoom of ['near', 'far']) {
+      await labels.page.mouse.wheel(0, READ_WHEELS[zoom]);
+      await session.still(labels.page);
+      const png = await session.screenshot(labels.page, `building-label-${stopName}-${zoom}`);
+      const label = await reads(labels.page);
+      const box = await site(labels.page).boundingBox();
+      const inside = box && box.x >= 0 && box.y >= 0 && box.x + box.width <= CLIP.width && box.y + box.height <= CLIP.height;
+      const ink = inside ? count(png, { x: Math.ceil(box.x), y: Math.ceil(box.y), width: Math.floor(box.width), height: Math.floor(box.height) }, LABEL_INK) : 0;
+      const when = clockText(clockMinutes(BUILD_STOPS[stopName]));
+      session.check(
+        `at ${when}, at the ${zoom} zoom, the label lies inside the window and its text reads`,
+        Boolean(inside) && label?.logs === 0 && label.stone === 0 && label.waiting && ink >= BUILD_LEAST.ink,
+        `${box ? `box ${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'no box'}; reads "${labelText(label)}"; ${ink} near-white text pixels in the box, needs ${BUILD_LEAST.ink}`,
+      );
+    }
+  }
+  await labels.context.close();
+  seen.push(...labels.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
 /** Where each order goes on the opening view of seed 7, as shares of the viewport's width and height. */
 const ORDER_SPOTS = {
   chop: [[0.577, 0.488], [0.63, 0.571]],
