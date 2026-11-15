@@ -61,6 +61,7 @@ export function endTask(sim: Sim, id: number): void {
   villagers.task[id] = NO_TASK;
   villagers.taskTile[id] = -1;
   villagers.workTile[id] = -1;
+  villagers.destination[id] = -1;
   villagers.pathLength[id] = 0;
   villagers.pathCursor[id] = 0;
 }
