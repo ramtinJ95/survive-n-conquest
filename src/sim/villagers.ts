@@ -19,10 +19,12 @@ const SPOT_CHECKS = 16;
 
 /**
  * What a villager is doing. By day it is idle near the camp, or walks its route
- * to a task and works it there. By night it walks the flow field to the camp
- * center, then out to its spot, where it stays until dawn.
+ * to a task and works it there. A villager whose task just ended waits where it
+ * stands until it next looks for work, so it does not wander off between two
+ * tasks at the same place. By night it walks the flow field to the camp center,
+ * then out to its spot, where it stays until dawn.
  */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingHome: 3, Settling: 4 } as const;
+export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingHome: 3, Settling: 4, Waiting: 5 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
@@ -253,11 +255,11 @@ function walkRoute(sim: Sim, id: number): boolean {
   return true;
 }
 
-/** Ends the villager's task and leaves it idle where it stands. */
+/** Ends the villager's task and leaves it waiting where it stands for its next look for work. */
 function stopTask(sim: Sim, id: number): void {
   const { villagers } = sim;
   endTask(sim, id);
-  villagers.state[id] = VillagerState.Idle;
+  villagers.state[id] = VillagerState.Waiting;
   villagers.targetX[id] = villagers.x[id]!;
   villagers.targetY[id] = villagers.y[id]!;
 }
@@ -306,10 +308,9 @@ export function moveVillagers(sim: Sim, night: boolean): void {
       villagers.targetX[id] = villagers.x[id]!;
       villagers.targetY[id] = villagers.y[id]!;
     }
-    if (state[id] === VillagerState.Idle && id % THINK_GROUPS === group && takeTask(sim, id)) {
-      state[id] = VillagerState.Walking;
-    }
+    const free = state[id] === VillagerState.Idle || state[id] === VillagerState.Waiting;
+    if (free && id % THINK_GROUPS === group) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
     if (state[id] === VillagerState.Idle) idle(sim, id);
-    else doTask(sim, id);
+    else if (state[id] !== VillagerState.Waiting) doTask(sim, id);
   }
 }

@@ -211,6 +211,22 @@ describe('quarrying', () => {
     expect([sim.map.stackGood[tree], sim.map.stackSize[tree]]).toEqual([Good.Log, 2]);
   });
 
+  it('keeps a quarrying villager on its work tile between one stone and the next, far from the camp', () => {
+    const rows = open(24);
+    rows[2] = '..#' + '.'.repeat(21);
+    const sim = simOn(rows, 1);
+    const rock = at(sim.map, 2, 2);
+    applyCommand(sim, mark('quarry', 2, 2));
+    runUntil(sim, () => working(sim, 0, rock), 500);
+    const work = sim.villagers.workTile[0]!;
+    const campX = (sim.camp % 24) + 0.5;
+    const campY = Math.floor(sim.camp / 24) + 0.5;
+    expect(Math.max(Math.abs((work % 24) + 0.5 - campX), Math.abs(Math.floor(work / 24) + 0.5 - campY))).toBeGreaterThan(WANDER_REACH);
+    const stray = new Set<number>();
+    runUntil(sim, () => stoneOnTheGround(sim) === 3, 1000, () => stray.add(standsOn(sim, 0)));
+    expect([...stray]).toEqual([work]);
+  });
+
   it('walks settlers across a spent rock tile', () => {
     const sim = simOn(WALL, 2);
     const rock = at(sim.map, 6, 5);
@@ -377,7 +393,7 @@ describe('a task', () => {
     applyCommand(sim, mark('cancel', 2, 2, 4, 4));
     step(sim);
     expect(sim.villagers.task[0]).toBe(0);
-    expect(sim.villagers.state[0]).toBe(VillagerState.Idle);
+    expect(sim.villagers.state[0]).toBe(VillagerState.Waiting);
     expect(sim.map.trees[tree]).toBe(1);
     for (let i = 0; i < 50; i++) step(sim);
     expect(holders(sim, tree)).toEqual([]);
@@ -427,16 +443,14 @@ describe('a task', () => {
     }
     applyCommand(sim, mark('chop', 4, 4));
     let ticks = 0;
-    let givenUp = 0;
-    let holding = false;
+    let freeAfterWork = 0;
     runUntil(sim, () => sim.tick === 600, 600, () => {
       if (working(sim, 0, tree)) ticks++;
-      if (holding && sim.villagers.task[0] === 0) givenUp++;
-      holding = sim.villagers.task[0] !== 0;
+      if (ticks === 199 && sim.villagers.task[0] === 0) freeAfterWork++;
     });
     // The 200th tick of work finds no room, so it ends the task instead of leaving the villager working.
     expect(ticks).toBe(199);
-    expect(givenUp).toBeGreaterThan(2);
+    expect(freeAfterWork).toBeGreaterThan(300);
     expect(sim.map.trees[tree]).toBe(1);
     expect(sim.orders.claims[tree]).toBe(Claim.Chop);
     expect(land.map((tile) => [sim.map.stackGood[tile], sim.map.stackSize[tile]])).toEqual(land.map(() => [Good.Stone, 8]));
