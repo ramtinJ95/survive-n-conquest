@@ -41,6 +41,7 @@ let tick = 0;
 renderer.setAnimationLoop((now) => {
   rig.update(Math.min((now - lastFrame) / 1000, LONGEST_FRAME));
   lastFrame = now;
+  toolbar.follow();
   show(tick);
   renderer.render(scene, camera);
 });

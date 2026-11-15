@@ -126,8 +126,10 @@ function toolButton(tool: Tool): HTMLButtonElement {
   return node;
 }
 
-interface Drag {
+/** A press of the main button on the map with a tool: a drag for an area tool, a click for House. */
+interface Gesture {
   readonly pointer: number;
+  readonly tool: Tool;
   readonly from: PickedTile;
   to: PickedTile;
 }
@@ -162,8 +164,10 @@ export function mountOrders(
   root.append(toolbar, status);
 
   let tool: Tool | null = null;
-  let drag: Drag | null = null;
+  let gesture: Gesture | null = null;
   let hovered: PickedTile | null = null;
+  /** Where the pointer rests over the map, so that the tile under it follows the camera. */
+  let pointerAt: { x: number; y: number } | null = null;
   /** The tile a house was just placed on. Its preview stays hidden until the pointer moves on, so the new site shows. */
   let placed: PickedTile | null = null;
   let outcome: { text: string; refused: boolean; until: number } | null = null;
@@ -186,6 +190,7 @@ export function mountOrders(
     kinds.length = 0;
     let line = tool?.hint ?? '';
     let refused = false;
+    const drag = gesture && gesture.tool.id !== 'house' ? gesture : null;
     const color = tool ? ORDER_COLORS[tool.id] : ORDER_COLORS.chop;
     if (tool && tool.id !== 'house' && (drag || hovered)) {
       const corners = drag ? area(drag.from, drag.to) : area(hovered!, hovered!);
@@ -224,7 +229,7 @@ export function mountOrders(
 
   const choose = (next: Tool | null) => {
     tool = next;
-    drag = null;
+    gesture = null;
     for (const [id, node] of buttons) node.setAttribute('aria-pressed', String(id === next?.id));
     canvas.toggleAttribute('data-order-tool', next !== null);
     toolbar.toggleAttribute('data-active', next !== null);
@@ -236,54 +241,62 @@ export function mountOrders(
 
   const send = (command: OrderCommand) => worker.postMessage(command);
 
-  const pickAt = (event: PointerEvent) => pick(event.clientX, event.clientY, canvas.clientWidth, canvas.clientHeight);
+  const pickAt = (x: number, y: number) => pick(x, y, canvas.clientWidth, canvas.clientHeight);
 
-  canvas.addEventListener('pointermove', (event) => {
-    if (!tool) return;
-    const at = pickAt(event);
-    if (drag && event.pointerId === drag.pointer) {
-      if (sameTile(drag.to, at)) return;
-      drag.to = at;
+  /** Finds the tile under the pointer again, and redraws the preview when it changed. */
+  const track = (x: number, y: number) => {
+    const at = pickAt(x, y);
+    if (gesture) {
+      if (sameTile(gesture.to, at)) return;
+      gesture.to = at;
     } else if (sameTile(hovered, at)) {
       return;
     }
     hovered = at;
     placed = null;
     preview();
+  };
+
+  canvas.addEventListener('pointermove', (event) => {
+    pointerAt = { x: event.clientX, y: event.clientY };
+    if (tool) track(event.clientX, event.clientY);
   });
   canvas.addEventListener('pointerleave', () => {
-    if (drag) return;
+    pointerAt = null;
+    if (gesture) return;
     hovered = null;
     preview();
   });
   canvas.addEventListener('pointerdown', (event) => {
     if (!tool || event.button !== 0) return;
-    hovered = pickAt(event);
-    if (tool.id !== 'house') drag = { pointer: event.pointerId, from: hovered, to: hovered };
+    hovered = pickAt(event.clientX, event.clientY);
+    gesture = { pointer: event.pointerId, tool, from: hovered, to: hovered };
     preview();
   });
   canvas.addEventListener('pointerup', (event) => {
-    if (!tool || event.button !== 0) return;
-    const at = pickAt(event);
+    if (event.button !== 0) return;
+    const pressed = gesture;
+    gesture = null;
+    if (!tool || pressed?.pointer !== event.pointerId || pressed.tool !== tool) return;
+    const at = pickAt(event.clientX, event.clientY);
     if (tool.id === 'house') {
       if (at.onMap) send({ kind: 'placeHouse', x: at.x, y: at.y });
-    } else if (drag && event.pointerId === drag.pointer) {
-      send({ kind: 'markArea', order: tool.id, area: area(drag.from, at) });
-      drag = null;
+    } else {
+      send({ kind: 'markArea', order: tool.id, area: area(pressed.from, at) });
     }
     hovered = at;
     preview();
   });
   canvas.addEventListener('pointercancel', () => {
-    drag = null;
+    gesture = null;
     preview();
   });
 
   window.addEventListener('keydown', (event) => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Escape') {
-      if (drag) {
-        drag = null;
+      if (gesture) {
+        gesture = null;
         preview();
       } else if (tool) {
         choose(null);
@@ -316,5 +329,9 @@ export function mountOrders(
     /** True while no tool is active, so that a drag with the main button moves the camera. */
     mainButtonPans: () => tool === null,
     heard,
+    /** Keeps the tile under a resting pointer up to date while the camera moves. Call once a frame. */
+    follow: () => {
+      if (tool && pointerAt) track(pointerAt.x, pointerAt.y);
+    },
   };
 }
