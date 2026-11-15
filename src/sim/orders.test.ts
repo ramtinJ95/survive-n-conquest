@@ -6,6 +6,7 @@ import {
   Claim,
   MAX_SITES,
   type OrderCommand,
+  SITE_CHANGE_STRIDE,
   type Orders,
   SiteState,
   type TileArea,
@@ -15,6 +16,8 @@ import {
   openGround,
   siteRefusal,
   applyOrderChanges,
+  finishSite,
+  setSiteWork,
   takeOrderChanges,
 } from './orders';
 import { underCamp } from './camp';
@@ -85,8 +88,15 @@ function slotAt(orders: Orders, x: number, y: number): number {
 }
 
 /** The state the orders hold, without their scratch buffers and change log. */
-function stateOf({ claims, sites }: Orders) {
-  return { claims: claims.slice(), x: sites.x.slice(), y: sites.y.slice(), state: sites.state.slice() };
+function stateOf({ claims, sites, siteOf }: Orders) {
+  return {
+    claims: claims.slice(),
+    x: sites.x.slice(),
+    y: sites.y.slice(),
+    state: sites.state.slice(),
+    work: sites.work.slice(),
+    siteOf: siteOf.slice(),
+  };
 }
 
 describe('open ground', () => {
@@ -197,6 +207,20 @@ describe('area orders', () => {
 });
 
 describe('placing a house', () => {
+  it('points each of its nine tiles at its slot, and at none once it is cancelled, with its work lost', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    applyOrder(map, orders, house(4, 5));
+    const slot = slotAt(orders, 4, 5);
+    setSiteWork(orders, slot, 300);
+    expect(tilesWhere(map, (tile) => orders.siteOf[tile] === slot)).toEqual(nine(map, 4, 5));
+    expect(tilesWhere(map, (tile) => orders.siteOf[tile] !== -1)).toEqual(nine(map, 4, 5));
+    applyOrder(map, orders, mark('cancel', area(3, 4)));
+    expect(tilesWhere(map, (tile) => orders.siteOf[tile] !== -1)).toEqual([]);
+    applyOrder(map, orders, house(4, 5));
+    expect(orders.sites.work[slotAt(orders, 4, 5)]).toBe(0);
+  });
+
   it('claims its nine tiles and takes a slot in the sites table', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
@@ -418,6 +442,41 @@ describe('order changes', () => {
       applyOrderChanges(mirror, takeOrderChanges(orders));
       expect(stateOf(mirror)).toEqual(stateOf(orders));
     }
+  });
+
+  it('bring another copy to the same sites when a slot is freed and taken again between two frames', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    const mirror = createOrders(map);
+    const sync = () => {
+      applyOrderChanges(mirror, takeOrderChanges(orders));
+      expect(stateOf(mirror)).toEqual(stateOf(orders));
+    };
+    applyOrder(map, orders, house(3, 3));
+    applyOrder(map, orders, house(15, 15));
+    sync();
+    applyOrder(map, orders, mark('cancel', area(0, 0, 19, 19)));
+    applyOrder(map, orders, house(15, 15));
+    expect(orders.siteOf[15 * 20 + 15]).toBe(0);
+    sync();
+    setSiteWork(orders, 0, 450);
+    sync();
+    setSiteWork(orders, 0, 900);
+    finishSite(orders, 0);
+    sync();
+  });
+
+  it('list each changed site once as a slot, its center, its state, and its work', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    applyOrder(map, orders, house(4, 4));
+    applyOrder(map, orders, house(12, 12));
+    expect(Array.from(takeOrderChanges(orders).sites)).toEqual([0, 4, 4, SiteState.Site, 0, 1, 12, 12, SiteState.Site, 0]);
+    setSiteWork(orders, 1, 7);
+    setSiteWork(orders, 1, 8);
+    const { claims, sites } = takeOrderChanges(orders);
+    expect([claims.length, Array.from(sites)]).toEqual([0, [1, 12, 12, SiteState.Site, 8]]);
+    expect(SITE_CHANGE_STRIDE).toBe(5);
   });
 
   it('list nothing after a refused order', () => {
