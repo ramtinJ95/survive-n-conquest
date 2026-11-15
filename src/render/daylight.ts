@@ -36,17 +36,17 @@ interface Body {
 }
 
 const SUN: Body = {
-  strength: 2.5,
+  strength: 3.4,
   full: 0.22,
   low: new Color(0xff8a3d),
-  high: new Color(0xfff0d2),
+  high: new Color(0xffe9c2),
   clear: 0.42,
   lowest: 0.2,
   highest: 1,
 };
 /** The moon keeps one height all night, so the night is as bright at dusk as at midnight. */
 const MOON: Body = {
-  strength: 0.7,
+  strength: 0.75,
   full: 0.07,
   low: new Color(0x9bb8ff),
   high: new Color(0x9bb8ff),
@@ -73,11 +73,15 @@ const ambience = (height: number, backdrop: number, sky: number, ground: number,
 });
 
 const NIGHT = ambience(-0.22, 0x0b1126, 0x4f73c9, 0x141c30, 0.6);
-const DUSK = ambience(-MOON.full, 0x35325f, 0x8a7fc4, 0x3a3050, 0.95);
-const HORIZON = ambience(0, 0xe6a584, 0xffd2b0, 0x7a5846, 1.15);
-const GOLDEN_HOUR = ambience(0.12, 0xd4d3da, 0xffecd6, 0x8f7a5e, 1.35);
+const DUSK = ambience(-MOON.full, 0x35325f, 0x9a86d8, 0x3a3050, 1.0);
+const HORIZON = ambience(0, 0xe6a584, 0xffc49c, 0x7a5846, 1.3);
+const GOLDEN_HOUR = ambience(0.12, 0xd4d3da, 0xffe4c4, 0x8f7a5e, 1.35);
 /** The sun is this high when the day is in full light. */
 const DAY_HEIGHT = 0.35;
+/** By day the sky lights the shade in its own blue, far weaker than the sun, so shadows are cool and deep. */
+const DAY_SKY = { sky: 0xb9d6ff, ground: 0x9a8a64, strength: 1.2 };
+/** Haze starts at this share of the camera's distance from the point it looks at and is complete at `full` times it, or at `farthest` meters. */
+const HAZE = { from: 0.7, full: 8, farthest: 900 };
 
 const SHADOW_MAP_SIZE = 2048;
 /** A shadow starts this far behind the surface that casts it, in meters, so that no surface shades itself. */
@@ -100,7 +104,9 @@ function blend(keys: readonly Ambience[], height: number, out: Ambience): void {
 
 /**
  * Adds the sky, the sun, and the moon to a scene. The returned function lights
- * the scene for a tick. The sun rises in the east at +x, stands in the south
+ * the scene for a tick and returns the height of the sun, the sine of its
+ * elevation. The land fades into the color behind the map with its distance
+ * from the camera. The sun rises in the east at +x, stands in the south
  * at +z at noon, and sets in the west. One light is the sun by day and the
  * moon by night. The moon is always opposite the sun, and each is dark on the
  * horizon, so the change from one to the other never shows.
@@ -111,7 +117,7 @@ function blend(keys: readonly Ambience[], height: number, out: Ambience): void {
  */
 export function createDaylight(scene: Scene, mapSize: number, lowest: number, highest: number) {
   const backdrop = new Color();
-  const fog = new Fog(backdrop, mapSize * 0.8, mapSize * 3.2);
+  const fog = new Fog(backdrop);
   scene.background = backdrop;
   scene.fog = fog;
 
@@ -133,7 +139,7 @@ export function createDaylight(scene: Scene, mapSize: number, lowest: number, hi
   lens.far = 2 * lightDistance;
   light.shadow.bias = -SHADOW_BIAS / (lens.far - lens.near);
 
-  const day = ambience(DAY_HEIGHT, 0, 0xdcecff, 0x8f7f5e, 1.35);
+  const day = ambience(DAY_HEIGHT, 0, DAY_SKY.sky, DAY_SKY.ground, DAY_SKY.strength);
   const keys = [NIGHT, DUSK, HORIZON, GOLDEN_HOUR, day];
   const now: Ambience = { height: 0, backdrop, sky: sky.color, ground: sky.groundColor, strength: 0 };
   const toBody = new Vector3();
@@ -206,6 +212,10 @@ export function createDaylight(scene: Scene, mapSize: number, lowest: number, hi
     blend(keys, height, now);
     sky.intensity = now.strength;
     fog.color.copy(backdrop);
+    const distance = camera.position.distanceTo(focus);
+    fog.near = HAZE.from * distance;
+    fog.far = Math.min(HAZE.full * distance, HAZE.farthest);
     aimShadows(camera, focus);
+    return height;
   };
 }

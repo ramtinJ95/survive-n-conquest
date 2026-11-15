@@ -46,8 +46,8 @@ function drawn(name: string, tick: number): Color {
 const spread = ({ r, g, b }: Color) => Math.max(r, g, b) - Math.min(r, g, b);
 
 describe('the colors of the seasons', () => {
-  it('reach the shader of the terrain, the water, and every tree and boulder', () => {
-    for (const name of ['terrain', 'water', 'pines', 'broadleaves', 'boulders']) {
+  it('reach the shader of the terrain, the water, and every tree, boulder, and plant', () => {
+    for (const name of ['terrain', 'water', 'sea bed', 'pines', 'oaks', 'blossoms', 'birches', 'boulders', 'grass tufts', 'flowers', 'bushes', 'pebbles', 'reeds']) {
       const { vertexShader } = compiled(scene.getObjectByName(name) as Mesh);
       for (const attribute of SEASON_COLORS) expect(vertexShader, name).toContain(`* ${attribute}`);
     }
@@ -66,21 +66,21 @@ describe('the colors of the seasons', () => {
     expect(spread(winter!)).toBeLessThan(0.15);
   });
 
-  it('turn the broadleaf trees orange in autumn and pale in winter, and leave the pines green', () => {
-    const leaves = drawn('broadleaves', AUTUMN);
-    expect(leaves.r).toBeGreaterThan(1.5 * leaves.g);
+  it.each(['oaks', 'blossoms', 'birches'])('turn the %s orange in autumn and pale in winter, and leave the pines green', (name) => {
+    const leaves = drawn(name, AUTUMN);
+    expect(leaves.r).toBeGreaterThan(1.3 * leaves.g);
     expect(leaves.g).toBeGreaterThan(1.5 * leaves.b);
-    expect(spread(drawn('broadleaves', WINTER))).toBeLessThan(0.1);
-    const summerLeaves = drawn('broadleaves', SUMMER);
+    expect(spread(drawn(name, WINTER))).toBeLessThan(0.1);
+    const summerLeaves = drawn(name, SUMMER);
     expect(summerLeaves.g).toBeGreaterThan(1.5 * summerLeaves.r);
     const pines = drawn('pines', AUTUMN);
     expect(pines.g).toBeGreaterThan(1.3 * pines.r);
   });
 
-  it('blossom on the broadleaf trees in spring only', () => {
-    const top = (tick: number) => {
+  it('blossom on the blossom trees in spring only, and never on the oaks', () => {
+    const top = (tick: number, name = 'blossoms') => {
       show(tick);
-      const trees = scene.getObjectByName('broadleaves') as InstancedMesh;
+      const trees = scene.getObjectByName(name) as InstancedMesh;
       const mix = compiled(trees).uniforms.seasonMix!.value;
       const last = trees.geometry.getAttribute('position').count - 1;
       const color = new Color(0, 0, 0);
@@ -92,6 +92,7 @@ describe('the colors of the seasons', () => {
     };
     expect(top(SPRING).r).toBeGreaterThan(top(SPRING).g);
     expect(top(SUMMER).g).toBeGreaterThan(top(SUMMER).r);
+    expect(top(SPRING, 'oaks').g).toBeGreaterThan(top(SPRING, 'oaks').r);
   });
 });
 

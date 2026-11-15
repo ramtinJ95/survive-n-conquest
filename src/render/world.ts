@@ -1,4 +1,4 @@
-import { type IUniform, type Material, Mesh, PlaneGeometry, Scene, Vector4 } from 'three';
+import { type Material, MathUtils, Scene, Vector4 } from 'three';
 import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
@@ -7,49 +7,39 @@ import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
 import { createGoods } from './goods';
-import { PALETTES } from './palette';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
 import type { Shapes } from './shapes';
 import { createSites } from './sites';
-import { SEASON_COLORS, seasonMixAt, seasonalMaterial } from './seasonal';
+import { seasonMixAt } from './seasonal';
 import { createTerrain } from './terrainMesh';
+import { createWater } from './water';
 
-const NEAREST_VIEW = 22;
+const NEAREST_VIEW = 14;
 /** The camera flies this far above the tallest tree, in meters. */
 const TREETOP_MARGIN = 1;
-
-function createWater(map: TileMap, seasonMix: IUniform<Vector4>): Mesh {
-  const surface = new PlaneGeometry(map.size, map.size);
-  const corners = surface.getAttribute('position').count;
-  PALETTES.forEach((palette, season) => {
-    const { r, g, b } = palette.water;
-    const colors = surface.getAttribute('position').clone();
-    for (let corner = 0; corner < corners; corner++) colors.setXYZ(corner, r, g, b);
-    surface.setAttribute(SEASON_COLORS[season]!, colors);
-  });
-  const water = new Mesh(surface, seasonalMaterial(seasonMix, { transparent: true, opacity: 0.72, depthWrite: false }));
-  water.name = 'water';
-  water.rotation.x = -Math.PI / 2;
-  water.position.y = WATER_LEVEL;
-  water.receiveShadow = true;
-  return water;
-}
+/** The fire of the camp lights the land around it from the time the sun stands this low, and at its full strength once the sun is down. The heights are sines of the sun's elevation. */
+const FIRELIT = { from: 0.3, full: -0.05 };
 
 /**
  * Builds the scene for a map, centered on the world origin, out of `shapes`,
- * and the camera that flies over it. `show` lights the scene and colors the land for a tick
- * of the simulation clock. The simulation owns the map, and `changeTiles`
- * brings this copy of it, the ground, and the scenery up to date.
+ * and the camera that flies over it. `show` lights the scene and colors the
+ * land for a tick of the simulation clock. `time` is the clock in ticks with
+ * the part of a tick that has passed, and moves the wind, the water, and the
+ * fire: it is the tick itself while the clock is paused, so a paused world
+ * holds still. The simulation owns the map, and `changeTiles` brings this copy
+ * of it, the ground, and the scenery up to date.
  */
 export function createWorld(map: TileMap, shapes: Shapes) {
   const scene = new Scene();
   const seasonMix = { value: new Vector4(1, 0, 0, 0) };
-  const { terrain, repaint } = createTerrain(map, seasonMix);
-  const scenery = createScenery(map, seasonMix);
+  const clock = { value: 0 };
   const camp = campTile(map);
+  const { terrain, repaint } = createTerrain(map, seasonMix, camp);
+  const scenery = createScenery(map, seasonMix, clock, camp);
   const campsite = createCamp(map, camp, shapes);
-  scene.add(terrain, createWater(map, seasonMix), campsite.mesh, ...scenery.meshes);
+  const { water, bed } = createWater(map, seasonMix, clock);
+  scene.add(terrain, bed, water, campsite.mesh, ...scenery.meshes);
   let lowest = WATER_LEVEL;
   let highest = WATER_LEVEL;
   for (const height of map.heights) {
@@ -78,9 +68,10 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
-  const show = (tick: number) => {
-    light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
-    campsite.show(tick);
+  const show = (tick: number, time = tick) => {
+    clock.value = time;
+    const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
+    campsite.show(time, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
 
@@ -98,7 +89,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
       map.stackGood[tile] = groups[i + 3]!;
       map.stackSize[tile] = groups[i + 4]!;
       if (reshaped) repaint(tile);
-      if (reshaped || felled) scenery.refresh(tile);
+      if (reshaped || felled || stacked) scenery.refresh(tile);
       if (stacked) goods.refresh(tile);
     }
   };

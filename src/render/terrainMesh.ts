@@ -1,4 +1,5 @@
 import { BufferAttribute, BufferGeometry, Color, type IUniform, Mesh, type Vector4 } from 'three';
+import { CAMP_RADIUS } from '../sim/camp';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { fractalNoise, hashUnit } from '../sim/noise';
 import { PALETTES, type Palette } from './palette';
@@ -6,50 +7,70 @@ import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 
 /** How far the cut edge of the map reaches below the water level, in meters. */
 const SLAB_DEPTH = 7;
-const FACET_SHIMMER = 0.1;
-/** Meadow patches are about this many meters across. */
+const FACET_SHIMMER = 0.12;
+/** Meadow patches are about this many meters across, and patches of lush grass about this many. */
 const MEADOW_SPAN = 26;
+const LUSH_SPAN = 11;
+/** The feet of the settlers wear the grass down to soil around the middle of the camp: all of it up to `full` meters, none past `none`. */
+const WEAR = { full: CAMP_RADIUS + 0.3, none: CAMP_RADIUS + 2.6, ragged: 0.9 };
 
 function ramp(from: number, to: number, value: number): number {
   return Math.min(Math.max((value - from) / (to - from), 0), 1);
 }
 
-/** The ground color of a tile from its height and from `meadow`, a slow noise in about [-1, 1]. */
-const GROUND_COLOR: Record<TileKind, (palette: Palette, height: number, meadow: number, out: Color) => Color> = {
-  [TileKind.Grass]: (palette, height, meadow, out) =>
-    out
-      .lerpColors(palette.grassLow, palette.grassHigh, ramp(2, 16, height))
-      .lerp(palette.meadow, 0.6 * ramp(-0.2, 0.4, meadow))
-      .lerp(palette.sand, 1 - ramp(0.15, 0.9, height)),
-  [TileKind.Forest]: (palette, height, meadow, out) =>
-    out
-      .lerpColors(palette.forestFloor, palette.grassHigh, 0.35 * ramp(4, 18, height))
-      .lerp(palette.meadow, 0.2 * ramp(-0.2, 0.4, meadow)),
-  [TileKind.Rock]: (palette, height, _meadow, out) =>
-    out.lerpColors(palette.rockLow, palette.rockHigh, ramp(3, 20, height)),
-  [TileKind.Water]: (palette, height, _meadow, out) =>
-    out.lerpColors(palette.sand, palette.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
-  [TileKind.Bare]: (palette, _height, meadow, out) =>
-    out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)),
-  [TileKind.House]: (palette, _height, meadow, out) =>
-    out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)),
-};
-
-function meadows(map: TileMap): Float32Array {
-  const noise = new Float32Array(map.size * map.size);
-  for (let i = 0; i < noise.length; i++) {
-    const x = (i % map.size) / MEADOW_SPAN;
-    const y = Math.floor(i / map.size) / MEADOW_SPAN;
-    noise[i] = fractalNoise(map.seed, x, y, 2);
-  }
-  return noise;
+/** What colors the ground of a tile besides its kind: its height, two slow noises in about [-1, 1], and the share of it worn to soil. */
+interface Ground {
+  height: number;
+  meadow: number;
+  lush: number;
+  worn: number;
 }
 
-function tileColors(map: TileMap, palette: Palette, meadow: Float32Array): Float32Array {
+const GROUND_COLOR: Record<TileKind, (palette: Palette, ground: Ground, out: Color) => Color> = {
+  [TileKind.Grass]: (palette, { height, meadow, lush, worn }, out) =>
+    out
+      .lerpColors(palette.grassLow, palette.grassHigh, ramp(2, 16, height))
+      .lerp(palette.grassLush, 0.75 * ramp(-0.1, 0.5, lush))
+      .lerp(palette.meadow, 0.6 * ramp(-0.2, 0.4, meadow))
+      .lerp(palette.sand, 1 - ramp(0.15, 0.9, height))
+      .lerp(palette.worn, worn),
+  [TileKind.Forest]: (palette, { height, meadow, lush }, out) =>
+    out
+      .lerpColors(palette.forestFloor, palette.grassHigh, 0.35 * ramp(4, 18, height))
+      .lerp(palette.grassLush, 0.3 * ramp(-0.1, 0.5, lush))
+      .lerp(palette.meadow, 0.2 * ramp(-0.2, 0.4, meadow)),
+  [TileKind.Rock]: (palette, { height }, out) => out.lerpColors(palette.rockLow, palette.rockHigh, ramp(3, 20, height)),
+  [TileKind.Water]: (palette, { height }, out) =>
+    out.lerpColors(palette.sand, palette.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
+  [TileKind.Bare]: (palette, { meadow, worn }, out) =>
+    out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)).lerp(palette.worn, worn),
+  [TileKind.House]: (palette, { meadow, worn }, out) =>
+    out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)).lerp(palette.worn, worn),
+};
+
+/** Reads what colors the ground of each tile, apart from its kind. */
+function groundOf(map: TileMap, camp: number): (tile: number) => Ground {
+  const { size, seed, heights } = map;
+  const campX = camp % size;
+  const campY = Math.floor(camp / size);
+  const ground: Ground = { height: 0, meadow: 0, lush: 0, worn: 0 };
+  return (tile) => {
+    const x = tile % size;
+    const y = Math.floor(tile / size);
+    const fromCamp = Math.hypot(x - campX, y - campY) + WEAR.ragged * (hashUnit(seed ^ 0x3a7, x, y) - 0.5);
+    ground.height = heights[tile]!;
+    ground.meadow = fractalNoise(seed, x / MEADOW_SPAN, y / MEADOW_SPAN, 2);
+    ground.lush = fractalNoise(seed ^ 0x1c5, x / LUSH_SPAN, y / LUSH_SPAN, 2);
+    ground.worn = 1 - ramp(WEAR.full, WEAR.none, fromCamp);
+    return ground;
+  };
+}
+
+function tileColors(map: TileMap, palette: Palette, groundAt: (tile: number) => Ground): Float32Array {
   const colors = new Float32Array(map.size * map.size * 3);
   const color = new Color();
   for (let i = 0; i < map.size * map.size; i++) {
-    GROUND_COLOR[map.kinds[i] as TileKind](palette, map.heights[i]!, meadow[i]!, color).toArray(colors, i * 3);
+    GROUND_COLOR[map.kinds[i] as TileKind](palette, groundAt(i), color).toArray(colors, i * 3);
   }
   return colors;
 }
@@ -59,9 +80,10 @@ function tileColors(map: TileMap, palette: Palette, meadow: Float32Array): Float
  * vertex sits at each tile center. One more ring of vertices sits on the map
  * edge and repeats the border tiles, so the ground covers every tile in full
  * and matches `heightAt`. The map center sits at the world origin. Every
- * vertex carries its color in each season, and `seasonMix` blends them.
+ * vertex carries its color in each season, and `seasonMix` blends them. The
+ * ground around the tile `camp` is worn to soil.
  */
-export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>) {
+export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>, camp: number) {
   const { size, heights } = map;
   const rows = size + 2;
   const cells = size + 1;
@@ -73,10 +95,10 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>) {
     tileAlong(Math.floor(corner / rows)) * size + tileAlong(corner % rows);
   const vertexCount = (cells * cells * 2 + cells * 4 * 2) * 3;
   const positions = new Float32Array(vertexCount * 3);
-  const meadow = meadows(map);
+  const groundAt = groundOf(map, camp);
   const seasons = PALETTES.map((palette) => ({
     palette,
-    tiles: tileColors(map, palette, meadow),
+    tiles: tileColors(map, palette, groundAt),
     colors: new Uint8ClampedArray(vertexCount * 3),
   }));
   let cursor = 0;
@@ -195,8 +217,9 @@ export function createTerrain(map: TileMap, seasonMix: IUniform<Vector4>) {
 
   /** Colors a tile again after its kind changed. Its height never changes, so the shape stays. */
   const repaint = (tile: number) => {
+    const ground = groundAt(tile);
     for (const { palette, tiles } of seasons) {
-      GROUND_COLOR[map.kinds[tile] as TileKind](palette, heights[tile]!, meadow[tile]!, scratch).toArray(tiles, tile * 3);
+      GROUND_COLOR[map.kinds[tile] as TileKind](palette, ground, scratch).toArray(tiles, tile * 3);
     }
     const across = cellsBeside(tile % size);
     const down = cellsBeside(Math.floor(tile / size));

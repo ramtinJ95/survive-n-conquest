@@ -2,7 +2,9 @@ import { WebGLRenderer } from 'three';
 import { bindCameraInput } from './render/cameraInput';
 import { loadShapes } from './render/shapes';
 import { createSwarm } from './render/swarm';
+import { tone } from './render/tone';
 import { createWorld } from './render/world';
+import { TICKS_PER_SECOND } from './sim/calendar';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
 import { populationFor } from './sim/sim';
@@ -16,7 +18,7 @@ import type { SimFrame, ToSim } from './worker';
 
 const renderer = new WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+tone(renderer);
 renderer.domElement.id = 'world';
 document.body.append(renderer.domElement);
 
@@ -50,11 +52,14 @@ window.addEventListener('resize', fitToWindow);
 const LONGEST_FRAME = 0.1;
 let lastFrame = performance.now();
 let tick = 0;
+/** Ticks that pass in a millisecond, or 0 while the clock is paused, and when the last tick came. */
+let pace = 0;
+let ticked = lastFrame;
 renderer.setAnimationLoop((now) => {
   rig.update(Math.min((now - lastFrame) / 1000, LONGEST_FRAME));
   lastFrame = now;
   toolbar.follow();
-  show(tick);
+  show(tick, tick + Math.min(Math.max((now - ticked) * pace, 0), 1));
   renderer.render(scene, camera);
   siteLabels.follow();
 });
@@ -66,7 +71,9 @@ const stockpiles = mountStockpiles(document.body, map, orders.claims);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);
 bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
+  if (data.tick !== tick) ticked = performance.now();
   tick = data.tick;
+  pace = data.paused ? 0 : (data.speed * TICKS_PER_SECOND) / 1000;
   changeTiles(data.tiles);
   changeOrders(data.orders);
   toolbar.heard(data);
