@@ -121,7 +121,7 @@ Stage 2 has no workplaces, so jobs that belong to a building cannot exist yet. T
 
 ### 2.6 Give the settlement its look
 
-- **Behavior.** The settlers, the camp, the logs and stone on the ground, the stockpile, the site, and the house get shapes, colors, and motion that read at a glance from the far and the near camera, by day and by night. A villager carrying a good shows it.
+- **Behavior.** The settlers, the camp, the logs and stone on the ground, the stockpile, the site, and the house get shapes, colors, and motion that read at a glance from the far and the near camera, by day and by night. A villager carrying a good shows it. The camp, the goods, and the house are models from the purchased low-poly packs, as the owner decided on 2026-11-15. The settlers stay shapes built in code, because no pack has people.
 - **Proof.** Before and after screenshots from the same scene, seed, and camera, and a clip of a working settlement at dusk.
 - **Worker.** Claude Code on Fable 5.2.
 
@@ -141,4 +141,4 @@ Stage 2 has no workplaces, so jobs that belong to a building cannot exist yet. T
 - Trees that grow back.
 - Fog of war.
 - Saving and loading.
-- Real models. Every shape is a primitive built in code.
+- Models of people, animals, and monsters. The units are shapes built in code.
