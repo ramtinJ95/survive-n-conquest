@@ -31,11 +31,11 @@ export type Preview = (typeof Preview)[keyof typeof Preview];
 
 /** The color of each order, on the map and on its button. */
 export const ORDER_COLORS = {
-  chop: '#ffa230',
+  chop: '#ff7a1a',
   quarry: '#c77dff',
   stockpile: '#2fd6c4',
   house: '#5aa8ff',
-  cancel: '#ff5a5a',
+  cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;
 
