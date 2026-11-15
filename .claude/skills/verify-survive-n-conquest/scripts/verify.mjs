@@ -34,6 +34,8 @@ const PROBE = { width: 160, height: 90 };
 const COVER_MARGIN = 8;
 // Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
 const LOW_FLIGHT_LEG_MS = 400;
+// The share of the farthest view that is water. The lakes and rivers of seed 7 alone are 6% to 8% of a view, and with the sea around the island the farthest view read 40.6%.
+const SEA_AROUND_THE_ISLAND = 0.25;
 // Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
 const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
@@ -748,8 +750,20 @@ const SETTLER_THRESHOLD = 25;
 const SETTLER_GATHERED_SPREAD = 40;
 /** The camera opens looking at the map center, and the camp is the walkable tile nearest it. */
 const SETTLER_CAMP_OFF_CENTER = 60;
+/**
+ * A settler is 1.1 m tall and wears a tunic between its hair and its legs. At the camp zoom the 8 tunics showed 185
+ * villager pixels at 15:00, and the bare map 7. The limits are the same shares of those readings as 400 and 50 were of
+ * the 486 pixels that 8 settlers of 1.75 m in one color showed.
+ */
+const SETTLER_TUNICS = { least: 150, bareMost: 20 };
 /** Between 21:00 and 04:30 the light changes the shading of the settlers, so the outline they leave moves by a few pixels. */
 const SETTLER_STAYED = 10;
+/**
+ * The flame of the camp's fire, in clip pixels of the opening view on seed 7. The sun does not light the flame, and its
+ * red and orange are a monster's colors by day, so a check that no unit glows at night leaves this box out. At midnight
+ * the flame held 53 monster-colored pixels between (465, 254) and (489, 265).
+ */
+const OPENING_FIRE = { x: 448, y: 240, width: 60, height: 40 };
 const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
 /** The sun rises and sets at these times through the spring. */
 const DAWN = '04:48';
@@ -764,12 +778,19 @@ const BLUE_LAG = 20;
 const BESIDE_TWILIGHT = 30;
 /** The sun has set by this time in winter and is still up in summer. */
 const EVENING = '18:30';
-/** The share of the map, below the sky, that each season must and must not color at noon. */
+/** The rows of a picture below the horizon of the opening view, where the season checks read the map. */
+const SEASON_ROWS = [0.35, 1];
+/**
+ * The share of the map, below the horizon, that each season must and must not color at noon. The shares of plants,
+ * orange, and snow are read on the small probe picture. Blossom grows in groves of one kind of tree, and a crown is
+ * smaller than a probe pixel, so `blossom` is the share of the pixels of the full picture. On seed 7 the spring read
+ * 1.03%, and summer, autumn, and winter 0.06%, 0.03%, and 0.03%. Spring needs four times what the others may show.
+ */
 const SEASON_LOOKS = [
-  { season: 'Spring', atLeast: { plants: 0.4, blossom: 0.02 }, atMost: { orange: 0.02, snow: 0.02 } },
-  { season: 'Summer', atLeast: { plants: 0.4 }, atMost: { blossom: 0.005, orange: 0.02, snow: 0.02 } },
-  { season: 'Autumn', atLeast: { orange: 0.15 }, atMost: { plants: 0.2, blossom: 0.005, snow: 0.02 } },
-  { season: 'Winter', atLeast: { snow: 0.3 }, atMost: { plants: 0.02, blossom: 0.005, orange: 0.02 } },
+  { season: 'Spring', atLeast: { plants: 0.4 }, atMost: { orange: 0.02, snow: 0.02 }, blossom: { atLeast: 0.006 } },
+  { season: 'Summer', atLeast: { plants: 0.4 }, atMost: { orange: 0.02, snow: 0.02 }, blossom: { atMost: 0.0015 } },
+  { season: 'Autumn', atLeast: { orange: 0.15 }, atMost: { plants: 0.2, snow: 0.02 }, blossom: { atMost: 0.0015 } },
+  { season: 'Winter', atLeast: { snow: 0.3 }, atMost: { plants: 0.02, orange: 0.02 }, blossom: { atMost: 0.0015 } },
 ];
 
 const SCENARIOS = {
@@ -871,7 +892,7 @@ const SCENARIOS = {
     await session.hold(page, 'KeyX', 4000);
     await session.still(page);
     const farthest = await shoot('farthest');
-    session.expectSurfaces('the sky shows around the map at the farthest view', farthest, { sky: 0.05 });
+    session.expectSurfaces('the sea shows around the island at the farthest view', farthest, { water: SEA_AROUND_THE_ISLAND });
     await page.mouse.wheel(0, 2000);
     await session.hold(page, 'KeyX', 1000);
     await session.still(page);
@@ -892,11 +913,12 @@ const SCENARIOS = {
     session.check('panning stops in a corner of the map', rested, rested ? 'the view stopped while W stayed held' : 'the view still moved after 20 s of W');
     session.expectSurfaces('the map stays in view at its corner', edge, { plants: 0.05 });
 
-    await session.hold(page, 'KeyZ', 5000);
-    await session.hold(page, 'KeyF', 3000);
+    await page.mouse.wheel(0, READ_WHEELS.near);
+    await session.hold(page, 'KeyF', 6000);
     await session.still(page);
     const nearest = await shoot('nearest');
     await page.mouse.wheel(0, -2000);
+    await session.hold(page, 'KeyZ', 1000);
     await session.hold(page, 'KeyF', 1000);
     await session.still(page);
     session.expectUnchanged('zooming in and tilting stop at the lowest view', nearest, await shoot('nearest-again'));
@@ -1082,10 +1104,12 @@ const SCENARIOS = {
       lit.villagers >= 200 && lit.monsters >= 200,
       `${lit.villagers} villager pixels and ${lit.monsters} monster pixels, needs 200 of each`,
     );
+    const atFire = (kind) => pixelsIn(at.midnight.png, CLIP.width, OPENING_FIRE, UNIT_COLORS[kind]).count;
+    const away = { villagers: unlit.villagers - atFire('villagers'), monsters: unlit.monsters - atFire('monsters') };
     session.check(
-      'no villager or monster glows at midnight',
-      unlit.villagers < 50 && unlit.monsters < 50,
-      `${unlit.villagers} villager pixels and ${unlit.monsters} monster pixels in their daylight colors, needs fewer than 50 of each`,
+      'no villager or monster glows at midnight, away from the flame of the camp',
+      away.villagers < 50 && away.monsters < 50,
+      `${away.villagers} villager pixels and ${away.monsters} monster pixels in their daylight colors outside the fire's box, needs fewer than 50 of each; the box holds ${atFire('villagers')} and ${atFire('monsters')}`,
     );
 
     const day = stops.filter((stop) => stop.side === 'day' && !stop.twilight);
@@ -1115,9 +1139,10 @@ const SCENARIOS = {
   async seasons(session) {
     const { context, page, errors } = await session.open(WIDE, { clock: 'running', search: '?swarm=off' });
     const date = page.getByRole('status', { name: 'Date' });
-    const share = {};
+    const evening = {};
+    const below = { x: 0, y: Math.floor(SEASON_ROWS[0] * WIDE.height), width: WIDE.width, height: WIDE.height - Math.floor(SEASON_ROWS[0] * WIDE.height) };
     let lastNoon = null;
-    for (const [index, { season, atLeast, atMost }] of SEASON_LOOKS.entries()) {
+    for (const [index, { season, atLeast, atMost, blossom }] of SEASON_LOOKS.entries()) {
       const day = 3 * index + 1;
       const stops = { noon: { day, time: '12:00' }, evening: { day, time: EVENING }, midnight: { day: day + 1, time: '00:00' } };
       const shots = {};
@@ -1129,13 +1154,21 @@ const SCENARIOS = {
         session.check(`the date reads ${season} at ${clockText(clockMinutes(when))}`, read.includes(season), `date "${read}"`);
       }
 
-      session.expectShares(`${season} colors the map at noon`, SEASON_MARKS, shots.noon, { atLeast, atMost }, [0.35, 1]);
+      session.expectShares(`${season} colors the map at noon`, SEASON_MARKS, shots.noon, { atLeast, atMost }, SEASON_ROWS);
+      const pink = pixelsIn(shots.noon, WIDE.width, below, SEASON_MARKS.blossom).count / (below.width * below.height);
+      const percent = (share) => `${(share * 100).toFixed(2)}%`;
+      session.check(
+        blossom.atLeast ? `${season} is in blossom at noon` : `nothing is in blossom at noon in ${season}`,
+        blossom.atLeast ? pink >= blossom.atLeast : pink <= blossom.atMost,
+        `blossom colors ${percent(pink)} of the pixels below the horizon, needs ${blossom.atLeast ? `at least ${percent(blossom.atLeast)}` : `at most ${percent(blossom.atMost)}`}`,
+      );
       if (lastNoon) session.expectChanged(`${season} looks different from the season before it`, lastNoon, shots.noon);
       lastNoon = shots.noon;
 
       const noon = meanColor(shots.noon);
       const midnight = meanColor(shots.midnight);
-      share[season] = brightness(meanColor(shots.evening)) / brightness(noon);
+      const dusk = meanColor(shots.evening);
+      evening[season] = { kept: brightness(dusk) / brightness(noon), blue: blueness(dusk), halfway: (blueness(noon) + blueness(midnight)) / 2 };
       session.check(
         `midnight in ${season} is dark, cold, and light enough to see the map`,
         brightness(midnight) < 0.6 * brightness(noon) &&
@@ -1144,10 +1177,13 @@ const SCENARIOS = {
         `midnight is ${brightness(midnight).toFixed(0)} against ${brightness(noon).toFixed(0)} at noon, on a scale of 255, and has ${blueness(midnight).toFixed(2)} times as much blue as red against ${blueness(noon).toFixed(2)} at noon`,
       );
     }
+    const { Summer, Winter } = evening;
     session.check(
       `at ${EVENING} it is still day in summer and already night in winter`,
-      share.Summer > 0.7 && share.Winter < 0.6,
-      `the summer evening keeps ${(share.Summer * 100).toFixed(0)}% of its noon brightness, needs more than 70%; the winter evening keeps ${(share.Winter * 100).toFixed(0)}%, needs less than 60%`,
+      Summer.blue < Summer.halfway && Winter.blue > Winter.halfway && Summer.kept > Winter.kept,
+      `the summer evening has ${Summer.blue.toFixed(2)} parts of blue for each of red, needs less than ${Summer.halfway.toFixed(2)}, halfway between its noon and its midnight; ` +
+        `the winter evening has ${Winter.blue.toFixed(2)}, needs more than ${Winter.halfway.toFixed(2)}; ` +
+        `the summer evening keeps ${(Summer.kept * 100).toFixed(0)}% of its noon brightness and the winter evening ${(Winter.kept * 100).toFixed(0)}%, needs more in summer`,
     );
     await context.close();
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
@@ -1251,7 +1287,11 @@ SCENARIOS.settlers = async (session) => {
 
   const lit = session.unitPixels(settled.shots.afternoon);
   const none = session.unitPixels(bare.shots.afternoon);
-  session.check('the settlers show by day', lit.villagers >= 400 && none.villagers < 50, `${lit.villagers} villager pixels with the settlers and ${none.villagers} on the bare map at 15:00, needs 400 and fewer than 50`);
+  session.check(
+    'the settlers show by day',
+    lit.villagers >= SETTLER_TUNICS.least && none.villagers < SETTLER_TUNICS.bareMost,
+    `${lit.villagers} villager pixels with the settlers and ${none.villagers} on the bare map at 15:00, needs ${SETTLER_TUNICS.least} and fewer than ${SETTLER_TUNICS.bareMost}`,
+  );
   const gathered = at.night;
   const offCenter = Math.hypot(gathered.x - CLIP.width / 2, gathered.y - CLIP.height / 2);
   session.check(
@@ -1310,10 +1350,15 @@ const GATHER_VIEWS = {
  * colors keep each clip under 4 MB, and the logs, the stone, and the settlers still read.
  */
 const GATHER_CLIP = { crop: { x: 200, y: 0, width: 560, height: 420 }, width: 560, colors: 64 };
-/** Pale cut wood and cool grey stone, as the `paint` of the log and the stone in `assets/models.json` looks in spring daylight. */
+/**
+ * Pale cut wood and pale grey stone, as the `paint` of the log and the stone in `assets/models.json` looks in spring
+ * daylight. The warm sun lights the stone to a white that leans a little yellow, near (210, 209, 204), and the sky
+ * colors its shaded faces blue, so `stone` takes a grey on either side of neutral. It stops below the white ink of a
+ * label, and a label's blurred edge still matches it, so a box that reads stone leaves the labels out.
+ */
 const GOOD_COLORS = {
   logs: ([r, g, b]) => r > 150 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r,
-  stone: ([r, g, b]) => g >= r && b >= g && b > r + 4 && Math.min(r, g, b) > 120 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
+  stone: ([r, g, b]) => Math.min(r, g, b) > 120 && Math.max(r, g, b) < 232 && Math.max(r, g, b) - Math.min(r, g, b) < 45 && b > r - 16 && g > r - 10,
 };
 
 /**
@@ -1331,13 +1376,19 @@ const GATHER_STOPS = [
   ['spent', { day: 2, time: '09:30' }],
 ];
 /**
- * On rj-firebat the grove box held 527 pin pixels before and 0 after, and 0 log pixels before and 192 after. The rock
- * box held 0 stone pixels before and 412 at the last stop, and 64 and 126 villager pixels at the two day stops. The camp
- * box differed from the bare map in 0 pixels by day and 501 at night. The marks' tint fell from 2976 to 1590 pixels
- * once the first row of the face was spent, and the settlers moved 15 pixels up the screen onto it.
+ * On the owner's Mac the grove box held 522 pin pixels before and 0 after, and 0 log pixels before and 117 after. The
+ * rock box held 0 stone pixels before and 297 at the last stop. The settlers at the face work in the shade of the rock,
+ * where `TUNIC_IN_SHADE` matched 46 and 87 pixels at the two day stops and none on the bare map. The camp box differed
+ * from the bare map in 0 pixels by day and 342 at night. The marks' tint fell from 3094 to 1684 pixels once the first
+ * row of the face was spent, and the settlers moved 15 pixels up the screen onto it.
  */
 const GATHER_LEAST = { pins: 200, logs: 80, stone: 150, workers: 25, campAtNight: 200, tintLost: 0.25, climb: 6 };
-const GATHER_MOST = { leftover: 10, goodsBefore: 10, campByDay: 20 };
+const GATHER_MOST = { leftover: 10, goodsBefore: 10, campByDay: 20, tunicsOnBare: 2 };
+/**
+ * The tunic of a settler in the sun or in the shade of the rock, where `UNIT_COLORS.villagers` is too bright for it.
+ * Lit thatch matches it too, so it reads settlers only where the bare map shows none of it, as at the rock face.
+ */
+const TUNIC_IN_SHADE = ([r, g, b]) => r > 120 && g > 0.55 * r && g < 0.9 * r && b < 0.3 * r;
 
 /** The violet that the quarry mark mixes into the ground of each marked rock tile. */
 const QUARRY_TINT = ([r, g, b]) => b > g + 35 && r > g + 15;
@@ -1486,14 +1537,20 @@ SCENARIOS.gathering = async (session) => {
   seen.push(...bare.errors);
 
   const atCamp = (name) => changedIn(empty[name], shots[name], CLIP.width, GATHER_VIEWS.rock.camp);
-  const atRock = (name) => pixelsIn(shots[name], CLIP.width, GATHER_VIEWS.rock.box, UNIT_COLORS.villagers);
+  const atRock = (name) => pixelsIn(shots[name], CLIP.width, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE);
   const camp = { working: atCamp('working'), night: atCamp('night'), back: atCamp('back') };
   const workers = { working: atRock('working').count, back: atRock('back').count };
+  const noWorkers = { working: count(empty.working, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE), back: count(empty.back, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE) };
   const when = Object.fromEntries(GATHER_STOPS.map(([name, stop]) => [name, stop.time ?? stop.to?.time]));
+  session.check(
+    'the bare rock face shows nothing in the color of a tunic',
+    noWorkers.working <= GATHER_MOST.tunicsOnBare && noWorkers.back <= GATHER_MOST.tunicsOnBare,
+    `${noWorkers.working} tunic pixels at the rock face of the bare map at ${when.working} and ${noWorkers.back} at ${when.back}, needs at most ${GATHER_MOST.tunicsOnBare}`,
+  );
   session.check(
     `at ${when.working} the settlers quarry the rock face, away from the camp`,
     workers.working >= GATHER_LEAST.workers && camp.working <= GATHER_MOST.campByDay,
-    `${workers.working} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.working} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+    `${workers.working} tunic pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.working} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
   );
   session.check(
     `at ${when.night} the settlers have left the work and stand at the camp`,
@@ -1503,7 +1560,7 @@ SCENARIOS.gathering = async (session) => {
   session.check(
     `at ${when.back} on day 2 the settlers are back at the rock face`,
     workers.back >= GATHER_LEAST.workers && camp.back <= GATHER_MOST.campByDay,
-    `${workers.back} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.back} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+    `${workers.back} tunic pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.back} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
   );
   const stone = { before: count(face, GATHER_VIEWS.rock.box, GOOD_COLORS.stone), after: count(shots.spent, GATHER_VIEWS.rock.box, GOOD_COLORS.stone) };
   session.check(
@@ -1554,7 +1611,7 @@ const HAUL_CLIP = { crop: { x: 0, y: 0, width: 510, height: 345 }, width: 510, c
  * On seed 7, with the grove cleared and the near stockpile marked at 13:30, the panel read 6 logs at 14:30, 8 at 15:30,
  * 16 at 16:30, 22 at 17:30, and 24 at 18:30. The 2-tile stockpile was full by 16:30. With the far stockpile marked at
  * 15:30 the panel read 0 at 17:00 and 8 at 19:05, all night, and at 07:00 on day 2, and 24 by 11:00 on day 2.
- * `GOOD_COLORS` matches the logs until 17:30 and no longer at 18:30, so every log count stops in daylight.
+ * `GOOD_COLORS` matches the logs in the sun until 17:30 and no longer at 18:30, so every log count stops in daylight.
  */
 const HAUL_STOPS = {
   cleared: { day: 1, time: '13:30' },
@@ -1571,19 +1628,25 @@ const HAUL_STOPS = {
   carried: { day: 2, time: '11:00' },
 };
 /**
- * On rj-firebat the grove box held 192 log pixels at 13:30 and 34 at 17:30, and the near stockpile's box 0, 114, and
- * 280 at 13:30, 15:00, and 17:30. Beside the full stockpile the carriers take the front logs first, and the 8 left lie
- * under the crowns at the back, where a model log shows 3 to 7 pixels as bright as `GOOD_COLORS.logs` asks. On the
- * owner's Mac the grove box held 77 pixels of `LOGS_IN_A_CLEARED_GROVE_BY_DAY` at 17:00 and 75 at 10:00 on day 2,
- * about 9 for each log. The grove at 17:30, with its last logs in the sun, held 38 of them against 36 of
- * `GOOD_COLORS.logs`. The route held 0 log pixels and differed from the bare map in 0 pixels before the far stockpile,
- * differed in 317 at 19:05 and in 149 at 21:00, and held 60 log pixels at 07:00 on day 2 and 0 at 11:00. The camp box
- * differed from the bare map in 377 pixels at 21:00.
+ * On the owner's Mac the grove box held 117 log pixels at 13:30 and 0 at 17:30, and the near stockpile's box 0, 89, and
+ * 218 at 13:30, 15:00, and 17:30. Beside the full stockpile the carriers take the front logs first, and the 8 left lie
+ * in the deep shade under the crowns at the back, where the sky colors the pale wood near (100, 96, 78) and
+ * `GOOD_COLORS.logs` matches none of it. There the grove box held 91 pixels of `LOGS_IN_A_CLEARED_GROVE_BY_DAY` at
+ * 17:00 and 100 at 10:00 on day 2, about 12 for each log, 332 with all 24 logs at 13:30, and 0 in the emptied grove
+ * at 17:30. Before the far stockpile the route held 28 log pixels, all of them pink flowers that the bare map shows
+ * too, and differed from the bare map in 0 pixels. It differed in 193 at 19:05 and in 142 at 21:00. At 07:00 on day 2
+ * the sun is low, and the two stacks that the carriers put down held 33 pixels of `LOGS_IN_DIM_LIGHT`, and the route
+ * 5 at 11:00. The camp box differed from the bare map in 325 pixels at 21:00.
  */
-const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 40, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
-const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, routeBefore: 20, routeCarried: 0.5 };
-/** The wood of `GOOD_COLORS.logs`, lit or under a crown. The forest matches it too in the evening light. */
-const LOGS_IN_A_CLEARED_GROVE_BY_DAY = ([r, g, b]) => r > 105 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r;
+const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 50, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
+const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, emptyGrove: 5, routeBefore: 20, routeCarried: 0.5 };
+/**
+ * The wood of a log in the sun or in the blue shade under a crown. Blossom, flowers, and the forest in the evening
+ * match it too, so it reads logs only in a grove that is felled, by day, and beside a reading of the same grove empty.
+ */
+const LOGS_IN_A_CLEARED_GROVE_BY_DAY = ([r, g, b]) => r > 90 && g > 0.72 * r && g < 1.02 * r && b > 0.45 * r && b < 0.84 * r;
+/** The wood of `GOOD_COLORS.logs` under a low sun, which lights it too little for that predicate. */
+const LOGS_IN_DIM_LIGHT = ([r, g, b]) => r > 105 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r;
 /** A log put down at night differs from the bare ground by about 25 in its brightest channel, too little for `SETTLER_THRESHOLD`. */
 const NIGHT_THRESHOLD = 12;
 
@@ -1680,11 +1743,12 @@ SCENARIOS.hauling = async (session) => {
     `Logs ${filled.totals.logs} and then ${stillFull.totals.logs}, needs ${small.places} both times`,
   );
   const shadedLogsIn = (png) => pixelsIn(png, CLIP.width, grove, LOGS_IN_A_CLEARED_GROVE_BY_DAY).count;
-  const outside = { filled: shadedLogsIn(filled.png), stillFull: shadedLogsIn(stillFull.png) };
+  const outside = { filled: shadedLogsIn(filled.png), stillFull: shadedLogsIn(stillFull.png), emptied: shadedLogsIn(stacked.png) };
   session.check(
     `at ${when('full')} and at ${when('stillFull')} the logs with no place still lie in the grove`,
-    outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace,
-    `${outside.filled} and then ${outside.stillFull} log pixels in the grove, needs ${HAUL_LEAST.noPlace} both times`,
+    outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace && outside.emptied <= HAUL_MOST.emptyGrove,
+    `${outside.filled} and then ${outside.stillFull} log pixels in the grove, needs ${HAUL_LEAST.noPlace} both times; ` +
+      `${outside.emptied} in the grove that the first stockpile emptied by ${when('stacked')}, needs at most ${HAUL_MOST.emptyGrove}`,
   );
 
   const walk = await session.open(CLIP, { clock: 'paused' });
@@ -1709,11 +1773,11 @@ SCENARIOS.hauling = async (session) => {
   seen.push(...bare.errors);
 
   const onRoute = (stop, png, threshold) => changedIn(empty[stop], png, CLIP.width, HAUL_BOXES.route, threshold);
-  const routeBefore = { logs: logsIn(route.png, HAUL_BOXES.route), changed: onRoute('farMarked', route.png) };
+  const routeBefore = { logs: logsIn(route.png, HAUL_BOXES.route), bare: logsIn(empty.farMarked, HAUL_BOXES.route), changed: onRoute('farMarked', route.png) };
   session.check(
     `at ${when('farMarked')}, before the far stockpile, nothing lies on the route`,
-    routeBefore.logs <= HAUL_MOST.goodsBefore && routeBefore.changed <= HAUL_MOST.routeBefore,
-    `${routeBefore.logs} log pixels on the route, needs at most ${HAUL_MOST.goodsBefore}; ${routeBefore.changed} pixels differ from the bare map, needs at most ${HAUL_MOST.routeBefore}`,
+    routeBefore.logs - routeBefore.bare <= HAUL_MOST.goodsBefore && routeBefore.changed <= HAUL_MOST.routeBefore,
+    `${routeBefore.logs} log pixels on the route and ${routeBefore.bare} on the bare map, needs at most ${HAUL_MOST.goodsBefore} more; ${routeBefore.changed} pixels differ from the bare map, needs at most ${HAUL_MOST.routeBefore}`,
   );
   const carrying = onRoute('beforeDusk', beforeDusk.png);
   session.check(
@@ -1734,7 +1798,8 @@ SCENARIOS.hauling = async (session) => {
     nightTotals.every((logs) => logs === nightTotals[0]) && beforeDusk.totals.logs <= nightTotals[0],
     `Logs ${beforeDusk.totals.logs} at ${when('beforeDusk')}, then ${nightTotals.join(', ')}`,
   );
-  const routeLogs = { morning: logsIn(morning.png, HAUL_BOXES.route), carried: logsIn(carried.png, HAUL_BOXES.route) };
+  const dimLogsIn = (png) => pixelsIn(png, CLIP.width, HAUL_BOXES.route, LOGS_IN_DIM_LIGHT).count;
+  const routeLogs = { morning: dimLogsIn(morning.png), carried: dimLogsIn(carried.png) };
   session.check(
     `after dawn the settlers carry the dropped units on by ${when('carried')}`,
     routeLogs.morning >= HAUL_LEAST.droppedAtDawn && routeLogs.carried <= routeLogs.morning * HAUL_MOST.routeCarried && carried.totals.logs > nightTotals[0],
@@ -1791,12 +1856,14 @@ const BUILD_SPOTS = {
   house: { x: 490, y: 279 },
 };
 /**
- * The boxes are in clip pixels of the closer view: the nine tiles of the site up to the top of the roof, and the land
- * a tile or two around them, with the near edge of the stockpile. The walkers beside the house are those in `around`
- * and not in `site`.
+ * The boxes are in clip pixels of the closer view: the house, which is as wide as its nine tiles, up to the top of
+ * its roof, the nine tiles below the site's label, and the land a tile or two around them, with the near edge of the
+ * stockpile. The walkers beside the house are those in `around` and not in `site`. The goods are counted in `tiles`,
+ * because the fill of the label's work bar has the color of a log and the label's edge the color of stone.
  */
 const BUILD_BOXES = {
-  site: { x: 460, y: 195, width: 80, height: 120 },
+  site: { x: 445, y: 195, width: 112, height: 120 },
+  tiles: { x: 460, y: 240, width: 80, height: 75 },
   around: { x: 425, y: 185, width: 150, height: 150 },
 };
 /** The clip keeps the clock, the site with its label, the stockpile, the camp's edge, and the rock face's foot. */
@@ -1815,21 +1882,26 @@ const BUILD_STOPS = {
   day: { day: 1, time: '12:00' },
   midnight: { day: 2, time: '00:00' },
 };
-/** Wheel pixels that reach the nearest view of 22 m and the farthest of 243 m from any view. */
+/** Wheel pixels that reach the nearest view of 14 m and the farthest of 243 m from any view. */
 const READ_WHEELS = { near: -3000, far: 3000 };
-/** The thatch of the house roof, as it looks in the late afternoon: a dull gold, redder than a tunic and with less blue than timber. */
-const HOUSE_ROOF = ([r, g, b]) => r > 85 && r < 170 && g > 0.64 * r && g < 0.78 * r && b < 0.28 * r;
+/**
+ * The thatch of the house roof under the low sun of the late afternoon, from its lit slope near (179, 106, 34) to its
+ * shaded slope near (92, 63, 22). It is redder than a tunic, which reads near (133, 100, 19) there, and has less blue
+ * than timber.
+ */
+const HOUSE_ROOF = ([r, g, b]) => r > 80 && r < 200 && g > 0.55 * r && g < 0.71 * r && b > 0.16 * r && b < 0.3 * r;
 /** The timber of a site's scaffold and of the walls that rise inside it, in the afternoon light. */
 const SITE_TIMBER = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
 /** The label's text is near white, on a dark panel. */
 const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
 /**
- * On the owner's Mac the stockpile held 5 logs at 11:30. The site held 233 log and 40 stone pixels half supplied, and
- * 280 log pixels at half its work. Its box held 23 timber pixels half supplied and 1886 at half the work, 48 roof
- * pixels at half the work and 2198 once the house stood, and 0 log pixels. Beside the house stood 207, 218, and 9
- * villager pixels at the three stops of day 2, a carrier or two. Each label held 149 to 157 near-white text pixels.
+ * On the owner's Mac the stockpile held 5 logs at 11:30. The site's tiles held 194 log and 134 stone pixels half
+ * supplied. At half the work the walls and the scaffold hide most of the 12 logs, and 85 log pixels showed beside
+ * them. The house's box held 97 timber pixels half supplied and 1952 at half the work, 13 roof pixels at half the work
+ * and 2393 once the house stood, and its tiles 0 log pixels. Beside the house stood 63, 50, and 10 villager pixels at
+ * the three stops of day 2, a carrier or two in a tunic. Each label held 149 to 157 near-white text pixels.
  */
-const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, timber: 40, roof: 1500, walkers: 150, ink: 60 };
+const BUILD_LEAST = { stocked: 1, logs: 80, logsAtWork: 40, stone: 80, timber: 40, roof: 1650, walkers: 45, ink: 60 };
 const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, goodsAfter: 10 };
 
 function siteDriver(session) {
@@ -1960,7 +2032,7 @@ SCENARIOS.building = async (session) => {
     empty.label?.logs === 0 && empty.label.stone === 0 && empty.label.waiting,
     `the label reads "${labelText(empty.label)}"`,
   );
-  const goods = (shot) => ({ logs: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.logs), stone: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.stone) });
+  const goods = (shot) => ({ logs: count(shot.png, BUILD_BOXES.tiles, GOOD_COLORS.logs), stone: count(shot.png, BUILD_BOXES.tiles, GOOD_COLORS.stone) });
   const goodsAt = { empty: goods(empty), half: goods(half), work: goods(work), done: goods(done) };
   session.check(
     `at ${empty.at} nothing lies on the site`,
@@ -2007,8 +2079,8 @@ SCENARIOS.building = async (session) => {
   );
   session.check(
     `at ${done.at} no log is drawn on the house's tiles any more`,
-    goodsAt.work.logs >= BUILD_LEAST.logs && goodsAt.done.logs <= BUILD_MOST.goodsAfter,
-    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logs} and then at most ${BUILD_MOST.goodsAfter}`,
+    goodsAt.work.logs >= BUILD_LEAST.logsAtWork && goodsAt.done.logs <= BUILD_MOST.goodsAfter,
+    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logsAtWork} and then at most ${BUILD_MOST.goodsAfter}`,
   );
   const walkers = around.map((shot) => ({
     at: shot.at,
@@ -2049,8 +2121,9 @@ SCENARIOS.building = async (session) => {
 /**
  * The `look` scenario builds the house of `building` from the same marks, views, and stops, so the settlement it shows
  * is the one that scenario measures. The dusk clip runs at 1× from before the settlers stop work until they stand at
- * the camp. The views are read at the nearest and the farthest zoom: the first midnight, the next noon, and a noon and
- * a midnight of winter, which starts on day 10.
+ * the camp. Each view is shot at the nearest zoom of 14 m, at the 22 m that was the nearest zoom on `main`, where the
+ * checks read it and the pictures line up with those of `main`, and at the farthest zoom: the first midnight, the next
+ * noon, and a noon and a midnight of winter, which starts on day 10.
  */
 const LOOK_STOPS = {
   dusk: { from: { day: 1, time: '18:45' }, to: { day: 1, time: '19:40' } },
@@ -2062,28 +2135,37 @@ const LOOK_STOPS = {
   ],
 };
 const LOOK_CLIP = { crop: { x: 200, y: 40, width: 560, height: 420 }, width: 560, colors: 64 };
-/** Pixels the land is dragged up once the house is placed, so the nearest view holds the camp below the house. */
+/** Pixels the land is dragged up once the house is placed, so the near view holds the camp below the house. */
 const LOOK_PAN = 40;
-/** Wheel pixels from the nearest view of 22 m back to the 31 m the house is placed from. */
+/** Wheel pixels from the nearest view of 14 m out to the near view of 22 m, and from there back to the 31 m the house is placed from. */
+const LOOK_NEAR_WHEEL = Math.log(22 / 14) / 0.0015;
 const LOOK_BACK_WHEEL = Math.log(31.1 / 22) / 0.0015;
-/** The boxes are in clip pixels of the nearest view: the house up to its ridge, the fire in the middle of the camp, and the land clear of the panels. */
+/**
+ * The boxes are in clip pixels of the near view: the house up to its ridge, the fire in the middle of the camp, the
+ * ground of the camp that the fire lights, and the land clear of the panels.
+ */
 const LOOK_BOXES = {
-  house: { x: 460, y: 160, width: 90, height: 110 },
+  house: { x: 455, y: 150, width: 115, height: 125 },
   fire: { x: 440, y: 330, width: 50, height: 50 },
+  camp: { x: 390, y: 305, width: 145, height: 128 },
   land: { x: 150, y: 60, width: 640, height: 420 },
 };
-/** The thatch of the house roof in daylight: a dull gold, redder than a villager's tunic and yellower than timber and soil. */
+/** The thatch of the house roof in daylight: a dull gold, yellower than timber and soil. Its sunlit slope is as bright as a tunic. */
 const THATCH = ([r, g, b]) => r > 120 && g > 0.6 * r && g < 0.8 * r && b > 0.15 * r && b < 0.4 * r;
-/** The flame of the campfire, which the sun does not light: orange to yellow at full brightness at any hour. */
+/**
+ * The flame of the campfire, which the sun does not light: orange to yellow at full brightness at any hour. At night
+ * the ground, the tents, and the settlers within a few meters of the fire are as bright and as warm in its light.
+ */
 const FLAME = ([r, g, b]) => r > 200 && g > 90 && g < 220 && b < 110 && r > g + 30;
 /**
- * On the owner's Mac the house held 2640 thatch pixels at noon in spring and 2930 in winter, against 293 on the site
- * before the house stood. The land held 1401 and 2732 villager pixels, and the fire 107 flame pixels at both
- * midnights, with none elsewhere. A frame took 22 to 24 draw calls with the settlers and with the swarm, against 20
- * to 22 before the models.
+ * A frame draws each kind of thing in one call, and once more into the shadow map for a kind that casts a shadow.
+ * `main` drew 20 to 22 calls and the first models 22 to 24. The sea and its bed, two more kinds of tree, five kinds
+ * of ground cover, the settlers' legs, and the smoke brought a frame to 36 to 38 calls, and to 42 on the owner's GPU
+ * with a site and its marks in view. A count that grew with the number of trees or settlers
+ * would be in the thousands.
  */
-const LOOK_LEAST = { thatch: 1500, settlers: 500, flame: 60 };
-const LOOK_MOST = { flameElsewhere: 5, calls: 30 };
+const LOOK_LEAST = { thatch: 1900, settlers: 150, flame: 500, firelit: 1500 };
+const LOOK_MOST = { flameElsewhere: 5, calls: 46 };
 
 SCENARIOS.look = async (session) => {
   const seen = [];
@@ -2117,6 +2199,7 @@ SCENARIOS.look = async (session) => {
   await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
   await shot(page, 'look-site-supplied');
   await zoom(page, READ_WHEELS.near);
+  await zoom(page, LOOK_NEAR_WHEEL);
   await shot(page, 'look-site-supplied-near');
   await zoom(page, LOOK_BACK_WHEEL);
   await runUntil(page, 'got half its work done', (label) => label?.percent >= 50);
@@ -2131,10 +2214,12 @@ SCENARIOS.look = async (session) => {
   const to = town.since();
   for (const { name, when } of LOOK_STOPS.views) {
     await session.reach(page, when);
-    for (const distance of ['near', 'far']) {
-      await zoom(page, READ_WHEELS[distance]);
-      await shot(page, `look-${name}-${distance}`);
-    }
+    await zoom(page, READ_WHEELS.near);
+    await shot(page, `look-${name}-nearest`);
+    await zoom(page, LOOK_NEAR_WHEEL);
+    await shot(page, `look-${name}-near`);
+    await zoom(page, READ_WHEELS.far);
+    await shot(page, `look-${name}-far`);
   }
   await session.finishClips(town.context, page, [{ label: 'look-dusk', from, to, ...LOOK_CLIP }]);
   seen.push(...town.errors);
@@ -2150,14 +2235,19 @@ SCENARIOS.look = async (session) => {
     const midnight = `look-${season}midnight-near`;
     const roof = count(noon, LOOK_BOXES.house, THATCH);
     session.check(`${noon} shows the house under its thatch`, roof >= LOOK_LEAST.thatch, `${roof} thatch pixels on the house, needs ${LOOK_LEAST.thatch}`);
-    const settlers = count(noon, LOOK_BOXES.land, UNIT_COLORS.villagers);
-    session.check(`${noon} shows the settlers in their tunics`, settlers >= LOOK_LEAST.settlers, `${settlers} villager pixels, needs ${LOOK_LEAST.settlers}`);
-    const fire = count(midnight, LOOK_BOXES.fire, FLAME);
-    const elsewhere = count(midnight, LOOK_BOXES.land, FLAME) - fire;
+    const settlers = count(noon, LOOK_BOXES.land, UNIT_COLORS.villagers) - count(noon, LOOK_BOXES.house, UNIT_COLORS.villagers);
     session.check(
-      `${midnight} shows the fire burning at the camp, and nothing else as bright`,
-      fire >= LOOK_LEAST.flame && elsewhere <= LOOK_MOST.flameElsewhere,
-      `${fire} flame pixels at the fire and ${elsewhere} elsewhere, needs ${LOOK_LEAST.flame} and at most ${LOOK_MOST.flameElsewhere}`,
+      `${noon} shows the settlers in their tunics`,
+      settlers >= LOOK_LEAST.settlers,
+      `${settlers} villager pixels on the land around the house, needs ${LOOK_LEAST.settlers}`,
+    );
+    const fire = count(midnight, LOOK_BOXES.fire, FLAME);
+    const firelit = count(midnight, LOOK_BOXES.camp, FLAME) - fire;
+    const elsewhere = count(midnight, LOOK_BOXES.land, FLAME) - fire - firelit;
+    session.check(
+      `${midnight} shows the fire burning at the camp and lighting it, and nothing away from the camp as bright`,
+      fire >= LOOK_LEAST.flame && firelit >= LOOK_LEAST.firelit && elsewhere <= LOOK_MOST.flameElsewhere,
+      `${fire} flame pixels at the fire, ${firelit} around it in the camp, and ${elsewhere} elsewhere, needs ${LOOK_LEAST.flame}, ${LOOK_LEAST.firelit}, and at most ${LOOK_MOST.flameElsewhere}`,
     );
   }
   for (const { label, calls, triangles } of draws) {
@@ -2237,6 +2327,12 @@ const FAR_WHEEL = 2000;
 const BACK_WHEEL = Math.log(120 / 243.2) / 0.0015;
 /** The fewest outline and pin pixels that each kind of mark must draw in a 1280x720 view, at each zoom. */
 const MARKS_AT_LEAST = { mid: 20, near: 50, far: 10 };
+/**
+ * The fewest pixels of the red outline of a house that cannot stand, at the opening view. Over rock it read 104 to
+ * 155. Over the forest the crowns cover part of it and sway with the tick, and it read 57 at the spring midnight and
+ * 110 to 123 at the other three stops.
+ */
+const REFUSED_AT_LEAST = { rock: 60, forest: 50 };
 
 SCENARIOS.orders = async (session) => {
   const seen = [];
@@ -2417,7 +2513,7 @@ SCENARIOS.orders = async (session) => {
       await view.mouse.move(over.x, over.y, { steps: 3 });
       await expectSaid(view, `a house over ${where} says why it does not fit, ${label}`, reason);
       await session.still(view);
-      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: 60 });
+      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: REFUSED_AT_LEAST[where] });
     }
     await view.mouse.move(hover.x, hover.y, { steps: 3 });
   };
