@@ -113,6 +113,7 @@ describe('carrying to a stockpile', () => {
     expect(overbooked).toEqual([]);
     expect(most).toBe(4);
     expect(takes()).toBe(4);
+    expect(sim.tally.stocked).toBe(4);
     expect(tally(sim, Good.Log)).toEqual({ stockpiled: 3, ground: 0 });
     expect(tally(sim, Good.Stone)).toEqual({ stockpiled: 1, ground: 0 });
   });
@@ -161,6 +162,18 @@ describe('carrying to a stockpile', () => {
     runUntil(sim, () => tally(sim, Good.Log).stockpiled === 1, 500);
     expect(sim.map.trees[tree]).toBe(1);
     runUntil(sim, () => sim.map.trees[tree] === 0, 1000);
+  });
+
+  it('counts as stocked only the units a settler carried onto a stockpile tile, not stone quarried onto one', () => {
+    const rows = open(16);
+    rows[0] = '#' + '.'.repeat(15);
+    const sim = simWith(rows, 1, [[4, 4, Good.Stone, 1]]);
+    applyCommand(sim, mark('stockpile', 1, 0));
+    applyCommand(sim, mark('stockpile', 0, 1));
+    applyCommand(sim, mark('quarry', 0, 0));
+    runUntil(sim, () => sim.tally.quarried === 2, 2000);
+    expect(tally(sim, Good.Stone)).toEqual({ stockpiled: 3, ground: 0 });
+    expect(sim.tally.stocked).toBe(1);
   });
 
   it('stacks one good on a stockpile tile, up to 8, and keeps the goods that lay there when it joined the zone', () => {

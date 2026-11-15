@@ -24,8 +24,10 @@ export interface GoodsState {
   readonly inbound: Uint8Array;
   /** The good of a tile's inbound units, where `inbound` is above 0. */
   readonly inboundGood: Uint8Array;
-  /** By good, at index `good - 1`: the tiles off any stockpile with an unreserved unit of that good that a walk from the camp reaches, not set aside. */
+  /** By good, at index `good - 1`: the tiles off any stockpile, site, or house with an unreserved unit of that good that a walk from the camp reaches, not set aside. */
   readonly loose: readonly TileSet[];
+  /** By good, at index `good - 1`: the stockpile tiles with an unreserved unit of that good that a walk from the camp reaches, not set aside. */
+  readonly stocked: readonly TileSet[];
   /** By good, at index `good - 1`: the stockpile tiles that can take one more unit of that good that a walk from the camp reaches, not set aside. */
   readonly room: readonly TileSet[];
   /** 1 where a tile is set aside as out of reach for carrying, until dawn or until land gains walks. */
@@ -42,6 +44,7 @@ export function createGoodsState(size: number): GoodsState {
     inbound: new Uint8Array(tiles),
     inboundGood: new Uint8Array(tiles),
     loose: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
+    stocked: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
     room: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
     setAside: new Uint8Array(tiles),
     setAsideTiles: new Int32Array(tiles),
@@ -76,15 +79,19 @@ function room(sim: Sim, tile: number, good: Good): number {
   return held === Good.None || held === good ? STACK_LIMIT - size - inbound : 0;
 }
 
-/** Brings a tile's place in `loose` and `room` up to date with its stack, its claim, its reservations, and its reach. */
+/** Brings a tile's place in `loose`, `stocked`, and `room` up to date with its stack, its claim, its reservations, and its reach. */
 export function refreshStack(sim: Sim, tile: number): void {
   const { map, goods } = sim;
   const reached = sim.flow.next[tile] !== -1 && goods.setAside[tile] === 0;
-  const stockpile = sim.orders.claims[tile] === Claim.Stockpile;
-  const loose = reached && !stockpile && map.stackSize[tile]! > goods.outbound[tile]! ? map.stackGood[tile] : Good.None;
+  const claim = sim.orders.claims[tile];
+  const stockpile = claim === Claim.Stockpile;
+  const unreserved = reached && map.stackSize[tile]! > goods.outbound[tile]! ? map.stackGood[tile] : Good.None;
+  const loose = stockpile || claim === Claim.Site ? Good.None : unreserved;
+  const stocked = stockpile ? unreserved : Good.None;
   for (let index = 0; index < GOOD_KINDS; index++) {
     const good = (index + 1) as Good;
     setOpen(goods.loose[index]!, map.size, tile, loose === good);
+    setOpen(goods.stocked[index]!, map.size, tile, stocked === good);
     setOpen(goods.room[index]!, map.size, tile, reached && stockpile && room(sim, tile, good) > 0);
   }
 }

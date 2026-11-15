@@ -40,6 +40,19 @@ export function populationFor(swarm: string | null): Population {
   return SETTLERS;
 }
 
+/** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
+export interface Tally {
+  felled: number;
+  /** Stone taken from rock tiles. */
+  quarried: number;
+  /** Units a villager carried onto a stockpile tile. Stone quarried onto one is not counted. */
+  stocked: number;
+  /** Units delivered to sites. */
+  delivered: number;
+  /** Houses finished. */
+  built: number;
+}
+
 export interface Sim {
   readonly seed: number;
   /** The simulation's own copy of the map. Only the simulation changes it, and `takeTileChanges` reports each change. */
@@ -55,6 +68,7 @@ export interface Sim {
   readonly goods: GoodsState;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
+  readonly tally: Tally;
   tick: number;
   speed: Speed;
   paused: boolean;
@@ -78,6 +92,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     goods: createGoodsState(map.size),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
+    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0 },
     tick: 0,
     speed: 1,
     paused: false,
