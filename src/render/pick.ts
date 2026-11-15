@@ -29,6 +29,8 @@ export function createPicker(map: TileMap, camera: PerspectiveCamera) {
 
   return (clientX: number, clientY: number, width: number, height: number): PickedTile => {
     pointer.set((clientX / width) * 2 - 1, 1 - (clientY / height) * 2);
+    // The rig aims the camera every frame, and its world matrix catches up only when the scene renders.
+    camera.updateMatrixWorld();
     ray.setFromCamera(pointer, camera);
     let near = 0;
     let far = -1;
