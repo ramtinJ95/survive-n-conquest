@@ -1,28 +1,9 @@
-import { GOOD_KINDS, Good, pickUp, putDown, refreshStack } from './goods';
-import { tileAt } from './map';
+import { GOOD_KINDS, Good, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { Claim } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import type { TaskKind } from './tasks';
 import { nearestOpen } from './tileSet';
-
-function setAside(sim: Sim, tile: number): void {
-  const { goods } = sim;
-  if (goods.setAside[tile] === 1) return;
-  goods.setAside[tile] = 1;
-  goods.setAsideTiles[goods.setAsideCount++] = tile;
-  refreshStack(sim, tile);
-}
-
-function reopen(sim: Sim): void {
-  const { goods } = sim;
-  for (let i = 0; i < goods.setAsideCount; i++) {
-    const tile = goods.setAsideTiles[i]!;
-    goods.setAside[tile] = 0;
-    refreshStack(sim, tile);
-  }
-  goods.setAsideCount = 0;
-}
 
 function reservePlace(sim: Sim, place: number, good: Good): void {
   const { goods } = sim;
@@ -63,7 +44,7 @@ function takeHeld(sim: Sim, id: number): boolean {
     const place = nearestOpen(goods.room[good - 1]!, sim.map.size, villagers.x[id]!, villagers.y[id]!);
     if (place < 0) return false;
     if (!planPath(sim, id, place)) {
-      setAside(sim, place);
+      setAsideGoods(sim, place);
       continue;
     }
     reservePlace(sim, place, good);
@@ -86,7 +67,7 @@ function take(sim: Sim, id: number): boolean {
     const source = nearestLoose(sim, villagers.x[id]!, villagers.y[id]!);
     if (source < 0) return false;
     if (!planPath(sim, id, source)) {
-      setAside(sim, source);
+      setAsideGoods(sim, source);
       continue;
     }
     const good = map.stackGood[source]! as Good;
@@ -124,7 +105,7 @@ function work(sim: Sim, id: number): boolean {
     villagers.carried[id] = pickUp(sim, source);
     villagers.workTile[id] = place;
     if (planPath(sim, id, place)) return false;
-    setAside(sim, place);
+    setAsideGoods(sim, place);
     return true;
   }
   goods.inbound[place]! -= 1;
@@ -152,8 +133,8 @@ function release(sim: Sim, id: number): void {
     refreshStack(sim, source);
     return;
   }
-  if (putDown(sim, tileAt(sim.map, villagers.x[id]!, villagers.y[id]!), good, 1)) villagers.carried[id] = Good.None;
+  putDownHeld(sim, id);
 }
 
 /** Carrying one unit from the ground to a stockpile place. */
-export const CARRYING: TaskKind = { take, holds, work, release, refresh: refreshStack, reopen };
+export const CARRYING: TaskKind = { take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };

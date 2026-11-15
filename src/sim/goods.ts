@@ -1,4 +1,4 @@
-import { DIRECTIONS, stepTo, walkable } from './map';
+import { DIRECTIONS, stepTo, tileAt, walkable } from './map';
 import { Claim } from './orders';
 import type { Sim } from './sim';
 import { noteTileChange } from './tileChanges';
@@ -89,6 +89,26 @@ export function refreshStack(sim: Sim, tile: number): void {
   }
 }
 
+/** Sets a tile aside as out of reach for carrying, until dawn or until land gains walks. */
+export function setAsideGoods(sim: Sim, tile: number): void {
+  const { goods } = sim;
+  if (goods.setAside[tile] === 1) return;
+  goods.setAside[tile] = 1;
+  goods.setAsideTiles[goods.setAsideCount++] = tile;
+  refreshStack(sim, tile);
+}
+
+/** Opens again every tile set aside for carrying. */
+export function reopenGoods(sim: Sim): void {
+  const { goods } = sim;
+  for (let i = 0; i < goods.setAsideCount; i++) {
+    const tile = goods.setAsideTiles[i]!;
+    goods.setAside[tile] = 0;
+    refreshStack(sim, tile);
+  }
+  goods.setAsideCount = 0;
+}
+
 /** Takes one unit off a tile's stack, as a carrier that reserved it picks it up, and returns its good. */
 export function pickUp(sim: Sim, tile: number): Good {
   const { stackGood, stackSize } = sim.map;
@@ -143,4 +163,11 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     refreshStack(sim, tile);
   }
   return true;
+}
+
+/** Puts the unit in the villager's hands down where it stands. It stays in its hands when the land has no room for it. */
+export function putDownHeld(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  const good = villagers.carried[id]! as Good;
+  if (putDown(sim, tileAt(sim.map, villagers.x[id]!, villagers.y[id]!), good, 1)) villagers.carried[id] = Good.None;
 }
