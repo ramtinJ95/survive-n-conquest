@@ -2,6 +2,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
 import { isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
+import { type PutDownSearch, createPutDownSearch } from './goods';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
@@ -45,6 +46,7 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly monsters: Monsters;
   readonly orders: Orders;
+  readonly putDownSearch: PutDownSearch;
   tick: number;
   speed: Speed;
   paused: boolean;
@@ -64,6 +66,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
+    putDownSearch: createPutDownSearch(map.size * map.size),
     tick: 0,
     speed: 1,
     paused: false,
