@@ -2,8 +2,10 @@ import { CylinderGeometry, type IUniform, type Material, Mesh, MeshLambertMateri
 import { CAMP_RADIUS, campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
+import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
+import { createGoods } from './goods';
 import { PALETTES } from './palette';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
@@ -78,19 +80,31 @@ export function createWorld(map: TileMap) {
     },
   );
 
+  const goods = createGoods(map);
+  scene.add(goods.group);
+
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
   const show = (tick: number) => light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
   show(0);
 
-  /** Applies tile changes from the simulation, as pairs of a tile index and its kind now, to the map and the scene. */
-  const changeTiles = (pairs: Int32Array) => {
-    for (let i = 0; i < pairs.length; i += 2) {
-      const tile = pairs[i]!;
-      map.kinds[tile] = pairs[i + 1]! as TileKind;
-      repaint(tile);
-      scenery.refresh(tile);
+  /** Applies tile changes from the simulation, as `takeTileChanges` groups them, to the map and the scene. */
+  const changeTiles = (groups: Int32Array) => {
+    for (let i = 0; i < groups.length; i += TILE_CHANGE_STRIDE) {
+      const tile = groups[i]!;
+      const kind = groups[i + 1]! as TileKind;
+      const tree = groups[i + 2]!;
+      const reshaped = map.kinds[tile] !== kind;
+      const felled = map.trees[tile] !== tree;
+      const stacked = map.stackGood[tile] !== groups[i + 3] || map.stackSize[tile] !== groups[i + 4];
+      map.kinds[tile] = kind;
+      map.trees[tile] = tree;
+      map.stackGood[tile] = groups[i + 3]!;
+      map.stackSize[tile] = groups[i + 4]!;
+      if (reshaped) repaint(tile);
+      if (reshaped || felled) scenery.refresh(tile);
+      if (stacked) goods.refresh(tile);
     }
   };
 

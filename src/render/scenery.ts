@@ -16,7 +16,6 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TileKind, heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
-import { hasTree } from '../sim/trees';
 import { PALETTES, type Surface } from './palette';
 import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 
@@ -85,8 +84,7 @@ interface Standing {
   readonly mesh: InstancedMesh;
   readonly instance: number;
   readonly matrix: Matrix4;
-  /** The tile kind it stands on. */
-  readonly kind: TileKind;
+  readonly tree: boolean;
 }
 
 function instanced(
@@ -95,7 +93,7 @@ function instanced(
   placements: Placement[],
   seasonMix: IUniform<Vector4>,
   standing: Map<number, Standing>,
-  kind: TileKind,
+  tree: boolean,
 ): InstancedMesh {
   const mesh = new InstancedMesh(geometry, seasonalMaterial(seasonMix), placements.length);
   mesh.name = name;
@@ -109,7 +107,7 @@ function instanced(
     pose.scale.set(placement.width, placement.height, placement.width);
     pose.updateMatrix();
     mesh.setMatrixAt(i, pose.matrix);
-    standing.set(placement.tile, { mesh, instance: i, matrix: pose.matrix.clone(), kind });
+    standing.set(placement.tile, { mesh, instance: i, matrix: pose.matrix.clone(), tree });
     mesh.setColorAt(i, tint.setScalar(placement.shade));
   });
   mesh.computeBoundingSphere();
@@ -120,7 +118,7 @@ const roll = (map: TileMap, salt: number, x: number, y: number) => hashUnit(map.
 
 /** Where the tree on a tile stands, at what size, and whether it is a pine, or null when the tile holds no tree. */
 function treeOn(map: TileMap, tile: number): (Placement & { pine: boolean }) | null {
-  if (!hasTree(map, tile)) return null;
+  if (map.trees[tile] === 0) return null;
   const { size } = map;
   const x = tile % size;
   const y = Math.floor(tile / size);
@@ -152,10 +150,11 @@ export function treeTop(map: TileMap, tile: number, out: Vector3): Vector3 | nul
  * Trees on forest tiles and boulders on rock tiles, one instanced mesh for each
  * shape. The seed decides where each one stands, so a map always looks the same.
  * `seasonMix` blends the colors that each shape has in each season. `refresh`
- * shows a tile's tree or boulder only while the tile keeps the kind it grew on.
+ * hides a tile's tree once the map holds no tree there, and its boulder once the
+ * tile is no longer rock.
  */
 export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
-  const { size, kinds } = map;
+  const { size, kinds, trees } = map;
   const half = size / 2;
   const pines: Placement[] = [];
   const broadleaves: Placement[] = [];
@@ -188,17 +187,18 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
 
   const standing = new Map<number, Standing>();
   const meshes = [
-    instanced('pines', pineGeometry(), pines, seasonMix, standing, TileKind.Forest),
-    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix, standing, TileKind.Forest),
-    instanced('boulders', boulderGeometry(), boulders, seasonMix, standing, TileKind.Rock),
+    instanced('pines', pineGeometry(), pines, seasonMix, standing, true),
+    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix, standing, true),
+    instanced('boulders', boulderGeometry(), boulders, seasonMix, standing, false),
   ];
   const hidden = new Matrix4().makeScale(0, 0, 0);
 
   const refresh = (tile: number) => {
     const found = standing.get(tile);
     if (!found) return;
-    const { mesh, instance, matrix, kind } = found;
-    mesh.setMatrixAt(instance, kinds[tile] === kind ? matrix : hidden);
+    const { mesh, instance, matrix, tree } = found;
+    const stands = tree ? trees[tile] === 1 : kinds[tile] === TileKind.Rock;
+    mesh.setMatrixAt(instance, stands ? matrix : hidden);
     mesh.instanceMatrix.needsUpdate = true;
   };
 

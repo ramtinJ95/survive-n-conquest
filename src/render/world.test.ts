@@ -10,7 +10,6 @@ import {
 import { describe, expect, it } from 'vitest';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
-import { hasTree } from '../sim/trees';
 import { TALLEST_TREE } from './scenery';
 import { createWorld } from './world';
 
@@ -68,7 +67,7 @@ describe('createWorld', () => {
         stood.push(Math.floor(position.z + SIZE / 2) * SIZE + Math.floor(position.x + SIZE / 2));
       }
     }
-    const treeTiles = Array.from({ length: SIZE * SIZE }, (_, tile) => tile).filter((tile) => hasTree(map, tile));
+    const treeTiles = Array.from({ length: SIZE * SIZE }, (_, tile) => tile).filter((tile) => map.trees[tile] === 1);
     expect(treeTiles.length).toBeGreaterThan(0);
     expect(stood.sort((a, b) => a - b)).toEqual(treeTiles);
   });

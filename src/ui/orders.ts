@@ -82,6 +82,7 @@ const REFUSALS: Readonly<Record<Refusal, string>> = {
   camp: 'The camp stands in the way.',
   site: 'Another house stands in the way.',
   stockpile: 'A stockpile stands in the way.',
+  goods: 'Goods lie on the site.',
   uneven: 'The ground is too steep. Its nine tiles may differ by 1.5 m at most.',
   divides: 'The house would cut land off from the camp.',
   full: 'The map holds 256 houses and sites at most.',

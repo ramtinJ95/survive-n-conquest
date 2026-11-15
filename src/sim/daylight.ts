@@ -22,6 +22,11 @@ export function isNight(tick: number): boolean {
   return time < dawn || time >= TICKS_PER_DAY - dawn;
 }
 
+/** Whether the tick is the first of a day. */
+export function isDawn(tick: number): boolean {
+  return !isNight(tick) && isNight(tick - 1);
+}
+
 /**
  * How far the sun is through its daily course. It is 0 at dawn, 0.5 at noon,
  * 1 at dusk, 1.5 at midnight, and reaches 2 at the next dawn. The night is

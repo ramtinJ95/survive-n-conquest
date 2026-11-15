@@ -1,46 +1,31 @@
-import { type TileMap, walkable } from './map';
+import { DIRECTIONS, type TileMap, stepLength, stepTo } from './map';
+import { type TileHeap, createTileHeap, popTile, pushTile } from './tileHeap';
 
 /** Monsters enter on walkable tiles this close to the map edge. */
 export const ENTRY_BAND = 4;
 
-const NEIGHBORS = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-  [1, 1],
-  [1, -1],
-  [-1, 1],
-  [-1, -1],
-] as const;
-
-/** Shortest walks over land from every tile to one goal tile, for any number of walkers. */
+/**
+ * Shortest walks over land from every tile to one goal tile, for any number of
+ * walkers. The field changes in place when a tile opens or closes, and nothing
+ * allocates after `createFlowField`.
+ */
 export interface FlowField {
   readonly goal: number;
   /** For each tile, the next tile on its shortest walk to the goal. The goal holds itself, and a tile with no walk holds -1. */
   readonly next: Int32Array;
-  /** The walkable tiles within `ENTRY_BAND` of the map edge that have a walk to the goal. */
+  /** For each tile, the length of its shortest walk to the goal in tiles, or Infinity when it has none. */
+  readonly walk: Float64Array;
+  /** The first `entranceCount` entries are the walkable tiles within `ENTRY_BAND` of the map edge that have a walk to the goal. */
   readonly entrances: Int32Array;
-}
-
-/**
- * Calls `visit` with each tile one step from `tile` and the length of that step.
- * A step goes to one of the eight neighbors and cuts a corner only when both tiles beside it are walkable.
- */
-export function eachStep(map: TileMap, tile: number, visit: (neighbor: number, length: number) => void): void {
-  const { size } = map;
-  const x = tile % size;
-  const y = Math.floor(tile / size);
-  for (const [dx, dy] of NEIGHBORS) {
-    const nx = x + dx;
-    const ny = y + dy;
-    if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
-    const neighbor = ny * size + nx;
-    if (!walkable(map, neighbor)) continue;
-    const diagonal = dx !== 0 && dy !== 0;
-    if (diagonal && !(walkable(map, y * size + nx) && walkable(map, ny * size + x))) continue;
-    visit(neighbor, diagonal ? Math.SQRT2 : 1);
-  }
+  entranceCount: number;
+  /**
+   * The first `gainedCount` are the tiles that gained a walk to the goal since
+   * whoever reads them last set `gainedCount` to 0. A rebuild lists every tile
+   * that has a walk.
+   */
+  readonly gained: Int32Array;
+  gainedCount: number;
+  readonly heap: TileHeap;
 }
 
 export function inEntryBand(size: number, tile: number): boolean {
@@ -49,77 +34,86 @@ export function inEntryBand(size: number, tile: number): boolean {
   return Math.min(x, y, size - 1 - x, size - 1 - y) < ENTRY_BAND;
 }
 
-/** A binary min-heap of tiles keyed by walk length. A tile can sit in it more than once. */
-class TileQueue {
-  private readonly tiles: number[] = [];
-  private readonly lengths: number[] = [];
+function entryBandTiles(size: number): number {
+  const inner = Math.max(size - 2 * ENTRY_BAND, 0);
+  return size * size - inner * inner;
+}
 
-  get size(): number {
-    return this.tiles.length;
-  }
-
-  push(tile: number, length: number): void {
-    let at = this.tiles.length;
-    this.tiles.push(tile);
-    this.lengths.push(length);
-    while (at > 0) {
-      const parent = (at - 1) >> 1;
-      if (this.lengths[parent]! <= length) break;
-      this.tiles[at] = this.tiles[parent]!;
-      this.lengths[at] = this.lengths[parent]!;
-      at = parent;
+/** Settles every queued tile and spreads shorter walks from it, as Dijkstra's search does. */
+function spread(map: TileMap, flow: FlowField): void {
+  const { size } = map;
+  const { walk, next, heap, entrances, gained } = flow;
+  while (heap.size > 0) {
+    const tile = popTile(heap);
+    const x = tile % size;
+    const y = (tile - x) / size;
+    const here = walk[tile]!;
+    for (let direction = 0; direction < DIRECTIONS; direction++) {
+      const neighbor = stepTo(map, x, y, direction);
+      if (neighbor < 0) continue;
+      const through = here + stepLength(direction);
+      const before = walk[neighbor]!;
+      if (through >= before) continue;
+      if (before === Infinity) {
+        gained[flow.gainedCount++] = neighbor;
+        if (inEntryBand(size, neighbor)) entrances[flow.entranceCount++] = neighbor;
+      }
+      walk[neighbor] = through;
+      next[neighbor] = tile;
+      pushTile(heap, neighbor, through);
     }
-    this.tiles[at] = tile;
-    this.lengths[at] = length;
   }
+}
 
-  /** Removes the entry with the shortest length and returns its tile. */
-  pop(): number {
-    const top = this.tiles[0]!;
-    const tile = this.tiles.pop()!;
-    const length = this.lengths.pop()!;
-    const size = this.tiles.length;
-    if (size === 0) return top;
-    let at = 0;
-    for (;;) {
-      let child = at * 2 + 1;
-      if (child >= size) break;
-      if (child + 1 < size && this.lengths[child + 1]! < this.lengths[child]!) child += 1;
-      if (this.lengths[child]! >= length) break;
-      this.tiles[at] = this.tiles[child]!;
-      this.lengths[at] = this.lengths[child]!;
-      at = child;
-    }
-    this.tiles[at] = tile;
-    this.lengths[at] = length;
-    return top;
-  }
+/** Builds the whole field again in place, as a tile that stops walkers needs. */
+export function rebuildFlowField(map: TileMap, flow: FlowField): void {
+  const { goal, walk, next, entrances } = flow;
+  walk.fill(Infinity);
+  next.fill(-1);
+  flow.entranceCount = 0;
+  flow.gainedCount = 0;
+  walk[goal] = 0;
+  next[goal] = goal;
+  flow.gained[flow.gainedCount++] = goal;
+  if (inEntryBand(map.size, goal)) entrances[flow.entranceCount++] = goal;
+  pushTile(flow.heap, goal, 0);
+  spread(map, flow);
 }
 
 /** Builds the flow field to one goal tile, such as the camp. */
 export function createFlowField(map: TileMap, goal: number): FlowField {
+  const tiles = map.size * map.size;
+  const flow: FlowField = {
+    goal,
+    next: new Int32Array(tiles),
+    walk: new Float64Array(tiles),
+    entrances: new Int32Array(entryBandTiles(map.size)),
+    entranceCount: 0,
+    gained: new Int32Array(tiles),
+    gainedCount: 0,
+    heap: createTileHeap(tiles),
+  };
+  rebuildFlowField(map, flow);
+  flow.gainedCount = 0;
+  return flow;
+}
+
+/**
+ * Brings the field up to date after `tile` turned walkable. Only walks can grow
+ * shorter, so the search restarts from the tiles around it with the walks they
+ * have. The 3x3 around the tile is queued, not only the tile, because its side
+ * neighbors gain diagonal steps past it.
+ */
+export function openFlowTile(map: TileMap, flow: FlowField, tile: number): void {
   const { size } = map;
-  const walk = new Float64Array(size * size).fill(Infinity);
-  const next = new Int32Array(size * size).fill(-1);
-  const queue = new TileQueue();
-  walk[goal] = 0;
-  next[goal] = goal;
-  queue.push(goal, 0);
-
-  while (queue.size > 0) {
-    const tile = queue.pop();
-    eachStep(map, tile, (neighbor, length) => {
-      const through = walk[tile]! + length;
-      if (through >= walk[neighbor]!) return;
-      walk[neighbor] = through;
-      next[neighbor] = tile;
-      queue.push(neighbor, through);
-    });
+  const x = tile % size;
+  const y = (tile - x) / size;
+  for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, size - 1); ny++) {
+    for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, size - 1); nx++) {
+      const neighbor = ny * size + nx;
+      const walk = flow.walk[neighbor]!;
+      if (walk !== Infinity) pushTile(flow.heap, neighbor, walk);
+    }
   }
-
-  const entrances: number[] = [];
-  for (let tile = 0; tile < size * size; tile++) {
-    if (inEntryBand(size, tile) && next[tile] !== -1) entrances.push(tile);
-  }
-  return { goal, next, entrances: Int32Array.from(entrances) };
+  spread(map, flow);
 }

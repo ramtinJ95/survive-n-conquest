@@ -1,4 +1,4 @@
-import { DEFAULT_MAP_SIZE, TileKind, WATER_LEVEL, type TileMap } from './map';
+import { DEFAULT_MAP_SIZE, TileKind, WATER_LEVEL, type TileMap, createTileMap } from './map';
 import { fractalNoise, hash, hashUnit } from './noise';
 
 // Distances are in tiles and heights in meters. Features keep their size when the map grows.
@@ -7,6 +7,8 @@ const HILLS = { span: 45, octaves: 4, relief: 6 };
 const RIVER = { span: 190, octaves: 2, plain: 0.22, plainHeight: 1, bank: 0.05, bed: -2.4 };
 const CRAGS = { span: 22, octaves: 2, from: 0.3, to: 0.46, highland: 0.012, rise: 3.2, rock: 0.45 };
 const FOREST = { span: 70, octaves: 3, ragged: 0.12, floor: 0.6, treeLine: 12, thinning: 0.03 };
+/** About one forest tile in six holds a tree. */
+const TREES_PER_FOREST_TILE = 0.17;
 const CLIFF_SLOPE = 0.85;
 const WOODED_SLOPE = 0.6;
 
@@ -78,5 +80,12 @@ export function generateMap(seed: number, size: number = DEFAULT_MAP_SIZE): Tile
     }
   }
 
-  return { seed: root, size, heights, kinds };
+  const map = createTileMap(root, size, heights, kinds);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      if (kinds[i] === TileKind.Forest && hashUnit(root ^ 5, x, y) < TREES_PER_FOREST_TILE) map.trees[i] = 1;
+    }
+  }
+  return map;
 }

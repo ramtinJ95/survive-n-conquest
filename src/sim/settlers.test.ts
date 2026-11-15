@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { campTile } from './camp';
 import { isNight } from './daylight';
-import { createFlowField } from './flowField';
 import { TileKind, type TileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
-import { type Command, SETTLERS, type Sim, applyCommand, changeTile, createSim, step, takeTileChanges } from './sim';
-import { WANDER_REACH, createVillagers, moveVillagers } from './villagers';
+import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { mapFrom } from './testMaps';
+import { changeTile, takeTileChanges } from './tileChanges';
+import { WANDER_REACH } from './villagers';
 
 const map = generateMap(7);
-const KINDS: Readonly<Record<string, TileKind>> = { '.': TileKind.Grass, '~': TileKind.Water, '#': TileKind.Rock };
 
-function mapFrom(rows: readonly string[]): TileMap {
-  const size = rows.length;
-  const kinds = Uint8Array.from(rows.join(''), (cell) => KINDS[cell]!);
-  return { seed: 3, size, heights: new Float32Array(size * size).fill(1), kinds };
+/** One villager standing at (x, y) on the map, at the first tick of the night. */
+function nightFor(on: TileMap, x: number, y: number): Sim {
+  const sim = createSim(on, { villagers: 1, monsters: 0 });
+  while (!isNight(sim.tick)) sim.tick++;
+  sim.villagers.x[0] = x;
+  sim.villagers.y[0] = y;
+  return sim;
 }
 
 function runUntil(sim: Sim, done: (sim: Sim) => boolean, afterEach: () => void = () => {}): void {
@@ -94,13 +97,13 @@ describe('the settlers', () => {
       '............',
       '............',
     ]);
-    const camp = createFlowField(walled, campTile(walled));
-    const villagers = createVillagers(walled, camp, 1);
-    villagers.x[0] = 3.5;
-    villagers.y[0] = 10.5;
+    const sim = nightFor(walled, 3.5, 10.5);
+    const { villagers } = sim;
+    expect(sim.camp).toBe(campTile(walled));
     const tiles = new Set<number>();
     for (let tick = 0; tick < 300; tick++) {
-      moveVillagers(walled, camp, villagers, true);
+      step(sim);
+      expect(isNight(sim.tick)).toBe(true);
       const tile = tileAt(walled, villagers.x[0]!, villagers.y[0]!);
       expect(walkable(walled, tile)).toBe(true);
       tiles.add(tile);
@@ -120,12 +123,10 @@ describe('the settlers', () => {
       '~~~~~~~~',
       '.~~~~~~~',
     ]);
-    const camp = createFlowField(island, campTile(island));
-    const villagers = createVillagers(island, camp, 1);
-    villagers.x[0] = 0.5;
-    villagers.y[0] = 7.5;
-    for (let tick = 0; tick < 100; tick++) moveVillagers(island, camp, villagers, true);
-    expect([villagers.x[0], villagers.y[0]]).toEqual([0.5, 7.5]);
+    const sim = nightFor(island, 0.5, 7.5);
+    for (let tick = 0; tick < 100; tick++) step(sim);
+    expect(isNight(sim.tick)).toBe(true);
+    expect([sim.villagers.x[0], sim.villagers.y[0]]).toEqual([0.5, 7.5]);
   });
 
   it('reach the same state through a dusk and a dawn from one seed and the same commands', () => {
@@ -163,7 +164,7 @@ describe('tile changes', () => {
     changeTile(sim, first, TileKind.Water);
     changeTile(sim, second, TileKind.Rock);
     changeTile(sim, first, TileKind.Rock);
-    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, second, TileKind.Rock]);
+    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, 0, 0, 0, second, TileKind.Rock, 0, 0, 0]);
     expect(takeTileChanges(sim).length).toBe(0);
     expect(sim.flow.next[first]).toBe(-1);
     expect(sim.flow.next[second]).toBe(-1);

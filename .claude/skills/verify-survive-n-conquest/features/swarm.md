@@ -1,6 +1,6 @@
 # Swarm
 
-The `swarm=on` URL parameter opens the game with the benchmark load on the map: 1500 villagers in yellow and 3000 monsters in deep red. The villagers follow the rule of the settlers in [Settlers](./settlers.md). They start at the camp, walk between random points near it by day at 1.5 tiles per second, and walk back to it at dusk. Monsters walk at 1 tile per second along one flow field to the land nearest the map center, and a monster that arrives enters again at the map edge. Neither group steps onto water or rock. The simulation moves them in the Web Worker, so they move only while the clock runs. The `swarm=off` URL parameter opens the same map with no units.
+The `swarm=on` URL parameter opens the game with the benchmark load on the map: 1500 villagers in yellow and 3000 monsters in deep red. Every tree and every rock tile on the map is marked for Chop and Quarry at the start, as `bun run bench` marks them. The villagers start at the camp and work those marks by the rules of [Gathering](./gathering.md), so they spread from the camp over the map by day and walk back to it at dusk. The map fills with chop pins and quarry outlines, and with logs and stone where the work is done. Monsters walk at 1 tile per second along one flow field to the land nearest the map center, and a monster that arrives enters again at the map edge. Neither group steps onto water or rock. The simulation moves them in the Web Worker, so they move only while the clock runs. The `swarm=off` URL parameter opens the same map with no units.
 
 ## Sub-features
 
@@ -36,7 +36,7 @@ Preconditions:
 ## Gotchas
 
 - `unitPixels` matches the saturated yellow of villagers and the deep red of monsters in `src/render/swarm.ts`. Update `UNIT_COLORS` in `verify.mjs` when those colors or the lighting change on purpose, and say so in the pull request.
-- The villagers crowd around the camp near the map center, so most of the yellow is in the middle of the first view. The monsters walk to the same camp.
+- The villagers start at the camp near the map center and spread out to the nearest marks, so most of the yellow is in the middle of the first view at noon on day 1. The monsters walk to the same camp.
 - Two page loads pause at different ticks, so their units stand in different places. Compare screenshots across page loads only with `swarm=off`. Within one paused page the units hold still and `still(page)` returns.
 - The frame rate in headless Chromium says nothing about the game with 4500 units. SwiftShader draws on the CPU. The tick time comes from `bun run bench`, and the frame rate comes from a real browser on the owner's machine.
 - The 8× clip runs about 12 seconds.

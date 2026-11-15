@@ -29,6 +29,8 @@ const GROUND_COLOR: Record<TileKind, (palette: Palette, height: number, meadow: 
     out.lerpColors(palette.rockLow, palette.rockHigh, ramp(3, 20, height)),
   [TileKind.Water]: (palette, height, _meadow, out) =>
     out.lerpColors(palette.sand, palette.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
+  [TileKind.Bare]: (palette, _height, meadow, out) =>
+    out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)),
 };
 
 function meadows(map: TileMap): Float32Array {

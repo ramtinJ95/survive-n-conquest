@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { campTile } from './camp';
-import { ENTRY_BAND, createFlowField } from './flowField';
-import { type TileMap, tileAt, walkable } from './map';
+import { ENTRY_BAND, type FlowField, createFlowField, openFlowTile } from './flowField';
+import { DIRECTIONS, TileKind, type TileMap, copyMap, stepLength, stepTo, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { MONSTER_STEP } from './monsters';
+import { hash } from './noise';
 import { BENCHMARK_POPULATION, type Population, type Sim, createSim, step } from './sim';
 import { VILLAGER_STEP, WANDER_REACH } from './villagers';
 
@@ -21,8 +22,14 @@ function run(sim: Sim, ticks: number, afterEach: () => void = () => {}): Sim {
   return sim;
 }
 
+const entrancesOf = (flow: FlowField) => Array.from(flow.entrances.subarray(0, flow.entranceCount));
+
 function tileCenter(on: TileMap, tile: number): [number, number] {
   return [(tile % on.size) + 0.5, Math.floor(tile / on.size) + 0.5];
+}
+
+function tilesWhere(on: TileMap, keep: (tile: number) => boolean): number[] {
+  return Array.from({ length: on.size * on.size }, (_, tile) => tile).filter(keep);
 }
 
 function standingOnWaterOrRock(on: TileMap, xs: Float32Array, ys: Float32Array): number {
@@ -63,7 +70,7 @@ describe('the units', () => {
           const [fromX, fromY] = [Math.floor(lastX[table]![id]!), Math.floor(lastY[table]![id]!)];
           const [toX, toY] = [Math.floor(x[id]!), Math.floor(y[id]!)];
           if (Math.abs(toX - fromX) !== 1 || Math.abs(toY - fromY) !== 1) continue;
-          const besideClear = walkable(big, fromY * big.size + toX) && walkable(big, toY * big.size + fromX);
+          const besideClear = walkable(sim.map, fromY * big.size + toX) && walkable(sim.map, toY * big.size + fromX);
           if (!besideClear) squeezes.push(`table ${table} unit ${id} at tick ${tick}`);
         }
       });
@@ -159,7 +166,7 @@ describe('the monsters', () => {
     const arrivals = sim.monsters.draws.filter((draws, id) => draws > startDraws[id]!).length;
     expect(arrivals).toBe(POPULATION.monsters);
     expect(entered.size).toBeGreaterThan(50);
-    for (const tile of entered) expect(sim.flow.entrances).toContain(tile);
+    for (const tile of entered) expect(entrancesOf(sim.flow)).toContain(tile);
   });
 });
 
@@ -208,8 +215,8 @@ describe('the flow field', () => {
 
   it('lists entrances only near the map edge and only where a route starts', () => {
     const flow = createFlowField(map, campTile(map));
-    expect(flow.entrances.length).toBeGreaterThan(0);
-    for (const tile of flow.entrances) {
+    expect(flow.entranceCount).toBeGreaterThan(0);
+    for (const tile of entrancesOf(flow)) {
       const [x, y] = tileCenter(map, tile).map(Math.floor) as [number, number];
       expect(Math.min(x, y, SIZE - 1 - x, SIZE - 1 - y)).toBeLessThan(ENTRY_BAND);
       expect(flow.next[tile]).not.toBe(-1);
@@ -221,6 +228,49 @@ describe('the flow field', () => {
     const { flow } = expectRoutesEndAtGoal(cutOff);
     const center = tileAt(cutOff, 128, 128);
     expect(flow.next[center]).toBe(-1);
-    expect(flow.entrances.length).toBeGreaterThan(0);
+    expect(flow.entranceCount).toBeGreaterThan(0);
+  });
+
+  it('keeps the shortest walks of a fresh build while rock tiles open one by one', () => {
+    const opened = copyMap(generateMap(7, 128));
+    const { size } = opened;
+    const flow = createFlowField(opened, campTile(opened));
+    const face = (tile: number) =>
+      opened.kinds[tile] === TileKind.Rock &&
+      [1, -1, size, -size].some((side) => walkable(opened, tile + side) && Math.abs((tile % size) - ((tile + side) % size)) <= 1);
+    let longest = 0;
+    let shortened = 0;
+    for (let i = 0; i < 400; i++) {
+      const faces = tilesWhere(opened, face);
+      const tile = faces.reduce((best, at) => (hash(91, at, i) < hash(91, best, i) ? at : best));
+      const before = flow.walk.slice();
+      opened.kinds[tile] = TileKind.Bare;
+      openFlowTile(opened, flow, tile);
+      shortened += flow.walk.filter((walk, at) => walk < before[at]!).length;
+      if (i % 50 !== 49) continue;
+      const fresh = createFlowField(opened, flow.goal);
+      for (let at = 0; at < size * size; at++) {
+        if (fresh.walk[at] === Infinity) expect(flow.walk[at], `tile ${at}`).toBe(Infinity);
+        else longest = Math.max(longest, Math.abs(flow.walk[at]! - fresh.walk[at]!));
+      }
+      expect(entrancesOf(flow).sort((a, b) => a - b)).toEqual(entrancesOf(fresh).sort((a, b) => a - b));
+    }
+    expect(longest).toBeLessThan(1e-9);
+    expect(shortened).toBeGreaterThan(1000);
+
+    const badSteps: number[] = [];
+    for (let tile = 0; tile < size * size; tile++) {
+      const to = flow.next[tile]!;
+      if (to === -1 || tile === flow.goal) continue;
+      const x = tile % size;
+      const y = Math.floor(tile / size);
+      let length = NaN;
+      for (let direction = 0; direction < DIRECTIONS; direction++) {
+        if (stepTo(opened, x, y, direction) === to) length = stepLength(direction);
+      }
+      const consistent = Math.abs(flow.walk[tile]! - (flow.walk[to]! + length)) < 1e-9;
+      if (!(flow.walk[to]! < flow.walk[tile]!) || !consistent) badSteps.push(tile);
+    }
+    expect(badSteps).toEqual([]);
   });
 });

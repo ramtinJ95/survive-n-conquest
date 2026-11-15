@@ -1,10 +1,15 @@
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
-import { isNight } from './daylight';
+import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
-import type { TileKind, TileMap } from './map';
+import { type Gathering, createGathering } from './gathering';
+import { type PutDownSearch, createPutDownSearch } from './goods';
+import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
+import { type PathSearch, createPathSearch } from './paths';
+import { reachTasks, refreshTasks, reopenTasks } from './tasks';
+import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, createVillagers, moveVillagers } from './villagers';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
@@ -18,10 +23,12 @@ export type Command =
 export interface Population {
   readonly villagers: number;
   readonly monsters: number;
+  /** Marks every tree and every rock tile on the map at the start, through the same orders a player gives. */
+  readonly markAll?: boolean;
 }
 
-/** The load the performance budget is set for: a full city under a late assault. */
-export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000 };
+/** The load the performance budget is set for: a full city at work under a late assault. */
+export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true };
 /** A new game: a few settlers at the camp and nothing else. */
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
@@ -33,46 +40,52 @@ export function populationFor(swarm: string | null): Population {
   return SETTLERS;
 }
 
-/** The tiles whose kind changed since the last `takeTileChanges`, each listed once, in the order of their first change. */
-interface TileChanges {
-  readonly listed: Uint8Array;
-  readonly tiles: Int32Array;
-  count: number;
-}
-
 export interface Sim {
   readonly seed: number;
   /** The simulation's own copy of the map. Only the simulation changes it, and `takeTileChanges` reports each change. */
   readonly map: TileMap;
   readonly camp: number;
   /** Routes to the camp, for the villagers who walk home at dusk and for the monsters. */
-  flow: FlowField;
+  readonly flow: FlowField;
   readonly tileChanges: TileChanges;
   readonly villagers: Villagers;
   readonly monsters: Monsters;
   readonly orders: Orders;
+  readonly gathering: Gathering;
+  readonly putDownSearch: PutDownSearch;
+  readonly pathSearch: PathSearch;
   tick: number;
   speed: Speed;
   paused: boolean;
 }
 
-export function createSim(map: TileMap, population: Population): Sim {
+/** Starts a simulation on its own copy of the map, so the caller's map never changes. */
+export function createSim(source: TileMap, population: Population): Sim {
+  const map = copyMap(source);
   const camp = campTile(map);
   const flow = createFlowField(map, camp);
-  const tiles = map.size * map.size;
-  return {
+  const sim: Sim = {
     seed: map.seed,
     map,
     camp,
     flow,
-    tileChanges: { listed: new Uint8Array(tiles), tiles: new Int32Array(tiles), count: 0 },
+    tileChanges: createTileChanges(map.size * map.size),
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
+    gathering: createGathering(map),
+    putDownSearch: createPutDownSearch(map.size * map.size),
+    pathSearch: createPathSearch(map.size * map.size),
     tick: 0,
     speed: 1,
     paused: false,
   };
+  if (population.markAll) {
+    const whole = { x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 };
+    applyCommand(sim, { kind: 'markArea', order: 'chop', area: whole });
+    applyCommand(sim, { kind: 'markArea', order: 'quarry', area: whole });
+  }
+  return sim;
 }
 
 /** Returns what became of an order, and nothing for a clock command. */
@@ -85,45 +98,30 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       sim.speed = command.speed;
       sim.paused = false;
       return;
-    case 'markArea':
+    case 'markArea': {
+      const outcome = applyOrder(sim.map, sim.orders, command);
+      if (outcome.ok) refreshTasks(sim, command.area);
+      return outcome;
+    }
     case 'placeHouse':
       return applyOrder(sim.map, sim.orders, command);
   }
 }
 
-/** Runs the systems in their fixed order. Nothing in a tick allocates. */
+/**
+ * Runs the systems in their fixed order. Nothing in a tick allocates. Tasks set
+ * aside as out of reach open again at dawn, and after a tick in which land
+ * gained walks to the camp.
+ */
 export function step(sim: Sim): void {
-  moveVillagers(sim.map, sim.flow, sim.villagers, isNight(sim.tick));
+  const night = isNight(sim.tick);
+  if (isDawn(sim.tick)) reopenTasks(sim);
+  moveVillagers(sim, night);
+  if (sim.flow.gainedCount > 0) reachTasks(sim);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;
 }
 
 export function ticksPerSecond(sim: Sim): number {
   return sim.paused ? 0 : TICKS_PER_SECOND * sim.speed;
-}
-
-/** Changes the kind of a tile, records the change for the renderer, and routes around the tile from then on. */
-export function changeTile(sim: Sim, tile: number, kind: TileKind): void {
-  if (sim.map.kinds[tile] === kind) return;
-  sim.map.kinds[tile] = kind;
-  const changes = sim.tileChanges;
-  if (!changes.listed[tile]) {
-    changes.listed[tile] = 1;
-    changes.tiles[changes.count++] = tile;
-  }
-  sim.flow = createFlowField(sim.map, sim.camp);
-}
-
-/** The tiles changed since the last call, as pairs of a tile index and its kind now, and forgets them. */
-export function takeTileChanges(sim: Sim): Int32Array {
-  const changes = sim.tileChanges;
-  const pairs = new Int32Array(changes.count * 2);
-  for (let i = 0; i < changes.count; i++) {
-    const tile = changes.tiles[i]!;
-    pairs[i * 2] = tile;
-    pairs[i * 2 + 1] = sim.map.kinds[tile]!;
-    changes.listed[tile] = 0;
-  }
-  changes.count = 0;
-  return pairs;
 }
