@@ -127,6 +127,33 @@ function toolButton(tool: Tool): HTMLButtonElement {
 }
 
 /** A press of the main button on the map with a tool: a drag for an area tool, a click for House. */
+const ROVING_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
+  ArrowDown: (at, count) => (at + 1) % count,
+  ArrowUp: (at, count) => (at + count - 1) % count,
+  Home: () => 0,
+  End: (_at, count) => count - 1,
+};
+
+/**
+ * Makes the toolbar one stop in the Tab order. The arrow keys, Home, and End move
+ * between its buttons, and do not reach the camera while they do.
+ */
+function rove(toolbar: HTMLElement, items: readonly HTMLButtonElement[]) {
+  const focus = (next: number) => {
+    items.forEach((item, index) => (item.tabIndex = index === next ? 0 : -1));
+    items[next]!.focus();
+  };
+  items.forEach((item, index) => (item.tabIndex = index === 0 ? 0 : -1));
+  toolbar.addEventListener('keydown', (event) => {
+    const move = ROVING_KEYS[event.code];
+    const at = items.indexOf(event.target as HTMLButtonElement);
+    if (!move || at < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focus(move(at, items.length));
+  });
+}
+
 interface Gesture {
   readonly pointer: number;
   readonly tool: Tool;
@@ -151,7 +178,9 @@ export function mountOrders(
   }: { map: TileMap; orders: Orders; canvas: HTMLCanvasElement; camera: PerspectiveCamera; marks: OrderMarks },
 ) {
   const pick = createPicker(map, camera);
-  const toolbar = document.createElement('nav');
+  const toolbar = document.createElement('div');
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-orientation', 'vertical');
   toolbar.className = 'orders';
   toolbar.setAttribute('aria-label', 'Orders');
   const status = document.createElement('p');
@@ -161,6 +190,7 @@ export function mountOrders(
   status.hidden = true;
   const buttons = new Map(TOOLS.map((tool) => [tool.id, toolButton(tool)]));
   toolbar.append(...buttons.values());
+  rove(toolbar, [...buttons.values()]);
   root.append(toolbar, status);
 
   let tool: Tool | null = null;

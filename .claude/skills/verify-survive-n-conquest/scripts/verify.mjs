@@ -347,12 +347,12 @@ function surfaceShares(png, rows) {
 
 /** The pure colors that the outlines of the orders and the chop pins draw, which no light or fog changes. */
 const ORDER_RGB = {
-  chop: [0xff, 0xa2, 0x30],
+  chop: [0xff, 0x7a, 0x1a],
   quarry: [0xc7, 0x7d, 0xff],
   stockpile: [0x2f, 0xd6, 0xc4],
   site: [0x5a, 0xa8, 0xff],
   fits: [0x7d, 0xff, 0x8a],
-  blocks: [0xff, 0x5a, 0x5a],
+  blocks: [0xff, 0x4d, 0x8d],
 };
 const ORDER_TOLERANCE = 24;
 
@@ -1205,7 +1205,7 @@ const MARKS_AT_LEAST = { mid: 20, near: 50, far: 10 };
 SCENARIOS.orders = async (session) => {
   const seen = [];
   const spot = (viewport, [fx, fy]) => ({ x: Math.round(fx * viewport.width), y: Math.round(fy * viewport.height) });
-  const toolbar = (page) => page.getByRole('navigation', { name: 'Orders' });
+  const toolbar = (page) => page.getByRole('toolbar', { name: 'Orders' });
   const tool = (page, name) => toolbar(page).getByRole('button', { name, exact: true });
   const status = (page) => page.getByRole('status', { name: 'Order' });
   const pressedTools = async (page) => {
@@ -1402,11 +1402,18 @@ SCENARIOS.orders = async (session) => {
   await expectTool(view, 'a click on Chop picks it', 'Chop');
   await tool(view, 'Chop').click();
   await expectTool(view, 'a second click on Chop puts it away', '');
-  for (let presses = 0; presses < 12 && !(await tool(view, 'Quarry').evaluate((node) => node === document.activeElement)); presses++) {
-    await view.keyboard.press('Tab');
-  }
+  const inToolbar = () => toolbar(view).evaluate((node) => node.contains(document.activeElement));
+  let stops = 0;
+  for (; stops < 12 && !(await inToolbar()); stops++) await view.keyboard.press('Tab');
+  session.check('the toolbar is one stop in the Tab order', await tool(view, 'Chop').evaluate((node) => node === document.activeElement), `${stops} presses of Tab reached it, at Chop`);
+  const beforeArrow = await session.screenshot(view, 'orders-15a-before-arrow');
+  await view.keyboard.press('ArrowDown');
+  await session.still(view);
+  session.check('ArrowDown moves from Chop to Quarry', await tool(view, 'Quarry').evaluate((node) => node === document.activeElement), 'focus on Quarry');
+  const afterArrow = await session.screenshot(view, 'orders-15b-after-arrow');
+  session.expectSameOutside('an arrow key in the toolbar leaves the camera alone', beforeArrow, afterArrow, coverBox(view, await toolbar(view).boundingBox()), 0.2);
   await view.keyboard.press('Enter');
-  await expectTool(view, 'Tab and Enter pick Quarry', 'Quarry');
+  await expectTool(view, 'Tab, ArrowDown, and Enter pick Quarry', 'Quarry');
   await view.keyboard.press('Escape');
   await view.locator(WORLD).focus().catch(() => {});
   await session.still(view);
