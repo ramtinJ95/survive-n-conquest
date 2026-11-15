@@ -1,5 +1,5 @@
-import { eachStep, inEntryBand } from './flowField';
-import { type TileMap, walkable } from './map';
+import { inEntryBand } from './flowField';
+import { DIRECTIONS, type TileMap, stepTo, walkable } from './map';
 
 /**
  * The tile where the settlement starts: the walkable tile nearest the map
@@ -17,11 +17,13 @@ export function campTile(map: TileMap): number {
     }
   }
   while (open.length > 0) {
-    eachStep(map, open.pop()!, (neighbor) => {
-      if (reached[neighbor]) return;
+    const tile = open.pop()!;
+    for (let direction = 0; direction < DIRECTIONS; direction++) {
+      const neighbor = stepTo(map, tile % size, Math.floor(tile / size), direction);
+      if (neighbor < 0 || reached[neighbor]) continue;
       reached[neighbor] = 1;
       open.push(neighbor);
-    });
+    }
   }
 
   let camp = -1;

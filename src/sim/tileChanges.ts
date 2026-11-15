@@ -1,5 +1,5 @@
-import { createFlowField } from './flowField';
-import type { TileKind } from './map';
+import { openFlowTile, rebuildFlowField } from './flowField';
+import { type TileKind, walkable } from './map';
 import type { Sim } from './sim';
 
 /** Int32 values per changed tile in `takeTileChanges`: tile, kind, tree, good, count. */
@@ -24,12 +24,16 @@ export function noteTileChange(sim: Sim, tile: number): void {
   changes.tiles[changes.count++] = tile;
 }
 
-/** Changes the kind of a tile, records the change for the renderer, and routes around the tile from then on. */
+/** Changes the kind of a tile, records the change for the renderer, and brings the routes up to date. */
 export function changeTile(sim: Sim, tile: number, kind: TileKind): void {
-  if (sim.map.kinds[tile] === kind) return;
-  sim.map.kinds[tile] = kind;
+  const { map, flow } = sim;
+  if (map.kinds[tile] === kind) return;
+  const wasWalkable = walkable(map, tile);
+  map.kinds[tile] = kind;
   noteTileChange(sim, tile);
-  sim.flow = createFlowField(sim.map, sim.camp);
+  const isWalkable = walkable(map, tile);
+  if (isWalkable && !wasWalkable) openFlowTile(map, flow, tile);
+  else if (wasWalkable && !isWalkable) rebuildFlowField(map, flow);
 }
 
 /**

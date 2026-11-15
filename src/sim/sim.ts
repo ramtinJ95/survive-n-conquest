@@ -40,7 +40,7 @@ export interface Sim {
   readonly map: TileMap;
   readonly camp: number;
   /** Routes to the camp, for the villagers who walk home at dusk and for the monsters. */
-  flow: FlowField;
+  readonly flow: FlowField;
   readonly tileChanges: TileChanges;
   readonly villagers: Villagers;
   readonly monsters: Monsters;

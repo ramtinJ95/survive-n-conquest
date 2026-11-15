@@ -52,12 +52,12 @@ export function createMonsters(map: TileMap, flow: FlowField, count: number): Mo
  */
 export function moveMonsters(map: TileMap, flow: FlowField, monsters: Monsters): void {
   const { size } = map;
-  const { goal, next, entrances } = flow;
+  const { goal, next, entrances, entranceCount } = flow;
   const { x, y } = monsters;
   for (let id = 0; id < x.length; id++) {
     const tile = tileAt(map, x[id]!, y[id]!);
     if (tile === goal) {
-      standOn(map, monsters, id, entrances[draw(map, monsters, id) % entrances.length]!);
+      standOn(map, monsters, id, entrances[draw(map, monsters, id) % entranceCount]!);
       continue;
     }
     const to = next[tile]!;
