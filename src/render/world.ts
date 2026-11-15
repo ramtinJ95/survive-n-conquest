@@ -1,4 +1,5 @@
 import { type Material, MathUtils, Scene, Vector4 } from 'three';
+import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
@@ -27,7 +28,8 @@ const FIRELIT = { from: 0.3, full: -0.05 };
  * land for a tick of the simulation clock. `time` is the clock in ticks with
  * the part of a tick that has passed, and moves the wind, the water, and the
  * fire: it is the tick itself while the clock is paused, so a paused world
- * holds still. The simulation owns the map, and `changeTiles` brings this copy
+ * holds still. They move with the time of day alone, so the world looks the
+ * same at the same time on every day. The simulation owns the map, and `changeTiles` brings this copy
  * of it, the ground, and the scenery up to date.
  */
 export function createWorld(map: TileMap, shapes: Shapes) {
@@ -69,9 +71,9 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   scene.add(...marks.meshes);
 
   const show = (tick: number, time = tick) => {
-    clock.value = time;
+    clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
-    campsite.show(time, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
+    campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
 

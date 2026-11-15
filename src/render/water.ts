@@ -1,7 +1,7 @@
 import { BufferAttribute, BufferGeometry, type Color, type IUniform, Mesh, type Vector4 } from 'three';
 import { WATER_LEVEL, type TileMap } from '../sim/map';
 import { PALETTES } from './palette';
-import { type Motion, SEASON_COLORS, seasonalMaterial } from './seasonal';
+import { type Motion, SEASON_COLORS, daily, seasonalMaterial } from './seasonal';
 
 /** The water inside the map is a grid of cells this many meters wide, so that each can tilt with the waves. */
 const CELL = 2;
@@ -13,13 +13,13 @@ const OPACITY = 0.8;
 
 /**
  * Two trains of waves cross the water, each a sine of the place and of the
- * game's clock in ticks. A paused clock holds the water still.
+ * time of day in ticks. A paused clock holds the water still.
  */
 function waves(clock: IUniform<number>): Motion {
   return {
     uniforms: { waveClock: clock },
     declares: 'uniform float waveClock;\nattribute float swell;',
-    moves: `transformed.y += swell * (0.085 * sin(position.x * 0.55 + position.z * 0.31 + waveClock * 0.16) + 0.06 * sin(position.z * 0.83 - position.x * 0.37 + waveClock * 0.23));`,
+    moves: `transformed.y += swell * (0.085 * sin(position.x * 0.55 + position.z * 0.31 + waveClock * ${daily(0.16).toFixed(8)}) + 0.06 * sin(position.z * 0.83 - position.x * 0.37 + waveClock * ${daily(0.23).toFixed(8)}));`,
   };
 }
 

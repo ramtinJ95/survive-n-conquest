@@ -13,7 +13,9 @@ import {
   PointLight,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { TICKS_PER_DAY } from '../sim/calendar';
 import { heightAt, type TileMap } from '../sim/map';
+import { daily } from './seasonal';
 import { type ShapeName, type Shapes, colored, shapeMaterial } from './shapes';
 
 interface Placed {
@@ -72,17 +74,17 @@ function dyed(shape: BufferGeometry, hex: number): BufferGeometry {
 }
 
 /** The flame is the one thing in the settlement that the sun does not light, so the camp shows in the dark. */
-const FLAME = { outer: 0xff7a1a, inner: 0xffd35a, radius: 0.24, height: 0.62, base: 0.1, flicker: 0.9, sway: 0.18 };
+const FLAME = { outer: 0xff7a1a, inner: 0xffd35a, radius: 0.24, height: 0.62, base: 0.1, flicker: daily(0.9), turn: daily(0.35), sway: 0.18 };
 
 /**
  * The fire lights the camp around it. By day the sun drowns it, and at night
  * it is the warm middle of a cold world. Its strength is in candela, and it
  * wavers by `waver` of itself.
  */
-const FIRELIGHT = { color: 0xff9a4d, day: 0.2, night: 11, height: 0.75, reach: 15, waver: 0.1 };
+const FIRELIGHT = { color: 0xff9a4d, day: 0.2, night: 11, height: 0.75, reach: 15, waver: 0.1, flutter: daily(2.3) };
 
-/** Puffs of smoke rise from the fire, each for `life` ticks, to `rise` meters, growing and drifting with the wind. */
-const SMOKE = { puffs: 9, life: 70, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
+/** Puffs of smoke rise from the fire, each for `life` ticks, a whole share of the day, to `rise` meters, growing and drifting with the wind. */
+const SMOKE = { puffs: 9, life: TICKS_PER_DAY / 43, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
 
 function flameGeometry() {
   const { outer, inner, radius, height } = FLAME;
@@ -101,8 +103,8 @@ const smoothstep = (from: number, to: number, value: number) => {
 /**
  * The camp on its tile: the fire with the pot over it, the tents, and the
  * stores as one mesh, each standing on the ground under it, and the flame, the
- * light, and the smoke of the fire. `show` moves them with `time`, the clock
- * of the game in ticks, so they hold still while the clock is paused. `dark`
+ * light, and the smoke of the fire. `show` moves them with `time`, the time
+ * of day in ticks, so they hold still while the clock is paused. `dark`
  * is 0 in full daylight and 1 at night.
  */
 export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
@@ -144,9 +146,9 @@ export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   const show = (time: number, dark: number) => {
     const beat = Math.sin(time * FLAME.flicker);
     flame.scale.set(1 - 0.5 * FLAME.sway * beat, 1 + FLAME.sway * beat, 1 - 0.5 * FLAME.sway * beat);
-    flame.rotation.y = time * 0.35;
+    flame.rotation.y = time * FLAME.turn;
     light.intensity =
-      (FIRELIGHT.day + (FIRELIGHT.night - FIRELIGHT.day) * dark) * (1 + FIRELIGHT.waver * (0.6 * beat + 0.4 * Math.sin(time * 2.3 + 1)));
+      (FIRELIGHT.day + (FIRELIGHT.night - FIRELIGHT.day) * dark) * (1 + FIRELIGHT.waver * (0.6 * beat + 0.4 * Math.sin(time * FIRELIGHT.flutter + 1)));
     for (let i = 0; i < SMOKE.puffs; i++) {
       const age = (((time / SMOKE.life + i / SMOKE.puffs) % 1) + 1) % 1;
       const out = SMOKE.drift * age * age;

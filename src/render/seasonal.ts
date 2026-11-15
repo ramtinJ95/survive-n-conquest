@@ -64,10 +64,22 @@ export function moved<M extends Material>(material: M, motion: Motion, before: M
 }
 
 /**
+ * The rate nearest to `radiansPerTick` that makes a whole number of turns in a
+ * day. Every motion runs at such a rate on the ticks since the day's clock
+ * last wrapped, so the world looks the same at the same time on every day, and
+ * nothing jumps at the wrap.
+ */
+export function daily(radiansPerTick: number): number {
+  const turn = 2 * Math.PI;
+  return (Math.round((radiansPerTick * TICKS_PER_DAY) / turn) * turn) / TICKS_PER_DAY;
+}
+
+/**
  * The wind in a plant. An instance bends along the wind by `bend` meters for
  * each meter of its shape's height, squared, so the root holds and the top
- * swings. A gust is a function of the clock and of where the plant stands, so
- * gusts cross the land, and a paused clock holds every plant still.
+ * swings. A gust is a function of the clock, the time of day in ticks, and of
+ * where the plant stands, so gusts cross the land, and a paused clock holds
+ * every plant still.
  */
 export function sway(clock: IUniform<number>, bend: number): Motion {
   return {
@@ -77,7 +89,7 @@ export function sway(clock: IUniform<number>, bend: number): Motion {
   {
     mat3 stand = mat3(instanceMatrix);
     vec2 root = instanceMatrix[3].xz;
-    float gust = sin(swayClock * 0.13 + root.x * 0.21 + root.y * 0.17) + 0.45 * sin(swayClock * 0.31 + root.x * 0.9 - root.y * 0.6);
+    float gust = sin(swayClock * ${daily(0.13).toFixed(8)} + root.x * 0.21 + root.y * 0.17) + 0.45 * sin(swayClock * ${daily(0.31).toFixed(8)} + root.x * 0.9 - root.y * 0.6);
     vec3 push = vec3(0.8, 0.0, 0.6) * (gust * swayBend * transformed.y * transformed.y);
     vec3 grown = max(vec3(dot(stand[0], stand[0]), dot(stand[1], stand[1]), dot(stand[2], stand[2])), 1e-6);
     transformed += (transpose(stand) * push) / grown;

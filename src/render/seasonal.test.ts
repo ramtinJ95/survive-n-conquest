@@ -1,8 +1,8 @@
-import { type BufferAttribute, Color, type InstancedMesh, type Mesh, ShaderLib, Vector4 } from 'three';
+import { type BufferAttribute, Color, type InstancedMesh, type Mesh, type PointLight, ShaderLib, Vector4 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { SEASONS, TICKS_PER_DAY } from '../sim/calendar';
 import { generateMap } from '../sim/mapgen';
-import { SEASON_COLORS, seasonMixAt } from './seasonal';
+import { SEASON_COLORS, daily, seasonMixAt } from './seasonal';
 import { primitiveShapes } from './shapes';
 import { createWorld } from './world';
 
@@ -123,5 +123,32 @@ describe('seasonMixAt', () => {
       expect([spring, summer]).toEqual([0, 0]);
       expect(autumn! + winter!).toBeCloseTo(1, 10);
     }
+  });
+});
+
+describe('daily', () => {
+  it('gives the nearest rate that makes whole turns in a day', () => {
+    for (const rate of [0.13, 0.31, 0.9, 2.3]) {
+      const turns = (daily(rate) * DAY) / (2 * Math.PI);
+      expect(turns).toBeCloseTo(Math.round(turns), 9);
+      expect(Math.abs(daily(rate) - rate)).toBeLessThan(Math.PI / DAY);
+    }
+  });
+});
+
+describe('the motion of the world', () => {
+  const world = createWorld(generateMap(7, 64), primitiveShapes());
+  const fireAt = (time: number) => {
+    world.show(Math.floor(time), time);
+    const flame = world.scene.getObjectByName('flame') as Mesh;
+    const smoke = world.scene.getObjectByName('smoke') as InstancedMesh;
+    const light = world.scene.getObjectByName('firelight') as PointLight;
+    return [...flame.scale.toArray(), flame.rotation.y, light.intensity, ...smoke.instanceMatrix.array];
+  };
+
+  it('is the same at the same time on the next day, and another an hour later', () => {
+    const noon = fireAt(at(2, 12) + 0.25);
+    expect(fireAt(at(3, 12) + 0.25)).toEqual(noon);
+    expect(fireAt(at(2, 13) + 0.25)).not.toEqual(noon);
   });
 });
