@@ -1,8 +1,10 @@
+import { BUILDING } from './building';
 import { CARRYING } from './carrying';
 import { GATHERING } from './gathering';
 import { sideOf } from './map';
 import { type TileArea, clip } from './orders';
 import type { Sim } from './sim';
+import { SUPPLYING } from './supplying';
 
 /** A villager column value for no task. Any other value is one more than the kind's index in `TASK_KINDS`. */
 export const NO_TASK = 0;
@@ -36,7 +38,7 @@ export interface TaskKind {
  * Every kind of task, most urgent first. An idle villager takes a task of the
  * first kind that has one open.
  */
-export const TASK_KINDS: readonly TaskKind[] = [CARRYING, GATHERING];
+export const TASK_KINDS: readonly TaskKind[] = [BUILDING, SUPPLYING, CARRYING, GATHERING];
 
 /** Gives the villager a task of the most urgent kind that has one open. Returns false when no kind has one. */
 export function takeTask(sim: Sim, id: number): boolean {
@@ -66,12 +68,12 @@ export function endTask(sim: Sim, id: number): void {
   villagers.pathCursor[id] = 0;
 }
 
-/** Brings every kind's tasks up to date on the tiles of an area order. */
-export function refreshTasks(sim: Sim, area: TileArea): void {
+/** Brings every kind's tasks up to date on the tiles of an area order, and on `margin` tiles around it. */
+export function refreshTasks(sim: Sim, area: TileArea, margin = 0): void {
   const { size } = sim.map;
   const { x0, y0, x1, y1 } = clip(sim.map, area);
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
+  for (let y = Math.max(y0 - margin, 0); y <= Math.min(y1 + margin, size - 1); y++) {
+    for (let x = Math.max(x0 - margin, 0); x <= Math.min(x1 + margin, size - 1); x++) {
       refreshTile(sim, y * size + x);
     }
   }
@@ -86,25 +88,32 @@ function refreshTile(sim: Sim, tile: number): void {
   for (let kind = 0; kind < TASK_KINDS.length; kind++) TASK_KINDS[kind]!.refresh(sim, tile);
 }
 
+/** A villager works a task from its tile or from a tile beside it, so a change of reach on a tile reaches the tasks beside it too. */
+function refreshAround(sim: Sim, tile: number): void {
+  const { size } = sim.map;
+  const x = tile % size;
+  const y = (tile - x) / size;
+  refreshTile(sim, tile);
+  for (let side = 0; side < 4; side++) {
+    const neighbor = sideOf(size, x, y, side);
+    if (neighbor >= 0) refreshTile(sim, neighbor);
+  }
+}
+
 /**
  * Brings the tasks up to date after tiles gained a walk to the camp, as when a
- * rock tile is spent, and opens again every task set aside as out of reach. A
- * villager works a task from its tile or from a tile beside it, so the side
- * neighbors of each tile are brought up to date too.
+ * rock tile is spent, and opens again every task set aside as out of reach.
  */
 export function reachTasks(sim: Sim): void {
   const { flow } = sim;
-  const { size } = sim.map;
-  for (let i = 0; i < flow.gainedCount; i++) {
-    const tile = flow.gained[i]!;
-    const x = tile % size;
-    const y = (tile - x) / size;
-    refreshTile(sim, tile);
-    for (let side = 0; side < 4; side++) {
-      const neighbor = sideOf(size, x, y, side);
-      if (neighbor >= 0) refreshTile(sim, neighbor);
-    }
-  }
+  for (let i = 0; i < flow.gainedCount; i++) refreshAround(sim, flow.gained[i]!);
   flow.gainedCount = 0;
   reopenTasks(sim);
+}
+
+/** Brings the tasks up to date after tiles lost their walk to the camp, as under a finished house and on the land it cut off. */
+export function loseTasks(sim: Sim): void {
+  const { flow } = sim;
+  for (let i = 0; i < flow.lostCount; i++) refreshAround(sim, flow.lost[i]!);
+  flow.lostCount = 0;
 }

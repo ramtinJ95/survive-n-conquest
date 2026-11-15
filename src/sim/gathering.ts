@@ -149,6 +149,7 @@ function holds(sim: Sim, id: number): boolean {
 /** Fells a tree whose work is done, unless the land has no room for its logs. */
 function fell(sim: Sim, tile: number): void {
   if (!putDown(sim, tile, Good.Log, LOGS_PER_TREE)) return;
+  sim.tally.felled += 1;
   sim.map.trees[tile] = 0;
   noteTileChange(sim, tile);
   sim.gathering.progress[tile] = 0;
@@ -160,6 +161,7 @@ function fell(sim: Sim, tile: number): void {
 function quarry(sim: Sim, tile: number, standing: number): void {
   const { gathering, map } = sim;
   if (!putDown(sim, standing, Good.Stone, 1)) return;
+  sim.tally.quarried += 1;
   gathering.progress[tile] = 0;
   gathering.yielded[tile]! += 1;
   if (gathering.yielded[tile]! < STONE_PER_ROCK) return;

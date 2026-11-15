@@ -20,7 +20,7 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from 'three';
 import type { TileMap } from '../sim/map';
-import { Claim, type Orders } from '../sim/orders';
+import { Claim, type Orders, SiteState } from '../sim/orders';
 
 /**
  * What the pointer would do to a tile, drawn over the marks it has. `Mark` and
@@ -259,12 +259,13 @@ export function createOrderMarks(
       edges.color.set(color);
     },
 
-    /** Copies the claims of every tile into the marks, and puts a pin on each tree marked for felling. */
+    /** Copies the claims of every tile into the marks, but none under a finished house, and puts a pin on each tree marked for felling. */
     showOrders(orders: Orders) {
       let count = 0;
       for (let tile = 0; tile < size * size; tile++) {
         const claim = orders.claims[tile]!;
-        texels[tile * 4] = claim;
+        const built = claim === Claim.Site && orders.sites.state[orders.siteOf[tile]!] === SiteState.House;
+        texels[tile * 4] = built ? Claim.None : claim;
         if (claim === Claim.Chop && treeTop(tile, pose.position)) {
           pose.position.y += PIN_FLOAT;
           pose.updateMatrix();

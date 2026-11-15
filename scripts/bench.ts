@@ -1,15 +1,17 @@
 import { fullGC } from 'bun:jsc';
 import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
+import { BUILDING } from '../src/sim/building';
 import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
 import { CARRYING } from '../src/sim/carrying';
 import { isNight } from '../src/sim/daylight';
 import { GATHERING } from '../src/sim/gathering';
-import { GOOD_KINDS, Good } from '../src/sim/goods';
+import { GOOD_KINDS } from '../src/sim/goods';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
-import { Claim } from '../src/sim/orders';
-import { BENCHMARK_POPULATION, type Sim, applyCommand, createSim, step } from '../src/sim/sim';
+import { MAX_SITES } from '../src/sim/orders';
+import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
+import { SUPPLYING } from '../src/sim/supplying';
 import { NO_TASK, TASK_KINDS } from '../src/sim/tasks';
 
 const SEED = 7;
@@ -29,10 +31,21 @@ const BARE_REACH = 16;
  * tiles, and at 4 it runs out of room.
  */
 const STOCKPILE_SPACING = 2;
+/**
+ * House sites stand on a grid of this many by this many cells, one at the
+ * center of each cell, so the 1500 villagers build across the whole map. The
+ * grid holds `MAX_SITES`, and a site the rules refuse is left out.
+ */
+const SITE_GRID = Math.sqrt(MAX_SITES);
+const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
+const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const KINDS = [
-  ['carrying', TASK_KINDS.indexOf(CARRYING) + 1],
+  ['building', TASK_KINDS.indexOf(BUILDING) + 1],
+  ['supplying', SUPPLY],
+  ['carrying', CARRY],
   ['gathering', TASK_KINDS.indexOf(GATHERING) + 1],
 ] as const;
+const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built'] as const satisfies readonly (keyof Tally)[];
 const GOOD_NAMES = ['logs', 'stone'] as const;
 
 const sum = (values: Uint32Array) => values.reduce((total, value) => total + value, 0);
@@ -50,20 +63,19 @@ function offLand(map: TileMap, x: Float32Array, y: Float32Array): number {
   return count;
 }
 
-/** The work done on the map so far, as the land and the villagers' hands show it. */
-function workOf({ map, orders, villagers }: Sim) {
-  let trees = 0;
-  let stone = 0;
+function spentRock(map: TileMap): number {
   let bare = 0;
-  let stockpiled = 0;
-  for (let tile = 0; tile < map.size * map.size; tile++) {
-    trees += map.trees[tile]!;
-    if (map.stackGood[tile] === Good.Stone) stone += map.stackSize[tile]!;
-    if (map.kinds[tile] === TileKind.Bare) bare++;
-    if (orders.claims[tile] === Claim.Stockpile) stockpiled += map.stackSize[tile]!;
-  }
-  for (let id = 0; id < villagers.carried.length; id++) if (villagers.carried[id] === Good.Stone) stone++;
-  return { trees, stone, bare, stockpiled };
+  for (let tile = 0; tile < map.size * map.size; tile++) if (map.kinds[tile] === TileKind.Bare) bare++;
+  return bare;
+}
+
+/** The center tile of each cell of the site grid. */
+function siteCenters(size: number): [number, number][] {
+  const cell = size / SITE_GRID;
+  return Array.from({ length: SITE_GRID * SITE_GRID }, (_, i) => [
+    Math.floor(((i % SITE_GRID) + 0.5) * cell),
+    Math.floor((Math.floor(i / SITE_GRID) + 0.5) * cell),
+  ]);
 }
 
 function atCamp(sim: Sim): number {
@@ -79,7 +91,8 @@ function atCamp(sim: Sim): number {
 // The generated forest has a tree on one tile in six, and 1500 villagers fell every one they can reach on the 256 map
 // before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
 // every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
-function setUp(size: number): Sim {
+// The nine tiles of each site on the site grid keep no tree, so the site can be placed.
+function setUp(size: number): { sim: Sim; sites: number } {
   const map = generateMap(SEED, size);
   const camp = campTile(map);
   for (let tile = 0; tile < size * size; tile++) {
@@ -89,22 +102,37 @@ function setUp(size: number): Sim {
     const lattice = x % STOCKPILE_SPACING === 0 && y % STOCKPILE_SPACING === 0;
     if (!lattice && (map.kinds[tile] === TileKind.Forest || (far && map.kinds[tile] === TileKind.Grass))) map.trees[tile] = 1;
   }
+  const centers = siteCenters(size);
+  for (const [x, y] of centers) {
+    for (let ty = y - 1; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x - 1, ty * size + x + 2);
+  }
   const sim = createSim(map, BENCHMARK_POPULATION);
+  const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'placeHouse', x, y })!.ok).length;
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: size - 1, y1: size - 1 } });
-  return sim;
+  return { sim, sites };
+}
+
+/** The straight-line length of each trip from a unit to where it goes, for the tasks of a kind taken in the measured ticks. */
+interface Trips {
+  count: number;
+  length: number;
 }
 
 function measure(size: number): boolean {
   const setupStart = performance.now();
-  const sim = setUp(size);
+  const { sim, sites } = setUp(size);
   const setupMs = performance.now() - setupStart;
 
   for (let tick = 0; tick < WARMUP_TICKS; tick++) step(sim);
   const monsterDraws = sum(sim.monsters.draws);
-  const workBefore = workOf(sim);
+  const spentBefore = spentRock(sim.map);
+  const tallyBefore = { ...sim.tally };
   const samples = new Float64Array(MEASURED_TICKS);
-  const { task } = sim.villagers;
+  const { task, taskTile, destination } = sim.villagers;
   const heldTask = new Uint8Array(task.length);
+  const lastTask = Uint8Array.from(task);
+  const toStockpile: Trips = { count: 0, length: 0 };
+  const toSite: Trips = { count: 0, length: 0 };
   let dayVillagerTicks = 0;
   let dayTaskTicks = 0;
   const dayKindTicks = new Float64Array(TASK_KINDS.length + 1);
@@ -123,6 +151,13 @@ function measure(size: number): boolean {
     if (tickOfDay(sim.tick) === 0) midnights[nights++] = atCamp(sim);
     const day = !isNight(sim.tick - 1);
     for (let id = 0; id < task.length; id++) {
+      const taken = task[id] !== lastTask[id] && taskTile[id]! >= 0;
+      const trip = !taken ? undefined : task[id] === SUPPLY ? toSite : task[id] === CARRY ? toStockpile : undefined;
+      if (trip) {
+        trip.count++;
+        trip.length += Math.hypot((taskTile[id]! % size) - (destination[id]! % size), Math.floor(taskTile[id]! / size) - Math.floor(destination[id]! / size));
+      }
+      lastTask[id] = task[id]!;
       if (task[id] === NO_TASK) continue;
       heldTask[id] = 1;
       if (day) dayTaskTicks++;
@@ -134,7 +169,8 @@ function measure(size: number): boolean {
     for (let good = 0; good < GOOD_KINDS; good++) fewestRoom[good] = Math.min(fewestRoom[good]!, sim.goods.room[good]!.count);
   }
   const heapGrowth = fullGC() - heapBefore;
-  const workAfter = workOf(sim);
+  const work = Object.fromEntries(TALLIED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof TALLIED)[number], number>;
+  const allWork = TALLIED.every((name) => work[name] > 0);
   const villagers = task.length;
   const percent = (part: number, whole: number) => `${((part / whole) * 100).toFixed(1)}%`;
 
@@ -143,7 +179,7 @@ function measure(size: number): boolean {
   const p99 = quantile(samples, 0.99);
   const busy = dayTaskTicks / dayVillagerTicks;
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
-  const pass = p99 < LIMIT_MS && workHeld;
+  const pass = p99 < LIMIT_MS && workHeld && allWork;
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
@@ -153,9 +189,21 @@ function measure(size: number): boolean {
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
-    `  work in the measured ticks: ${workBefore.trees - workAfter.trees} trees felled, ${workAfter.stone - workBefore.stone} stone quarried, ` +
-      `${workAfter.bare - workBefore.bare} rock tiles spent, ${workAfter.stockpiled - workBefore.stockpiled} units added to stockpile tiles, ` +
+    `  work in the measured ticks: ${work.felled} trees felled, ${work.quarried} stone quarried, ${spentRock(sim.map) - spentBefore} rock tiles spent, ` +
+      `${work.stocked} units carried onto stockpile tiles, ${work.delivered} units delivered to sites, ${work.built} houses built, ` +
       `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
+  );
+  console.log(
+    `  every kind of work done in the measured ticks: ${allWork ? 'PASS' : 'FAIL'}, needs trees felled, stone quarried, units stocked, units delivered, and houses built`,
+  );
+  console.log(
+    `  house sites: ${sites} placed on a grid of ${SITE_GRID} by ${SITE_GRID}, ${tallyBefore.built} built in the warm-up ticks, ` +
+      `${work.built} in the measured ticks, ${sites - sim.tally.built} unfinished at the end`,
+  );
+  const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
+  console.log(
+    `  straight line from a unit to where it goes, for tasks taken in the measured ticks: to a stockpile ${mean(toStockpile)}, ` +
+      `to a site ${mean(toSite)}`,
   );
   const held = heldTask.reduce((count, value) => count + value, 0);
   console.log(
@@ -191,7 +239,7 @@ console.log(
 );
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
-    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, stockpile on every open tile, ` +
+    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${MAX_SITES} house sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = SIZES.map(measure);

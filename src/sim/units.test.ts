@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { campTile } from './camp';
-import { ENTRY_BAND, type FlowField, createFlowField, openFlowTile } from './flowField';
+import { ENTRY_BAND, type FlowField, closeFlowTiles, createFlowField, openFlowTile } from './flowField';
 import { DIRECTIONS, TileKind, type TileMap, copyMap, stepLength, stepTo, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { MONSTER_STEP } from './monsters';
 import { hash } from './noise';
 import { BENCHMARK_POPULATION, type Population, type Sim, createSim, step } from './sim';
+import { at, mapFrom } from './testMaps';
 import { VILLAGER_STEP, WANDER_REACH } from './villagers';
 
 const SIZE = 96;
@@ -257,20 +258,103 @@ describe('the flow field', () => {
     }
     expect(longest).toBeLessThan(1e-9);
     expect(shortened).toBeGreaterThan(1000);
+    expect(badSteps(opened, flow)).toEqual([]);
+  });
 
-    const badSteps: number[] = [];
-    for (let tile = 0; tile < size * size; tile++) {
-      const to = flow.next[tile]!;
-      if (to === -1 || tile === flow.goal) continue;
-      const x = tile % size;
-      const y = Math.floor(tile / size);
-      let length = NaN;
-      for (let direction = 0; direction < DIRECTIONS; direction++) {
-        if (stepTo(opened, x, y, direction) === to) length = stepLength(direction);
+  it('keeps the shortest walks of a fresh build while blocks of 3x3 close one by one', () => {
+    const closed = copyMap(generateMap(7, 128));
+    const { size } = closed;
+    const flow = createFlowField(closed, campTile(closed));
+    const block = new Int32Array(9);
+    const goalX = flow.goal % size;
+    const goalY = Math.floor(flow.goal / size);
+    let longest = 0;
+    let lengthened = 0;
+    for (let i = 0; i < 150; i++) {
+      let x: number;
+      let y: number;
+      let attempt = 0;
+      do {
+        x = 1 + (hash(53, i, attempt) % (size - 2));
+        y = 1 + (hash(59, i, attempt) % (size - 2));
+        attempt++;
+      } while ((Math.abs(x - goalX) <= 1 && Math.abs(y - goalY) <= 1) || flow.next[y * size + x] === -1);
+      const before = flow.walk.slice();
+      let count = 0;
+      for (let ty = y - 1; ty <= y + 1; ty++) {
+        for (let tx = x - 1; tx <= x + 1; tx++) {
+          const tile = ty * size + tx;
+          if (!walkable(closed, tile)) continue;
+          closed.kinds[tile] = TileKind.House;
+          block[count++] = tile;
+        }
       }
-      const consistent = Math.abs(flow.walk[tile]! - (flow.walk[to]! + length)) < 1e-9;
-      if (!(flow.walk[to]! < flow.walk[tile]!) || !consistent) badSteps.push(tile);
+      closeFlowTiles(closed, flow, block, count);
+      expect(flow.gainedCount).toBe(0);
+      const lost = Array.from(flow.lost.subarray(0, flow.lostCount)).sort((a, b) => a - b);
+      flow.lostCount = 0;
+      expect(lost).toEqual(tilesWhere(closed, (tile) => before[tile] !== Infinity && flow.walk[tile] === Infinity));
+      lengthened += flow.walk.filter((walk, at) => walk !== Infinity && walk > before[at]!).length;
+      if (i % 15 !== 14) continue;
+      const fresh = createFlowField(closed, flow.goal);
+      for (let at = 0; at < size * size; at++) {
+        if (fresh.walk[at] === Infinity) expect(flow.walk[at], `tile ${at}`).toBe(Infinity);
+        else longest = Math.max(longest, Math.abs(flow.walk[at]! - fresh.walk[at]!));
+      }
+      expect(entrancesOf(flow).sort((a, b) => a - b)).toEqual(entrancesOf(fresh).sort((a, b) => a - b));
     }
-    expect(badSteps).toEqual([]);
+    expect(longest).toBeLessThan(1e-9);
+    expect(lengthened).toBeGreaterThan(1000);
+    expect(badSteps(closed, flow)).toEqual([]);
+  });
+
+  it('lists as lost the land that walked to the goal only across a closed block', () => {
+    const pocket = mapFrom([
+      '............',
+      '............',
+      '............',
+      '............',
+      '............',
+      '............',
+      '####...#####',
+      '####...#####',
+      '####...#####',
+      '#..........#',
+      '#..........#',
+      '############',
+    ]);
+    const { size } = pocket;
+    const flow = createFlowField(pocket, at(pocket, 5, 2));
+    const block = Int32Array.from({ length: 9 }, (_, i) => at(pocket, 4 + (i % 3), 6 + Math.floor(i / 3)));
+    const hadWalk = tilesWhere(pocket, (tile) => flow.next[tile] !== -1);
+    for (const tile of block) pocket.kinds[tile] = TileKind.House;
+    closeFlowTiles(pocket, flow, block, 9);
+
+    const fresh = createFlowField(pocket, flow.goal);
+    expect(Array.from(flow.walk)).toEqual(Array.from(fresh.walk));
+    const lost = Array.from(flow.lost.subarray(0, flow.lostCount)).sort((a, b) => a - b);
+    expect(lost).toEqual(hadWalk.filter((tile) => fresh.next[tile] === -1));
+    expect(lost.filter((tile) => Math.floor(tile / size) >= 9)).toHaveLength(20);
+    expect(flow.gainedCount).toBe(0);
+    expect(badSteps(pocket, flow)).toEqual([]);
   });
 });
+
+/** The tiles whose next step is not a legal step to a nearer tile, or whose walk is not the next tile's walk plus the step. */
+function badSteps(on: TileMap, flow: FlowField): number[] {
+  const { size } = on;
+  const bad: number[] = [];
+  for (let tile = 0; tile < size * size; tile++) {
+    const to = flow.next[tile]!;
+    if (to === -1 || tile === flow.goal) continue;
+    const x = tile % size;
+    const y = Math.floor(tile / size);
+    let length = NaN;
+    for (let direction = 0; direction < DIRECTIONS; direction++) {
+      if (stepTo(on, x, y, direction) === to) length = stepLength(direction);
+    }
+    const consistent = Math.abs(flow.walk[tile]! - (flow.walk[to]! + length)) < 1e-9;
+    if (!walkable(on, tile) || !(flow.walk[to]! < flow.walk[tile]!) || !consistent) bad.push(tile);
+  }
+  return bad;
+}

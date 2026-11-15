@@ -1,3 +1,4 @@
+import { type SiteTasks, createSiteTasks, resetSite } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
@@ -10,7 +11,7 @@ import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOr
 import { type PathSearch, createPathSearch } from './paths';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { type TileChanges, createTileChanges } from './tileChanges';
-import { type Villagers, createVillagers, moveVillagers } from './villagers';
+import { type Villagers, createVillagers, moveVillagers, stopFallenTasks } from './villagers';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -40,6 +41,16 @@ export function populationFor(swarm: string | null): Population {
   return SETTLERS;
 }
 
+/** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
+export interface Tally {
+  felled: number;
+  quarried: number;
+  /** Units a villager carried onto a stockpile tile. Stone quarried onto one is not counted. */
+  stocked: number;
+  delivered: number;
+  built: number;
+}
+
 export interface Sim {
   readonly seed: number;
   /** The simulation's own copy of the map. Only the simulation changes it, and `takeTileChanges` reports each change. */
@@ -51,10 +62,12 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly monsters: Monsters;
   readonly orders: Orders;
+  readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly goods: GoodsState;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
+  readonly tally: Tally;
   tick: number;
   speed: Speed;
   paused: boolean;
@@ -74,10 +87,12 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
+    siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     goods: createGoodsState(map.size),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
+    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0 },
     tick: 0,
     speed: 1,
     paused: false,
@@ -103,11 +118,17 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       return;
     case 'markArea': {
       const outcome = applyOrder(sim.map, sim.orders, command);
-      if (outcome.ok) refreshTasks(sim, command.area);
+      if (!outcome.ok) return outcome;
+      // A site that a cancel touches lies up to two tiles past the area, and its goods turn loose.
+      refreshTasks(sim, command.area, command.order === 'cancel' ? 2 : 0);
+      stopFallenTasks(sim);
       return outcome;
     }
-    case 'placeHouse':
-      return applyOrder(sim.map, sim.orders, command);
+    case 'placeHouse': {
+      const outcome = applyOrder(sim.map, sim.orders, command);
+      if (outcome.ok) resetSite(sim, sim.orders.siteOf[command.y * sim.map.size + command.x]!);
+      return outcome;
+    }
   }
 }
 

@@ -93,6 +93,7 @@ describe('chopping', () => {
 
     expect(fell(sim, tree, 1000)).toBe(200);
     expect([sim.map.stackGood[tree], sim.map.stackSize[tree]]).toEqual([Good.Log, 2]);
+    expect(sim.tally.felled).toBe(1);
     expect(sim.map.kinds[tree]).toBe(TileKind.Forest);
     expect(sim.orders.claims[tree]).toBe(Claim.None);
     expect(Array.from(takeOrderChanges(sim.orders).claims)).toEqual([tree, Claim.None]);
@@ -209,6 +210,7 @@ describe('quarrying', () => {
     expect(isNight(spentOn)).toBe(false);
     for (let tick = spentOn; tick <= treeTakenOn; tick++) expect(isNight(tick), `tick ${tick}`).toBe(false);
     expect([sim.map.stackGood[tree], sim.map.stackSize[tree]]).toEqual([Good.Log, 2]);
+    expect([sim.tally.quarried, sim.tally.felled]).toEqual([8, 1]);
   });
 
   it('keeps a quarrying villager on its work tile between one stone and the next, far from the camp', () => {

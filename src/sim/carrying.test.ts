@@ -113,6 +113,7 @@ describe('carrying to a stockpile', () => {
     expect(overbooked).toEqual([]);
     expect(most).toBe(4);
     expect(takes()).toBe(4);
+    expect(sim.tally.stocked).toBe(4);
     expect(tally(sim, Good.Log)).toEqual({ stockpiled: 3, ground: 0 });
     expect(tally(sim, Good.Stone)).toEqual({ stockpiled: 1, ground: 0 });
   });
@@ -161,6 +162,18 @@ describe('carrying to a stockpile', () => {
     runUntil(sim, () => tally(sim, Good.Log).stockpiled === 1, 500);
     expect(sim.map.trees[tree]).toBe(1);
     runUntil(sim, () => sim.map.trees[tree] === 0, 1000);
+  });
+
+  it('counts as stocked only the units a settler carried onto a stockpile tile, not stone quarried onto one', () => {
+    const rows = open(16);
+    rows[0] = '#' + '.'.repeat(15);
+    const sim = simWith(rows, 1, [[4, 4, Good.Stone, 1]]);
+    applyCommand(sim, mark('stockpile', 1, 0));
+    applyCommand(sim, mark('stockpile', 0, 1));
+    applyCommand(sim, mark('quarry', 0, 0));
+    runUntil(sim, () => sim.tally.quarried === 2, 2000);
+    expect(tally(sim, Good.Stone)).toEqual({ stockpiled: 3, ground: 0 });
+    expect(sim.tally.stocked).toBe(1);
   });
 
   it('stacks one good on a stockpile tile, up to 8, and keeps the goods that lay there when it joined the zone', () => {
@@ -289,6 +302,31 @@ describe('a carrier', () => {
     const other = 1 - id;
     expect(takeTask(sim, other)).toBe(true);
     expect([sim.villagers.taskTile[other], sim.villagers.destination[other]]).toEqual([standing, place]);
+  });
+
+  it('gives up at once when its stockpile tile is cancelled and marked again in one pause, and the unit is carried afresh', () => {
+    const sim = simWith(open(24), 1, [
+      [20, 3, Good.Log, 7],
+      [4, 18, Good.Log, 1],
+    ]);
+    const place = at(sim.map, 20, 3);
+    applyCommand(sim, mark('stockpile', 20, 3));
+    runUntil(sim, () => sim.villagers.carried[0] === Good.Log, 400);
+    for (let i = 0; i < 30; i++) step(sim);
+    const standing = standsOn(sim, 0);
+
+    applyCommand(sim, { kind: 'togglePause' });
+    applyCommand(sim, mark('cancel', 20, 3));
+    applyCommand(sim, mark('stockpile', 20, 3));
+    applyCommand(sim, { kind: 'togglePause' });
+    expect([sim.villagers.task[0], sim.villagers.carried[0]]).toEqual([NO_TASK, Good.None]);
+    expect(stack(sim, standing)).toEqual([Good.Log, 1]);
+    expect([sim.orders.claims[place], ...stack(sim, place)]).toEqual([Claim.Stockpile, Good.Log, 7]);
+
+    const takes = countTakes(sim);
+    runUntil(sim, () => sim.map.stackSize[place] === 8 && busy(sim).length === 0, 600, takes);
+    expect(takes()).toBe(1);
+    expect(tally(sim, Good.Log)).toEqual({ stockpiled: 8, ground: 0 });
   });
 
   it('gives up at once when stockpile is marked over the unit it walks for, and that unit stays in the new stack', () => {

@@ -1,4 +1,4 @@
-import { DIRECTIONS, type TileMap, stepLength, stepTo } from './map';
+import { DIRECTIONS, type TileMap, stepAllowed, stepLength, stepTo, walkable } from './map';
 import { type TileHeap, createTileHeap, popTile, pushTile } from './tileHeap';
 
 /** Monsters enter on walkable tiles this close to the map edge. */
@@ -25,7 +25,12 @@ export interface FlowField {
    */
   readonly gained: Int32Array;
   gainedCount: number;
+  /** The first `lostCount` are the tiles that lost their walk to the goal since whoever reads them last set `lostCount` to 0. */
+  readonly lost: Int32Array;
+  lostCount: number;
   readonly heap: TileHeap;
+  /** Scratch for `closeFlowTiles`: the tiles whose walks it searches again. */
+  readonly stale: Int32Array;
 }
 
 export function inEntryBand(size: number, tile: number): boolean {
@@ -91,7 +96,10 @@ export function createFlowField(map: TileMap, goal: number): FlowField {
     entranceCount: 0,
     gained: new Int32Array(tiles),
     gainedCount: 0,
+    lost: new Int32Array(tiles),
+    lostCount: 0,
     heap: createTileHeap(tiles),
+    stale: new Int32Array(tiles),
   };
   rebuildFlowField(map, flow);
   flow.gainedCount = 0;
@@ -116,4 +124,71 @@ export function openFlowTile(map: TileMap, flow: FlowField, tile: number): void 
     }
   }
   spread(map, flow);
+}
+
+/**
+ * Brings the field up to date after `count` tiles of `tiles` stopped walkers,
+ * whose kinds are already set. Only a walk whose route ran through them, or
+ * cut a corner they now block, can grow longer, so only those tiles search
+ * again, from the walks around them that still stand. A tile that finds no
+ * walk is listed in `lost`, and a tile that finds a longer one is not a gain.
+ */
+export function closeFlowTiles(map: TileMap, flow: FlowField, tiles: Int32Array, count: number): void {
+  const { size } = map;
+  const { walk, next, stale, entrances } = flow;
+  let staleCount = 0;
+  for (let i = 0; i < count; i++) {
+    const tile = tiles[i]!;
+    const x = tile % size;
+    const y = (tile - x) / size;
+    for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, size - 1); ny++) {
+      for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, size - 1); nx++) {
+        const near = ny * size + nx;
+        if (next[near] === -1 || near === flow.goal || stepAllowed(map, near, next[near]!)) continue;
+        walk[near] = Infinity;
+        next[near] = -1;
+        stale[staleCount++] = near;
+      }
+    }
+  }
+  // Every tile whose route led through a stale tile is stale too. Clearing `next` as a tile joins keeps it from joining twice.
+  for (let head = 0; head < staleCount; head++) {
+    const tile = stale[head]!;
+    const x = tile % size;
+    const y = (tile - x) / size;
+    for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, size - 1); ny++) {
+      for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, size - 1); nx++) {
+        const near = ny * size + nx;
+        if (next[near] !== tile) continue;
+        walk[near] = Infinity;
+        next[near] = -1;
+        stale[staleCount++] = near;
+      }
+    }
+  }
+  let kept = 0;
+  for (let i = 0; i < flow.entranceCount; i++) {
+    const entrance = entrances[i]!;
+    if (walk[entrance] !== Infinity) entrances[kept++] = entrance;
+  }
+  flow.entranceCount = kept;
+  for (let i = 0; i < staleCount; i++) {
+    const tile = stale[i]!;
+    if (!walkable(map, tile)) continue;
+    const x = tile % size;
+    const y = (tile - x) / size;
+    for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, size - 1); ny++) {
+      for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, size - 1); nx++) {
+        const near = ny * size + nx;
+        if (walk[near] !== Infinity) pushTile(flow.heap, near, walk[near]!);
+      }
+    }
+  }
+  const gained = flow.gainedCount;
+  spread(map, flow);
+  flow.gainedCount = gained;
+  for (let i = 0; i < staleCount; i++) {
+    const tile = stale[i]!;
+    if (walk[tile] === Infinity) flow.lost[flow.lostCount++] = tile;
+  }
 }

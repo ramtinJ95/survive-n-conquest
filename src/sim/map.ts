@@ -3,8 +3,8 @@ export const DEFAULT_MAP_SIZE = 256;
 /** Height of every water surface, in meters. Land heights are measured from it. */
 export const WATER_LEVEL = 0;
 
-/** Bare is a spent rock tile: open ground at the height the rock had. */
-export const TileKind = { Grass: 0, Water: 1, Forest: 2, Rock: 3, Bare: 4 } as const;
+/** Bare is a spent rock tile: open ground at the height the rock had. House is a tile of a finished house. */
+export const TileKind = { Grass: 0, Water: 1, Forest: 2, Rock: 3, Bare: 4, House: 5 } as const;
 export type TileKind = (typeof TileKind)[keyof typeof TileKind];
 
 /**
@@ -52,7 +52,7 @@ export function copyMap(map: TileMap): TileMap {
   };
 }
 
-/** Units walk on grass, forest, and bare ground. Water and rock stop them. */
+/** Units walk on grass, forest, and bare ground. Water, rock, and houses stop them. */
 export function walkable(map: TileMap, tile: number): boolean {
   const kind = map.kinds[tile];
   return kind === TileKind.Grass || kind === TileKind.Forest || kind === TileKind.Bare;
@@ -77,6 +77,15 @@ export function stepTo(map: TileMap, x: number, y: number, direction: number): n
   if (!walkable(map, neighbor)) return -1;
   if (direction >= 4 && !(walkable(map, y * size + nx) && walkable(map, ny * size + x))) return -1;
   return neighbor;
+}
+
+/** Whether a walker on `tile` may step to `to`, one of its eight neighbors, as `stepTo` allows. */
+export function stepAllowed(map: TileMap, tile: number, to: number): boolean {
+  if (!walkable(map, tile) || !walkable(map, to)) return false;
+  const x = tile % map.size;
+  const toX = to % map.size;
+  if (x === toX || tile - x === to - toX) return true;
+  return walkable(map, tile - x + toX) && walkable(map, to - toX + x);
 }
 
 /** The length of a step in `direction`, in tiles. */

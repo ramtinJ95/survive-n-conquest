@@ -4,7 +4,7 @@ import { TileKind, type TileMap, walkable } from './map';
 export const Claim = { None: 0, Chop: 1, Quarry: 2, Stockpile: 3, Site: 4 } as const;
 export type Claim = (typeof Claim)[keyof typeof Claim];
 
-/** House: a finished house. Nothing finishes one before pull request 2.5. */
+/** House: a finished house. */
 export const SiteState = { Free: 0, Site: 1, House: 2 } as const;
 export type SiteState = (typeof SiteState)[keyof typeof SiteState];
 
@@ -17,9 +17,13 @@ export interface Sites {
   readonly x: Int16Array;
   readonly y: Int16Array;
   readonly state: Uint8Array;
+  /** Ticks of building work done on each site. Work on a cancelled site is lost. */
+  readonly work: Uint16Array;
 }
 
 export interface Orders {
+  /** Tiles along each side of the map. */
+  readonly size: number;
   /** The camp tile, from campTile(map). */
   readonly camp: number;
   /**
@@ -29,6 +33,8 @@ export interface Orders {
    */
   readonly claims: Uint8Array;
   readonly sites: Sites;
+  /** The slot of the site or house on each tile, or -1. */
+  readonly siteOf: Int16Array;
   /** The tiles and site slots changed since the last `takeOrderChanges`. A refused order changes nothing and lists nothing. */
   readonly changes: {
     readonly listed: Uint8Array;
@@ -80,20 +86,30 @@ export type OrderOutcome =
   | { readonly ok: true; readonly order: AreaOrder | 'house'; readonly tiles: number }
   | { readonly ok: false; readonly order: AreaOrder | 'house'; readonly refusal: Refusal };
 
+/** Int32 values per changed site in `OrderChanges.sites`: slot, center x, center y, state, work. */
+export const SITE_CHANGE_STRIDE = 5;
+
 /** What changed in the orders since the last frame, as the worker sends it to the main thread. */
 export interface OrderChanges {
   /** Pairs of a tile index and its claim now. */
   readonly claims: Int32Array;
-  /** Groups of four: a site slot, its center x and y, and its state now. */
+  /** Groups of `SITE_CHANGE_STRIDE`: a site slot, its center x and y, its state, and its work now. */
   readonly sites: Int32Array;
 }
 
 export function createOrders(map: TileMap, camp: number = campTile(map)): Orders {
   const tiles = map.size * map.size;
   return {
+    size: map.size,
     camp,
     claims: new Uint8Array(tiles),
-    sites: { x: new Int16Array(MAX_SITES), y: new Int16Array(MAX_SITES), state: new Uint8Array(MAX_SITES) },
+    sites: {
+      x: new Int16Array(MAX_SITES),
+      y: new Int16Array(MAX_SITES),
+      state: new Uint8Array(MAX_SITES),
+      work: new Uint16Array(MAX_SITES),
+    },
+    siteOf: new Int16Array(tiles).fill(-1),
     changes: { listed: new Uint8Array(tiles), tiles: new Int32Array(tiles), tileCount: 0, slots: new Uint8Array(MAX_SITES) },
     reached: new Uint8Array(tiles),
     queue: new Int32Array(tiles),
@@ -115,10 +131,31 @@ export function setClaim(orders: Orders, tile: number, value: Claim): void {
   changes.tiles[changes.tileCount++] = tile;
 }
 
+/** Points the nine tiles centered on (x, y) at `slot`, or at no site when `slot` is -1. */
+function pointNine(orders: Orders, x: number, y: number, slot: number): void {
+  const { size } = orders;
+  for (let ty = y - 1; ty <= y + 1; ty++) orders.siteOf.fill(slot, ty * size + x - 1, ty * size + x + 2);
+}
+
+/** Places a site in a free slot or frees one. Either way the slot starts with no work. */
 function setSite(orders: Orders, slot: number, x: number, y: number, state: SiteState): void {
   orders.sites.x[slot] = x;
   orders.sites.y[slot] = y;
   orders.sites.state[slot] = state;
+  orders.sites.work[slot] = 0;
+  orders.changes.slots[slot] = 1;
+  pointNine(orders, x, y, state === SiteState.Free ? -1 : slot);
+}
+
+/** Sets the ticks of building work done on a site, and lists the site for `takeOrderChanges`. */
+export function setSiteWork(orders: Orders, slot: number, work: number): void {
+  orders.sites.work[slot] = work;
+  orders.changes.slots[slot] = 1;
+}
+
+/** Turns a site whose work is done into a house. */
+export function finishSite(orders: Orders, slot: number): void {
+  orders.sites.state[slot] = SiteState.House;
   orders.changes.slots[slot] = 1;
 }
 
@@ -336,23 +373,37 @@ export function takeOrderChanges(orders: Orders): OrderChanges {
   changes.tileCount = 0;
   let slots = 0;
   for (let slot = 0; slot < MAX_SITES; slot++) slots += changes.slots[slot]!;
-  const changed = new Int32Array(slots * 4);
+  const changed = new Int32Array(slots * SITE_CHANGE_STRIDE);
   for (let slot = 0, at = 0; slot < MAX_SITES; slot++) {
     if (!changes.slots[slot]) continue;
-    changed.set([slot, sites.x[slot]!, sites.y[slot]!, sites.state[slot]!], at);
-    at += 4;
+    changed[at] = slot;
+    changed[at + 1] = sites.x[slot]!;
+    changed[at + 2] = sites.y[slot]!;
+    changed[at + 3] = sites.state[slot]!;
+    changed[at + 4] = sites.work[slot]!;
+    at += SITE_CHANGE_STRIDE;
     changes.slots[slot] = 0;
   }
   return { claims, sites: changed };
 }
 
-/** Applies changes taken from another copy of the orders, as the main thread's copy does. */
+/**
+ * Applies changes taken from another copy of the orders, as the main thread's
+ * copy does. Every changed site leaves its old tiles before any takes its new
+ * ones, because a site freed and another placed on its tiles arrive together.
+ */
 export function applyOrderChanges(orders: Orders, { claims, sites }: OrderChanges): void {
   for (let i = 0; i < claims.length; i += 2) orders.claims[claims[i]!] = claims[i + 1]!;
-  for (let i = 0; i < sites.length; i += 4) {
+  for (let i = 0; i < sites.length; i += SITE_CHANGE_STRIDE) {
+    const slot = sites[i]!;
+    if (orders.sites.state[slot] !== SiteState.Free) pointNine(orders, orders.sites.x[slot]!, orders.sites.y[slot]!, -1);
+  }
+  for (let i = 0; i < sites.length; i += SITE_CHANGE_STRIDE) {
     const slot = sites[i]!;
     orders.sites.x[slot] = sites[i + 1]!;
     orders.sites.y[slot] = sites[i + 2]!;
     orders.sites.state[slot] = sites[i + 3]!;
+    orders.sites.work[slot] = sites[i + 4]!;
+    if (sites[i + 3] !== SiteState.Free) pointNine(orders, sites[i + 1]!, sites[i + 2]!, slot);
   }
 }
