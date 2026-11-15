@@ -1,3 +1,4 @@
+import type { FlowField } from './flowField';
 import { DIRECTIONS, type TileMap, stepLength, stepTo, tileAt } from './map';
 import type { Sim } from './sim';
 import { type TileHeap, clearHeap, createTileHeap, popTile, pushTile } from './tileHeap';
@@ -29,6 +30,14 @@ export function createPathSearch(tiles: number): PathSearch {
   };
 }
 
+/**
+ * Equal keys go to the tile walked farther, so the search runs along one of many
+ * equally short routes instead of widening across all of them. Walk lengths are
+ * sums of 1 and √2 that differ by far more than this times a walk, so it never
+ * orders unequal keys.
+ */
+const TIE_BREAK = 1e-9;
+
 /** The shortest walk between two tiles over open land, where a diagonal step is √2 long. */
 function octile(dx: number, dy: number): number {
   const ax = Math.abs(dx);
@@ -40,13 +49,19 @@ function octile(dx: number, dy: number): number {
  * Searches for a shortest walk from `from` to `to` over the steps that units
  * take, by A*. When it returns true, following `parent` from `to` walks back to
  * `from`, where the parent is -1.
+ *
+ * The walks of a flow field to any goal guide the search as a landmark: no walk
+ * between two tiles is shorter than the gap between their walks to the goal.
+ * The camp's field guides it almost straight along a route that leaves the camp.
  */
-export function findPath(map: TileMap, search: PathSearch, from: number, to: number): boolean {
+export function findPath(map: TileMap, landmark: FlowField, search: PathSearch, from: number, to: number): boolean {
   const { size } = map;
   const { walked, parent, reached, settled, heap } = search;
+  const landmarkWalk = landmark.walk;
   const current = ++search.searches;
   const toX = to % size;
   const toY = (to - toX) / size;
+  const toWalk = landmarkWalk[to]!;
   walked[from] = 0;
   parent[from] = -1;
   reached[from] = current;
@@ -70,7 +85,8 @@ export function findPath(map: TileMap, search: PathSearch, from: number, to: num
       walked[neighbor] = through;
       parent[neighbor] = tile;
       const nx = neighbor % size;
-      pushTile(heap, neighbor, through + octile(nx - toX, (neighbor - nx) / size - toY));
+      const guess = Math.max(octile(nx - toX, (neighbor - nx) / size - toY), Math.abs(landmarkWalk[neighbor]! - toWalk));
+      pushTile(heap, neighbor, through + guess - TIE_BREAK * through);
     }
   }
   return false;
@@ -85,7 +101,7 @@ export function planPath(sim: Sim, id: number, to: number): boolean {
   const { map, villagers, pathSearch } = sim;
   const here = tileAt(map, villagers.x[id]!, villagers.y[id]!);
   // Searching from the far end leaves parents that read forward from the villager's tile.
-  if (!findPath(map, pathSearch, to, here)) return false;
+  if (!findPath(map, sim.flow, pathSearch, to, here)) return false;
   const { path } = villagers;
   const row = id * MAX_PATH;
   let length = 0;

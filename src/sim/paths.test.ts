@@ -27,7 +27,7 @@ describe('a path search', () => {
       .sort((a, b) => hash(5, a, 0) - hash(5, b, 0))
       .slice(0, 150);
     for (const start of starts) {
-      expect(findPath(map, search, camp, start)).toBe(true);
+      expect(findPath(map, flow, search, camp, start)).toBe(true);
       let length = 0;
       let tile = start;
       for (let parent = search.parent[tile]!; parent !== -1; parent = search.parent[tile]!) {
@@ -41,10 +41,11 @@ describe('a path search', () => {
 
   it('finds no walk to land that water cuts off, and still finds walks after', () => {
     const map = mapFrom(['.....', '.....', '~~~~~', '.....', '.....']);
+    const flow = createFlowField(map, at(map, 2, 1));
     const search = createPathSearch(map.size * map.size);
     expect(walkable(map, at(map, 0, 4))).toBe(true);
-    expect(findPath(map, search, at(map, 0, 0), at(map, 0, 4))).toBe(false);
-    expect(findPath(map, search, at(map, 0, 0), at(map, 4, 1))).toBe(true);
+    expect(findPath(map, flow, search, at(map, 0, 0), at(map, 0, 4))).toBe(false);
+    expect(findPath(map, flow, search, at(map, 0, 0), at(map, 4, 1))).toBe(true);
   });
 });
 
