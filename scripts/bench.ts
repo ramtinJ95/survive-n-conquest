@@ -103,7 +103,7 @@ function measure(size: number): boolean {
       if (day) dayTaskTicks++;
     }
     if (day) dayVillagerTicks += task.length;
-    if (day) fewestOpen = Math.min(fewestOpen, sim.gathering.openCount);
+    if (day) fewestOpen = Math.min(fewestOpen, sim.gathering.count);
   }
   const heapGrowth = fullGC() - heapBefore;
   const workAfter = workOf(sim);
@@ -134,7 +134,7 @@ function measure(size: number): boolean {
       `daytime villager-ticks spent holding a task: ${percent(dayTaskTicks, dayVillagerTicks)}`,
   );
   console.log(
-    `  gathering tasks open at the end: ${sim.gathering.openCount}, fewest open by day: ${fewestOpen}, set aside as out of reach: ${sim.gathering.setAsideCount}`,
+    `  gathering tasks open at the end: ${sim.gathering.count}, fewest open by day: ${fewestOpen}, set aside as out of reach: ${sim.gathering.setAsideCount}`,
   );
   console.log(
     `  work held through the measured ticks: ${workHeld ? 'PASS' : 'FAIL'}, needs ${percent(LEAST_BUSY, 1)} of daytime villager-ticks on a task and a task open at every daytime tick`,
