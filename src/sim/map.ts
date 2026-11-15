@@ -79,6 +79,15 @@ export function stepTo(map: TileMap, x: number, y: number, direction: number): n
   return neighbor;
 }
 
+/** Whether a walker on `tile` may step to `to`, one of its eight neighbors, as `stepTo` allows. */
+export function stepAllowed(map: TileMap, tile: number, to: number): boolean {
+  if (!walkable(map, tile) || !walkable(map, to)) return false;
+  const x = tile % map.size;
+  const toX = to % map.size;
+  if (x === toX || tile - x === to - toX) return true;
+  return walkable(map, tile - x + toX) && walkable(map, to - toX + x);
+}
+
 /** The length of a step in `direction`, in tiles. */
 export function stepLength(direction: number): number {
   return direction < 4 ? 1 : Math.SQRT2;

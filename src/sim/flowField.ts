@@ -1,4 +1,4 @@
-import { DIRECTIONS, type TileMap, stepLength, stepTo, walkable } from './map';
+import { DIRECTIONS, type TileMap, stepAllowed, stepLength, stepTo, walkable } from './map';
 import { type TileHeap, createTileHeap, popTile, pushTile } from './tileHeap';
 
 /** Monsters enter on walkable tiles this close to the map edge. */
@@ -126,15 +126,6 @@ export function openFlowTile(map: TileMap, flow: FlowField, tile: number): void 
   spread(map, flow);
 }
 
-/** Whether a walker on `tile` may step to `to`, one of its eight neighbors, as `stepTo` allows. */
-function steps(map: TileMap, tile: number, to: number): boolean {
-  if (!walkable(map, tile) || !walkable(map, to)) return false;
-  const x = tile % map.size;
-  const toX = to % map.size;
-  if (x === toX || tile - x === to - toX) return true;
-  return walkable(map, tile - x + toX) && walkable(map, to - toX + x);
-}
-
 /**
  * Brings the field up to date after `count` tiles of `tiles` stopped walkers,
  * whose kinds are already set. Only a walk whose route ran through them, or
@@ -153,7 +144,7 @@ export function closeFlowTiles(map: TileMap, flow: FlowField, tiles: Int32Array,
     for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, size - 1); ny++) {
       for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, size - 1); nx++) {
         const near = ny * size + nx;
-        if (next[near] === -1 || near === flow.goal || steps(map, near, next[near]!)) continue;
+        if (next[near] === -1 || near === flow.goal || stepAllowed(map, near, next[near]!)) continue;
         walk[near] = Infinity;
         next[near] = -1;
         stale[staleCount++] = near;
