@@ -2,12 +2,52 @@ import { DIRECTIONS, stepTo, walkable } from './map';
 import { Claim } from './orders';
 import type { Sim } from './sim';
 import { noteTileChange } from './tileChanges';
+import { type TileSet, createTileSet, setOpen } from './tileSet';
 
 export const Good = { None: 0, Log: 1, Stone: 2 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
+/** How many goods there are, `Good.None` aside. */
+export const GOOD_KINDS = 2;
 
 /** A tile holds up to this many units of one good. */
 export const STACK_LIMIT = 8;
+
+/**
+ * Which goods carriers can fetch, which stockpile places can take them, and
+ * what carriers have already spoken for, as tile state the size of the map.
+ * The goods themselves are the map's stacks.
+ */
+export interface GoodsState {
+  /** Units of each tile's stack reserved by a carrier that walks to pick them up. */
+  readonly outbound: Uint8Array;
+  /** Places in each tile's stack reserved for units on their way to it. */
+  readonly inbound: Uint8Array;
+  /** The good of a tile's inbound units, where `inbound` is above 0. */
+  readonly inboundGood: Uint8Array;
+  /** By good, at index `good - 1`: the tiles off any stockpile with an unreserved unit of that good that a walk from the camp reaches, not set aside. */
+  readonly loose: readonly TileSet[];
+  /** By good, at index `good - 1`: the stockpile tiles that can take one more unit of that good that a walk from the camp reaches, not set aside. */
+  readonly room: readonly TileSet[];
+  /** 1 where a tile is set aside as out of reach for carrying, until dawn or until land gains walks. */
+  readonly setAside: Uint8Array;
+  /** The first `setAsideCount` are the tiles set aside. */
+  readonly setAsideTiles: Int32Array;
+  setAsideCount: number;
+}
+
+export function createGoodsState(size: number): GoodsState {
+  const tiles = size * size;
+  return {
+    outbound: new Uint8Array(tiles),
+    inbound: new Uint8Array(tiles),
+    inboundGood: new Uint8Array(tiles),
+    loose: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
+    room: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
+    setAside: new Uint8Array(tiles),
+    setAsideTiles: new Int32Array(tiles),
+    setAsideCount: 0,
+  };
+}
 
 /** Scratch for `putDown`'s walk, so putting goods down allocates nothing. Not part of the simulation's state. */
 export interface PutDownSearch {
@@ -22,13 +62,42 @@ export function createPutDownSearch(tiles: number): PutDownSearch {
   return { queue: new Int32Array(tiles), reached: new Uint32Array(tiles), searches: 0 };
 }
 
-/** How many units of `good` a tile can still take: walkable, no site or house, and a stack that is empty or holds that good. */
+/**
+ * How many units of `good` a tile can still take: walkable, no site or house,
+ * and a stack that is empty or holds that good. A place reserved for a unit on
+ * its way is taken, and an empty stack with units on their way holds their good.
+ */
 function room(sim: Sim, tile: number, good: Good): number {
-  const { map } = sim;
+  const { map, goods } = sim;
   if (!walkable(map, tile) || sim.orders.claims[tile] === Claim.Site) return 0;
   const size = map.stackSize[tile]!;
-  if (size === 0) return STACK_LIMIT;
-  return map.stackGood[tile] === good ? STACK_LIMIT - size : 0;
+  const inbound = goods.inbound[tile]!;
+  const held = size > 0 ? map.stackGood[tile] : inbound > 0 ? goods.inboundGood[tile] : Good.None;
+  return held === Good.None || held === good ? STACK_LIMIT - size - inbound : 0;
+}
+
+/** Brings a tile's place in `loose` and `room` up to date with its stack, its claim, its reservations, and its reach. */
+export function refreshStack(sim: Sim, tile: number): void {
+  const { map, goods } = sim;
+  const reached = sim.flow.next[tile] !== -1 && goods.setAside[tile] === 0;
+  const stockpile = sim.orders.claims[tile] === Claim.Stockpile;
+  const loose = reached && !stockpile && map.stackSize[tile]! > goods.outbound[tile]! ? map.stackGood[tile] : Good.None;
+  for (let index = 0; index < GOOD_KINDS; index++) {
+    const good = (index + 1) as Good;
+    setOpen(goods.loose[index]!, map.size, tile, loose === good);
+    setOpen(goods.room[index]!, map.size, tile, reached && stockpile && room(sim, tile, good) > 0);
+  }
+}
+
+/** Takes one unit off a tile's stack, as a carrier that reserved it picks it up, and returns its good. */
+export function pickUp(sim: Sim, tile: number): Good {
+  const { stackGood, stackSize } = sim.map;
+  const good = stackGood[tile]! as Good;
+  stackSize[tile] = stackSize[tile]! - 1;
+  if (stackSize[tile] === 0) stackGood[tile] = Good.None;
+  noteTileChange(sim, tile);
+  refreshStack(sim, tile);
+  return good;
 }
 
 /**
@@ -71,6 +140,7 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     stackSize[tile] = stackSize[tile]! + placed;
     left -= placed;
     noteTileChange(sim, tile);
+    refreshStack(sim, tile);
   }
   return true;
 }

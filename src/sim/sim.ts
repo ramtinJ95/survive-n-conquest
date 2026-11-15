@@ -3,7 +3,7 @@ import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
 import { type Gathering, createGathering } from './gathering';
-import { type PutDownSearch, createPutDownSearch } from './goods';
+import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack } from './goods';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
@@ -52,6 +52,7 @@ export interface Sim {
   readonly monsters: Monsters;
   readonly orders: Orders;
   readonly gathering: Gathering;
+  readonly goods: GoodsState;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
   tick: number;
@@ -74,12 +75,14 @@ export function createSim(source: TileMap, population: Population): Sim {
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
     gathering: createGathering(map),
+    goods: createGoodsState(map.size),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     tick: 0,
     speed: 1,
     paused: false,
   };
+  for (let tile = 0; tile < map.size * map.size; tile++) refreshStack(sim, tile);
   if (population.markAll) {
     const whole = { x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 };
     applyCommand(sim, { kind: 'markArea', order: 'chop', area: whole });
