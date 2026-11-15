@@ -34,13 +34,20 @@ function matrixOf(mesh: InstancedMesh, instance: number): Matrix4 {
 }
 
 const placed = (mesh: InstancedMesh, instance: number) => new Vector3().setFromMatrixPosition(matrixOf(mesh, instance));
-const reach = (mesh: InstancedMesh, instance: number, local: Vector3) => local.clone().applyMatrix4(matrixOf(mesh, instance)).sub(placed(mesh, instance));
+/** The direction, in the world, that an instance turns a direction of its shape to. Villagers differ in size, so the length says nothing. */
+const reach = (mesh: InstancedMesh, instance: number, local: Vector3) =>
+  local.clone().applyMatrix4(matrixOf(mesh, instance)).sub(placed(mesh, instance)).normalize();
+const sizeOf = (mesh: InstancedMesh, instance: number) => new Vector3().setFromMatrixScale(matrixOf(mesh, instance)).y;
+/** The limbs of villager `id` are `2 * id` on its left and `2 * id + 1` on its right. */
+const limbs = (id: number) => [id * 2, id * 2 + 1];
+const DOWN = new Vector3(0, -1, 0);
 
 describe('createSwarm', () => {
   it('draws each group as one instanced mesh that shows nothing before the first frame', () => {
     expect(swarm(3, 2).meshes.map((mesh) => [mesh.name, mesh.constructor, mesh.count])).toEqual([
       ['villagers', InstancedMesh, 0],
       ['villager arms', InstancedMesh, 0],
+      ['villager legs', InstancedMesh, 0],
       ['monsters', InstancedMesh, 0],
       ['carried logs', InstancedMesh, 0],
       ['carried stone', InstancedMesh, 0],
@@ -58,7 +65,7 @@ describe('createSwarm', () => {
     const { named, show } = swarm(2, 1);
     show(frame(0, [10.5, 20.25, 40, 3.75], { monsters: Float32Array.of(32, 32) }));
     expect(named('villagers').count).toBe(2);
-    expect(named('villager arms').count).toBe(2);
+    expect([named('villager arms').count, named('villager legs').count]).toEqual([4, 4]);
     expect(named('monsters').count).toBe(1);
     for (const [name, instance, x, y] of [
       ['villagers', 0, 10.5, 20.25],
@@ -72,14 +79,24 @@ describe('createSwarm', () => {
     }
   });
 
-  it('builds each unit with its base on the ground', () => {
-    const { named } = swarm(1, 1);
-    for (const name of ['villagers', 'monsters']) {
+  it('stands a monster on its base and a villager on its two feet, its head a meter up', () => {
+    const { named, show } = swarm(1, 1);
+    show(frame(0, [10.5, 20.25]));
+    const ground = heightAt(map, 10.5, 20.25);
+    const ends = (name: string) => {
       named(name).geometry.computeBoundingBox();
-      const { min, max } = named(name).geometry.boundingBox!;
-      expect(min.y).toBeCloseTo(0, 5);
-      expect(max.y).toBeGreaterThan(1.2);
+      return named(name).geometry.boundingBox!;
+    };
+    expect(ends('monsters').min.y).toBeCloseTo(0, 5);
+    for (const leg of limbs(0)) {
+      const foot = new Vector3(0, ends('villager legs').min.y, 0).applyMatrix4(matrixOf(named('villager legs'), leg));
+      expect(foot.y).toBeCloseTo(ground, 5);
+      expect(Math.hypot(foot.x - (10.5 - half), foot.z - (20.25 - half))).toBeGreaterThan(0.05);
     }
+    expect(ends('villagers').min.y).toBeLessThan(-ends('villager legs').min.y);
+    const head = ends('villagers').max.y * sizeOf(named('villagers'), 0);
+    expect(head).toBeGreaterThan(0.95);
+    expect(head).toBeLessThan(1.25);
   });
 
   it('holds a carried log or stone above the head of the villager that carries it, on raised arms, and nothing over one that carries none', () => {
@@ -89,18 +106,17 @@ describe('createSwarm', () => {
     expect([named('carried logs').count, named('carried stone').count]).toEqual([1, 1]);
     named('villagers').geometry.computeBoundingBox();
     const head = named('villagers').geometry.boundingBox!.max.y;
-    for (const [name, x, y] of [
-      ['carried stone', 10.5, 20.5],
-      ['carried logs', 40.5, 12.5],
+    for (const [name, id, x, y] of [
+      ['carried stone', 0, 10.5, 20.5],
+      ['carried logs', 2, 40.5, 12.5],
     ] as const) {
       const position = placed(named(name), 0);
       expect(position.x).toBeCloseTo(x - half, 5);
       expect(position.z).toBeCloseTo(y - half, 5);
-      expect(position.y).toBeGreaterThan(heightAt(map, x, y) + head);
+      expect(position.y).toBeGreaterThan(heightAt(map, x, y) + head * sizeOf(named('villagers'), id));
     }
-    const hand = new Vector3(0, -0.5, 0);
-    expect(reach(named('villager arms'), 0, hand).y).toBeCloseTo(0.5, 5);
-    expect(reach(named('villager arms'), 1, hand).y).toBeCloseTo(-0.5, 5);
+    for (const arm of limbs(0)) expect(reach(named('villager arms'), arm, DOWN).y).toBeCloseTo(1, 5);
+    for (const arm of limbs(1)) expect(reach(named('villager arms'), arm, DOWN).y).toBeCloseTo(-1, 5);
 
     show(frame(1, positions));
     expect([named('carried logs').count, named('carried stone').count]).toEqual([0, 0]);
@@ -120,15 +136,40 @@ describe('createSwarm', () => {
 
   it('swings the arms of a villager that works, and holds still the arms of one that stands', () => {
     const { named, show } = swarm(2, 0);
-    const hand = new Vector3(0, -0.5, 0);
     const states = Uint8Array.of(VillagerState.Working, VillagerState.Waiting);
     const hands = [0, 1, 2, 3, 4, 5, 6, 7].map((tick) => {
       show(frame(tick, [20, 20, 25, 25], { states }));
-      return [0, 1].map((id) => reach(named('villager arms'), id, hand).y);
+      return [0, 1, 2, 3].map((arm) => reach(named('villager arms'), arm, DOWN).y);
     });
-    const working = hands.map(([worker]) => worker!);
-    expect(Math.max(...working) - Math.min(...working)).toBeGreaterThan(0.5);
-    for (const [, stander] of hands) expect(stander).toBeCloseTo(-0.5, 5);
+    const working = hands.map(([left]) => left!);
+    expect(Math.max(...working) - Math.min(...working)).toBeGreaterThan(1);
+    for (const [left, right, ...standing] of hands) {
+      expect(right).toBeCloseTo(left!, 5);
+      for (const arm of standing) expect(arm).toBeCloseTo(-1, 5);
+    }
+  });
+
+  it('swings the arms of a walker against each other and against its legs, and stands a villager that stops on straight legs', () => {
+    const { named, show } = swarm(1, 0);
+    const ahead = new Vector3(0, 0, 1);
+    /** How far forward each hand and each foot is, left then right. */
+    const forward = (name: string) => limbs(0).map((limb) => reach(named(name), limb, DOWN).dot(ahead));
+    show(frame(0, [20, 20]));
+    let swung = 0;
+    for (let tick = 1; tick <= 8; tick++) {
+      show(frame(tick, [20, 20 + tick * 0.1]));
+      const [leftArm, rightArm] = forward('villager arms');
+      const [leftLeg, rightLeg] = forward('villager legs');
+      expect(leftArm).toBeCloseTo(-rightArm!, 5);
+      expect(leftLeg).toBeCloseTo(-rightLeg!, 5);
+      expect(leftArm! * leftLeg!).toBeLessThanOrEqual(0);
+      swung = Math.max(swung, Math.abs(leftLeg!));
+    }
+    expect(swung).toBeGreaterThan(0.3);
+    show(frame(9, [20, 20.8]));
+    for (const name of ['villager arms', 'villager legs']) {
+      for (const limb of limbs(0)) expect(reach(named(name), limb, DOWN).y).toBeCloseTo(-1, 5);
+    }
   });
 
   it('holds a walker in its stride for a frame that repeats the last tick, so a paused game holds still', () => {
