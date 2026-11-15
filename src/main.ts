@@ -8,6 +8,7 @@ import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import { mountOrders } from './ui/orders';
+import { mountSiteLabels } from './ui/sites';
 import { mountStockpiles } from './ui/stockpiles';
 import './ui/style.css';
 import type { SimFrame, ToSim } from './worker';
@@ -45,12 +46,14 @@ renderer.setAnimationLoop((now) => {
   toolbar.follow();
   show(tick);
   renderer.render(scene, camera);
+  siteLabels.follow();
 });
 
 const sim = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 mountClock(document.body, sim);
 const toolbar = mountOrders(document.body, sim, { map, orders, canvas: renderer.domElement, camera, marks });
 const stockpiles = mountStockpiles(document.body, map, orders.claims);
+const siteLabels = mountSiteLabels(document.body, map, orders, camera);
 bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   tick = data.tick;
@@ -58,6 +61,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   changeOrders(data.orders);
   toolbar.heard(data);
   stockpiles.heard(data);
+  siteLabels.heard(data);
   swarm.show(data);
 });
 sim.postMessage({ kind: 'start', map, population } satisfies ToSim);
