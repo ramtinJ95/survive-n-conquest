@@ -15,6 +15,8 @@ export interface ClockSnapshot {
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
+  /** One `Good` per villager in id order: what each one carries. */
+  readonly carried: Uint8Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -39,11 +41,12 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
 function publish(sim: Sim, outcome?: OrderOutcome) {
   const villagers = positions(sim.villagers);
   const monsters = positions(sim.monsters);
+  const carried = sim.villagers.carried.slice();
   const tiles = takeTileChanges(sim);
   const orders = takeOrderChanges(sim.orders);
   self.postMessage(
-    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, tiles, orders, outcome } satisfies SimFrame,
-    { transfer: [villagers.buffer, monsters.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
+    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, carried, tiles, orders, outcome } satisfies SimFrame,
+    { transfer: [villagers.buffer, monsters.buffer, carried.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
   );
 }
 
