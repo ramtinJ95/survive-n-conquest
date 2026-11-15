@@ -5,6 +5,7 @@ import {
   DynamicDrawUsage,
   IcosahedronGeometry,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -15,19 +16,15 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TICKS_PER_DAY } from '../sim/calendar';
 import { heightAt, type TileMap } from '../sim/map';
-import { daily } from './seasonal';
+import { WIND, daily } from './seasonal';
 import { type ShapeName, type Shapes, colored, shapeMaterial } from './shapes';
 
 interface Placed {
   readonly shape: ShapeName;
-  /** Meters east and south of the camp center. */
   readonly x: number;
   readonly z: number;
-  /** The turn in radians. */
   readonly turn: number;
-  /** Meters above the ground, for a thing that stands on another. */
   readonly lift?: number;
-  /** The color of its cloth, for a tent. */
   readonly cloth?: number;
 }
 
@@ -40,11 +37,11 @@ const around = (shape: ShapeName, angle: number, reach: number, turn = -angle, r
 });
 
 /**
- * What stands at the camp. The fire burns where the settlers gather for the
- * night. Each tent stands behind a gap between two of their spots, door to the
- * fire, and the stores stand behind another gap. All of it keeps inside the
- * land that the camp keeps free of orders. No cloth is yellow, orange, or
- * red, the colors of the settlers, the fire, and the monsters.
+ * The fire burns where the settlers gather for the night. Each tent stands
+ * behind a gap between two of their spots, door to the fire, and the stores
+ * stand behind another gap. Each stands with its center on a tile that the
+ * camp keeps free of orders, as `underCamp` says. No cloth is yellow, orange,
+ * or red, the colors of the settlers, the fire, and the monsters.
  */
 const LAYOUT: readonly Placed[] = [
   { shape: 'fire', x: 0, z: 0, turn: 0 },
@@ -60,7 +57,6 @@ const LAYOUT: readonly Placed[] = [
 /** A face of a model is cloth when its color is this pale and this close to grey: the packs' tents are undyed canvas. */
 const CLOTH = { palest: 0.15, greyest: 0.25 };
 
-/** A copy of a shape with its cloth dyed. */
 function dyed(shape: BufferGeometry, hex: number): BufferGeometry {
   const copy = shape.clone();
   const colors = copy.getAttribute('color');
@@ -76,15 +72,10 @@ function dyed(shape: BufferGeometry, hex: number): BufferGeometry {
 /** The flame is the one thing in the settlement that the sun does not light, so the camp shows in the dark. */
 const FLAME = { outer: 0xff7a1a, inner: 0xffd35a, radius: 0.24, height: 0.62, base: 0.1, flicker: daily(0.9), turn: daily(0.35), sway: 0.18 };
 
-/**
- * The fire lights the camp around it. By day the sun drowns it, and at night
- * it is the warm middle of a cold world. Its strength is in candela, and it
- * wavers by `waver` of itself.
- */
 const FIRELIGHT = { color: 0xff9a4d, day: 0.2, night: 11, height: 0.75, reach: 15, waver: 0.1, flutter: daily(2.3) };
 
-/** Puffs of smoke rise from the fire, each for `life` ticks, a whole share of the day, to `rise` meters, growing and drifting with the wind. */
-const SMOKE = { puffs: 9, life: TICKS_PER_DAY / 43, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
+/** A puff lives a whole share of the day, so the smoke repeats at the same time every day. */
+const SMOKE = { puffs: 9, livesPerDay: 43, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
 
 function flameGeometry() {
   const { outer, inner, radius, height } = FLAME;
@@ -95,17 +86,10 @@ function flameGeometry() {
   ]);
 }
 
-const smoothstep = (from: number, to: number, value: number) => {
-  const share = Math.min(Math.max((value - from) / (to - from), 0), 1);
-  return share * share * (3 - 2 * share);
-};
-
 /**
- * The camp on its tile: the fire with the pot over it, the tents, and the
- * stores as one mesh, each standing on the ground under it, and the flame, the
- * light, and the smoke of the fire. `show` moves them with `time`, the time
- * of day in ticks, so they hold still while the clock is paused. `dark`
- * is 0 in full daylight and 1 at night.
+ * `show` moves the flame, the light, and the smoke with `time`, the time of
+ * day in ticks, so they hold still while the clock is paused. `dark` is 0 in
+ * full daylight and 1 at night.
  */
 export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   const x = (tile % map.size) + 0.5;
@@ -150,11 +134,11 @@ export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
     light.intensity =
       (FIRELIGHT.day + (FIRELIGHT.night - FIRELIGHT.day) * dark) * (1 + FIRELIGHT.waver * (0.6 * beat + 0.4 * Math.sin(time * FIRELIGHT.flutter + 1)));
     for (let i = 0; i < SMOKE.puffs; i++) {
-      const age = (((time / SMOKE.life + i / SMOKE.puffs) % 1) + 1) % 1;
+      const age = ((((time * SMOKE.livesPerDay) / TICKS_PER_DAY + i / SMOKE.puffs) % 1) + 1) % 1;
       const out = SMOKE.drift * age * age;
-      puff.position.set(0.8 * out + 0.1 * Math.sin(i * 2.4 + age * 5), FLAME.base + FLAME.height + SMOKE.rise * age, 0.6 * out + 0.1 * Math.cos(i * 1.7 + age * 4));
+      puff.position.set(WIND.x * out + 0.1 * Math.sin(i * 2.4 + age * 5), FLAME.base + FLAME.height + SMOKE.rise * age, WIND.z * out + 0.1 * Math.cos(i * 1.7 + age * 4));
       puff.rotation.set(i, age * 2 + i, 0);
-      puff.scale.setScalar((0.6 + 2.2 * age) * smoothstep(0, 0.1, age) * (1 - smoothstep(0.65, 1, age)));
+      puff.scale.setScalar((0.6 + 2.2 * age) * MathUtils.smoothstep(age, 0, 0.1) * (1 - MathUtils.smoothstep(age, 0.65, 1)));
       puff.updateMatrix();
       smoke.setMatrixAt(i, puff.matrix);
     }

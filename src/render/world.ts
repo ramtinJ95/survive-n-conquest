@@ -19,7 +19,6 @@ import { createWater } from './water';
 const NEAREST_VIEW = 14;
 /** The camera flies this far above the tallest tree, in meters. */
 const TREETOP_MARGIN = 1;
-/** The fire of the camp lights the land around it from the time the sun stands this low, and at its full strength once the sun is down. The heights are sines of the sun's elevation. */
 const FIRELIT = { from: 0.3, full: -0.05 };
 
 /**
@@ -29,8 +28,8 @@ const FIRELIT = { from: 0.3, full: -0.05 };
  * the part of a tick that has passed, and moves the wind, the water, and the
  * fire: it is the tick itself while the clock is paused, so a paused world
  * holds still. They move with the time of day alone, so the world looks the
- * same at the same time on every day. The simulation owns the map, and `changeTiles` brings this copy
- * of it, the ground, and the scenery up to date.
+ * same at the same time on every day. The simulation owns the map, and
+ * `changeTiles` brings this copy of it, the ground, and the scenery up to date.
  */
 export function createWorld(map: TileMap, shapes: Shapes) {
   const scene = new Scene();

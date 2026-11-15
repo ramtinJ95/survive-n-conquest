@@ -78,9 +78,7 @@ const HORIZON = ambience(0, 0xe6a584, 0xffc49c, 0x7a5846, 1.3);
 const GOLDEN_HOUR = ambience(0.12, 0xd4d3da, 0xffe4c4, 0x8f7a5e, 1.2);
 /** The sun is this high when the day is in full light. */
 const DAY_HEIGHT = 0.35;
-/** By day the sky lights the shade in its own blue, far weaker than the sun, so shadows are cool and deep. */
 const DAY_SKY = { sky: 0xb9d6ff, ground: 0x9a8a64, strength: 1.2 };
-/** Haze starts at this share of the camera's distance from the point it looks at and is complete at `full` times it, or at `farthest` meters. */
 const HAZE = { from: 0.7, full: 8, farthest: 900 };
 
 const SHADOW_MAP_SIZE = 2048;
@@ -105,8 +103,7 @@ function blend(keys: readonly Ambience[], height: number, out: Ambience): void {
 /**
  * Adds the sky, the sun, and the moon to a scene. The returned function lights
  * the scene for a tick and returns the height of the sun, the sine of its
- * elevation. The land fades into the color behind the map with its distance
- * from the camera. The sun rises in the east at +x, stands in the south
+ * elevation. The sun rises in the east at +x, stands in the south
  * at +z at noon, and sets in the west. One light is the sun by day and the
  * moon by night. The moon is always opposite the sun, and each is dark on the
  * horizon, so the change from one to the other never shows.

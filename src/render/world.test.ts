@@ -19,7 +19,6 @@ const createWorld = (map: TileMap) => createWorldFrom(map, primitiveShapes());
 const SIZE = 96;
 const map = generateMap(7, SIZE);
 const { scene, rig, camp } = createWorld(map);
-/** The meshes of the kinds of tree that grow on this map. */
 const TREES = Object.values(TREE_MESHES).filter((name) => (scene.getObjectByName(name) as InstancedMesh).count > 0);
 
 function kindUnder(mesh: InstancedMesh, instance: number, on: TileMap): number {

@@ -25,7 +25,6 @@ const SKIN_COLOR = 0xe8b48c;
 const HAIR_COLOR = 0x4a3222;
 const BELT_COLOR = 0x6b4a2b;
 const TROUSER_COLOR = 0x5a4632;
-/** The tunic hangs to this height over the legs. */
 const HEM_HEIGHT = 0.24;
 const BOOT_COLOR = 0x3b2a1e;
 /**
@@ -38,7 +37,6 @@ const SHOULDER_HEIGHT = 0.66;
 const ARM_SIDE = 0.2;
 const ARM_LENGTH = 0.46;
 const CARRY_HEIGHT = SHOULDER_HEIGHT + ARM_LENGTH;
-/** Settlers differ in size by this share, up and down. */
 const SIZE_SPREAD = 0.08;
 /** Radians of a walker's stride and of a worker's swing in one tick, so the motion follows the game's clock. */
 const STRIDE = 0.9;
@@ -60,7 +58,6 @@ function bodyGeometry(): BufferGeometry {
   ]);
 }
 
-/** One arm, hanging from the shoulder at the origin: a sleeve of the tunic and a hand. */
 function armGeometry(): BufferGeometry {
   const sleeve = ARM_LENGTH - 0.1;
   return mergeGeometries([
@@ -69,7 +66,6 @@ function armGeometry(): BufferGeometry {
   ]);
 }
 
-/** One leg, hanging from the hip at the origin: a trouser leg and a boot. */
 function legGeometry(): BufferGeometry {
   const boot = 0.1;
   return mergeGeometries([
@@ -101,7 +97,7 @@ export interface UnitFrame {
 /**
  * Draws the units standing on the ground, each group as one instanced mesh.
  * A villager is a body, two arms, and two legs: villager `id` has the limbs
- * `2 * id` on its left and `2 * id + 1` on its right. It turns the way it
+ * `2 * id` on its right and `2 * id + 1` on its left. It turns the way it
  * walks, steps and swings its arms against its legs as it goes, swings both
  * arms over its head and down as it works, and holds what it carries up on
  * both hands. At its spot for the night it faces the camp `camp`. The motion
@@ -191,12 +187,12 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
       const shoulder = ground + Math.cos(lean) * SHOULDER_HEIGHT * size;
       const acrossX = Math.cos(turn) * size;
       const acrossZ = -Math.sin(turn) * size;
-      for (let right = 0; right < 2; right++) {
-        const side = right ? 1 : -1;
+      for (let left = 0; left < 2; left++) {
+        const side = left ? 1 : -1;
         const swing = side * stride;
         put(
           arms,
-          id * 2 + right,
+          id * 2 + left,
           x + Math.sin(turn) * forward + side * ARM_SIDE * acrossX,
           shoulder,
           z + Math.cos(turn) * forward + side * ARM_SIDE * acrossZ,
@@ -204,7 +200,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
           turn,
           size,
         );
-        put(legs, id * 2 + right, x + side * LEG_SIDE * acrossX, ground + HIP_HEIGHT * size, z + side * LEG_SIDE * acrossZ, -LEG_STRIDE * swing, turn, size);
+        put(legs, id * 2 + left, x + side * LEG_SIDE * acrossX, ground + HIP_HEIGHT * size, z + side * LEG_SIDE * acrossZ, -LEG_STRIDE * swing, turn, size);
       }
       if (load) put(load, load.count++, x, ground + CARRY_HEIGHT * size, z, 0, turn, 1);
     }

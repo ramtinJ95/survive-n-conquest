@@ -5,16 +5,10 @@ import { type Motion, SEASON_COLORS, daily, seasonalMaterial } from './seasonal'
 
 /** The water inside the map is a grid of cells this many meters wide, so that each can tilt with the waves. */
 const CELL = 2;
-/** The sea lies flat past the map's edge, this many meters out. It pales to the shallows over the first `shelf` meters. */
 const SEA = { reach: 1400, shelf: 16, depth: 7 };
-/** Water this deep, in meters, has its full color. Less of it shows the pale shallows. */
 const DEEP = 1.7;
 const OPACITY = 0.8;
 
-/**
- * Two trains of waves cross the water, each a sine of the place and of the
- * time of day in ticks. A paused clock holds the water still.
- */
 function waves(clock: IUniform<number>): Motion {
   return {
     uniforms: { waveClock: clock },
@@ -40,7 +34,6 @@ export function createWater(map: TileMap, seasonMix: IUniform<Vector4>, clock: I
   const indices: number[] = [];
   const scratch = PALETTES.map((palette) => palette.water.clone());
 
-  /** The depth of the water at a corner of the tile grid: the deepest of the tiles that meet there. */
   const depthAt = (x: number, y: number) => {
     let deepest = -Infinity;
     for (let ty = Math.max(y - 1, 0); ty <= Math.min(y, size - 1); ty++) {
@@ -78,7 +71,6 @@ export function createWater(map: TileMap, seasonMix: IUniform<Vector4>, clock: I
     }
   }
 
-  /** The grid lines around the map's edge, in a loop, and how far along x and z the sea runs out from each. */
   const edge: { i: number; j: number; outX: number; outZ: number }[] = [];
   const last = lines - 1;
   for (let i = 0; i < last; i++) edge.push({ i, j: 0, outX: i === 0 ? -1 : 0, outZ: -1 });

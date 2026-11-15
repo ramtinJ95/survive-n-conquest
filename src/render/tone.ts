@@ -1,4 +1,4 @@
-import { CustomToneMapping, PCFSoftShadowMap, ShaderChunk, type WebGLRenderer } from 'three';
+import { CustomToneMapping, ShaderChunk, type WebGLRenderer } from 'three';
 
 const UNMAPPED = 'vec3 CustomToneMapping( vec3 color ) { return color; }';
 
@@ -20,7 +20,6 @@ const ROLLED_OFF = `vec3 CustomToneMapping( vec3 color ) {
 	return mix( color, vec3( rolled ), paled );
 }`;
 
-/** Sets how a renderer draws light and shade: soft-edged shadows, and highlights that roll off. */
 export function tone(renderer: WebGLRenderer): void {
   if (!ShaderChunk.tonemapping_pars_fragment.includes(ROLLED_OFF)) {
     if (!ShaderChunk.tonemapping_pars_fragment.includes(UNMAPPED)) {
@@ -29,6 +28,4 @@ export function tone(renderer: WebGLRenderer): void {
     ShaderChunk.tonemapping_pars_fragment = ShaderChunk.tonemapping_pars_fragment.replace(UNMAPPED, ROLLED_OFF);
   }
   renderer.toneMapping = CustomToneMapping;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = PCFSoftShadowMap;
 }

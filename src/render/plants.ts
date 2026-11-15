@@ -64,10 +64,8 @@ function roughened<G extends BufferGeometry>(geometry: G, share: number, salt: n
   return geometry;
 }
 
-/** A crown is dark where it faces the ground, and lightest where it faces the sky. */
 const crown = (low: Surface, mid: Surface, high: Surface) => (up: number) => (up > 0.4 ? high : up > -0.25 ? mid : low);
 
-/** A rough ball of leaves `radius` wide, `squash` times as tall, around a point. */
 function blob(radius: number, squash: number, x: number, y: number, z: number, salt: number): BufferGeometry {
   return roughened(new IcosahedronGeometry(radius, 0), 0.16, salt)
     .rotateY(salt * 1.7)
@@ -81,7 +79,6 @@ function trunk(top: number, bottom: number, height: number, surface: Surface): B
 
 const TIER_SIDES = 8;
 
-/** One skirt of a pine: a cone whose rim rises and falls, so the branches end in points. */
 function tier(radius: number, height: number, base: number, turn: number): BufferGeometry {
   const cone = new ConeGeometry(radius, height, TIER_SIDES, 1, true);
   const at = cone.getAttribute('position');
@@ -94,18 +91,11 @@ function tier(radius: number, height: number, base: number, turn: number): Buffe
   return cone.rotateY(turn).translate(0, base + height / 2, 0);
 }
 
-/** A kind of tree at a growth of 1: its shape, and the height of its top in meters. */
-export interface TreeShape {
-  readonly geometry: BufferGeometry;
-  readonly top: number;
-}
-
 export const TREE_KINDS = ['pine', 'oak', 'blossom', 'birch'] as const;
 export type TreeKind = (typeof TREE_KINDS)[number];
 
 export const TREE_TOPS: Readonly<Record<TreeKind, number>> = { pine: 5.3, oak: 5.0, blossom: 4.3, birch: 4.9 };
 
-/** The shape of each kind of tree, standing on the origin. */
 export function treeShapes(): Readonly<Record<TreeKind, BufferGeometry>> {
   return {
     pine: mergeGeometries([
@@ -153,7 +143,6 @@ export function boulderShape(): BufferGeometry {
   return painted(roughened(new DodecahedronGeometry(1, 0), 0.2, 41), 'boulder');
 }
 
-/** A thin triangle that stands on the ground at (x, z), leans `lean` meters, and faces `turn`. */
 function blade(width: number, height: number, lean: number, turn: number, x = 0, z = 0): BufferGeometry {
   const half = width / 2;
   return new BufferGeometry()
@@ -165,7 +154,6 @@ function blade(width: number, height: number, lean: number, turn: number, x = 0,
 export const COVER_KINDS = ['tuft', 'flowers', 'bush', 'pebbles', 'reeds'] as const;
 export type CoverKind = (typeof COVER_KINDS)[number];
 
-/** The small things that grow and lie on open ground, each standing on the origin. */
 export function coverShapes(): Readonly<Record<CoverKind, BufferGeometry>> {
   const flower = (x: number, z: number, height: number, turn: number) => [
     painted(blade(0.035, height, 0, turn, x, z), 'stem'),

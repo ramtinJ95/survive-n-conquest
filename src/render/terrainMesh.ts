@@ -8,10 +8,8 @@ import { SEASON_COLORS, seasonalMaterial } from './seasonal';
 /** How far the cut edge of the map reaches below the water level, in meters. */
 const SLAB_DEPTH = 7;
 const FACET_SHIMMER = 0.12;
-/** Meadow patches are about this many meters across, and patches of lush grass about this many. */
 const MEADOW_SPAN = 26;
 const LUSH_SPAN = 11;
-/** The feet of the settlers wear the grass down to soil around the middle of the camp: all of it up to `full` meters, none past `none`. */
 const WEAR = { full: CAMP_RADIUS + 0.3, none: CAMP_RADIUS + 2.6, ragged: 0.9 };
 
 function ramp(from: number, to: number, value: number): number {
@@ -48,7 +46,6 @@ const GROUND_COLOR: Record<TileKind, (palette: Palette, ground: Ground, out: Col
     out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)).lerp(palette.worn, worn),
 };
 
-/** Reads what colors the ground of each tile, apart from its kind. */
 function groundOf(map: TileMap, camp: number): (tile: number) => Ground {
   const { size, seed, heights } = map;
   const campX = camp % size;

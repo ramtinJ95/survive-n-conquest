@@ -21,14 +21,10 @@ const GROWTH = { min: 0.85, max: 1.6 };
 export const TALLEST_TREE = Math.max(...Object.values(TREE_TOPS)) * GROWTH.max;
 /** Pines take over from broadleaf trees between these heights, in meters. */
 const PINE_LINE = { from: 2, to: 13 };
-/** Groves of one kind of broadleaf tree are about this many meters across. */
 const GROVE_SPAN = 24;
-/** The name of the mesh of each kind of tree. */
 export const TREE_MESHES: Readonly<Record<TreeKind, string>> = { pine: 'pines', oak: 'oaks', blossom: 'blossoms', birch: 'birches' };
-/** Meters that the top of a tree swings in the strongest gust, for each meter of its shape's height, squared. */
 const TREE_BEND = 0.008;
 
-/** How the small things on open ground are drawn: the name of the mesh, the bend in the wind, whether they cast shadows, and whether they last the winter. */
 const COVER: Readonly<Record<CoverKind, { readonly mesh: string; readonly bend: number; readonly shadow: boolean; readonly hardy: boolean }>> = {
   tuft: { mesh: 'grass tufts', bend: 0.5, shadow: false, hardy: true },
   flowers: { mesh: 'flowers', bend: 0.6, shadow: false, hardy: false },
@@ -37,17 +33,13 @@ const COVER: Readonly<Record<CoverKind, { readonly mesh: string; readonly bend: 
   reeds: { mesh: 'reeds', bend: 0.22, shadow: false, hardy: true },
 };
 
-/** How a kind of ground cover moves: with the wind, and into the ground for the winter if it is not hardy. */
 function coverMotion(kind: CoverKind, clock: IUniform<number>): Motion | undefined {
   const { bend, hardy } = COVER[kind];
-  const wind = bend > 0 ? sway(clock, bend) : undefined;
-  if (hardy) return wind;
-  if (!wind) throw new Error(`${kind} must sway to leave in winter`);
-  return goneInWinter(wind);
+  if (!hardy) return goneInWinter(sway(clock, bend));
+  return bend > 0 ? sway(clock, bend) : undefined;
 }
 /** No flower is yellow, orange, red, white, or violet: those are the colors of the settlers, the monsters, the stone, and the marks of the orders. */
 const PETALS = [0xf48fb1, 0xff8f86, 0x6f8fff, 0xf48fb1].map((hex) => new Color(hex));
-/** Nothing grows this close to the middle of the camp, in meters, where the settlers stand at night. */
 const CAMP_CLEARING = 4;
 
 interface Placement {
@@ -61,13 +53,11 @@ interface Placement {
   tint: Color;
 }
 
-/** What makes a thing on a tile leave when the tile changes. */
 type Stands = (map: TileMap, tile: number) => boolean;
 const TREE_STANDS: Stands = (map, tile) => map.trees[tile] === 1;
 const BOULDER_STANDS: Stands = (map, tile) => map.kinds[tile] === TileKind.Rock;
 const COVER_STANDS: Stands = (map, tile) => map.kinds[tile] === TileKind.Grass && map.stackSize[tile] === 0;
 
-/** Where a tile's tree, boulder, or ground cover stands, so that it can leave when the tile changes. */
 interface Standing {
   readonly mesh: InstancedMesh;
   readonly instance: number;
@@ -108,14 +98,12 @@ function instanced(drawn: Drawn, seasonMix: IUniform<Vector4>, standing: Map<num
 
 const roll = (map: TileMap, salt: number, x: number, y: number) => hashUnit(map.seed ^ salt, x, y);
 
-/** A shade from a roll: darker or lighter, and a little warmer or cooler. */
 function shade(light: number, warm: number): Color {
   const value = 0.84 + 0.3 * light;
   const shift = 0.07 * (warm - 0.5);
   return new Color(value * (1 + shift), value, value * (1 - shift));
 }
 
-/** Which broadleaf tree grows on a tile. Each kind keeps to its own groves, and a few stray into the others. */
 function broadleafOn(map: TileMap, x: number, y: number): TreeKind {
   const grove = fractalNoise(map.seed ^ 0x51ed, x / GROVE_SPAN, y / GROVE_SPAN, 2);
   const stray = roll(map, 11, x, y);
@@ -124,7 +112,6 @@ function broadleafOn(map: TileMap, x: number, y: number): TreeKind {
   return stray < 0.05 ? 'blossom' : stray < 0.1 ? 'birch' : 'oak';
 }
 
-/** Where the tree on a tile stands, at what size, and of which kind, or null when the tile holds no tree. */
 function treeOn(map: TileMap, tile: number): (Placement & { kind: TreeKind }) | null {
   if (map.trees[tile] === 0) return null;
   const { size } = map;
@@ -154,7 +141,6 @@ export function treeTop(map: TileMap, tile: number, out: Vector3): Vector3 | nul
   return tree && out.set(tree.x, tree.y + tree.height * TREE_TOPS[tree.kind], tree.z);
 }
 
-/** What grows or lies on an open tile, or null for bare grass. Shores grow reeds, forest edges bushes, and rock sheds pebbles. */
 function coverOn(map: TileMap, x: number, y: number): CoverKind | null {
   const { size, kinds } = map;
   let forest = false;

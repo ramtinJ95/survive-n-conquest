@@ -74,6 +74,9 @@ export function daily(radiansPerTick: number): number {
   return (Math.round((radiansPerTick * TICKS_PER_DAY) / turn) * turn) / TICKS_PER_DAY;
 }
 
+/** The way the wind blows over the land, as a unit vector on the ground. */
+export const WIND = { x: 0.8, z: 0.6 };
+
 /**
  * The wind in a plant. An instance bends along the wind by `bend` meters for
  * each meter of its shape's height, squared, so the root holds and the top
@@ -90,7 +93,7 @@ export function sway(clock: IUniform<number>, bend: number): Motion {
     mat3 stand = mat3(instanceMatrix);
     vec2 root = instanceMatrix[3].xz;
     float gust = sin(swayClock * ${daily(0.13).toFixed(8)} + root.x * 0.21 + root.y * 0.17) + 0.45 * sin(swayClock * ${daily(0.31).toFixed(8)} + root.x * 0.9 - root.y * 0.6);
-    vec3 push = vec3(0.8, 0.0, 0.6) * (gust * swayBend * transformed.y * transformed.y);
+    vec3 push = vec3(${WIND.x.toFixed(2)}, 0.0, ${WIND.z.toFixed(2)}) * (gust * swayBend * transformed.y * transformed.y);
     vec3 grown = max(vec3(dot(stand[0], stand[0]), dot(stand[1], stand[1]), dot(stand[2], stand[2])), 1e-6);
     transformed += (transpose(stand) * push) / grown;
   }

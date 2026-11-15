@@ -55,7 +55,8 @@ export function primitiveShapes(): Shapes {
     pot: colored(new CylinderGeometry(0.2, 0.15, 0.4, 6).translate(0, 0.2, 0), 0x3a3d42),
     fire: colored(new CylinderGeometry(0.45, 0.5, 0.12, 8).translate(0, 0.06, 0), 0x2b2724),
     barrel: colored(new CylinderGeometry(0.26, 0.26, 0.6, 8).translate(0, 0.3, 0), 0x7a5230),
-    crate: colored(new BoxGeometry(0.5, 0.26, 0.5).translate(0, 0.13, 0), 0x9a7448),    log: colored(new CylinderGeometry(0.15, 0.15, 0.9, 6).rotateZ(Math.PI / 2).translate(0, 0.15 * Math.cos(Math.PI / 6), 0), 0xd9b77e),
+    crate: colored(new BoxGeometry(0.5, 0.26, 0.5).translate(0, 0.13, 0), 0x9a7448),
+    log: colored(new CylinderGeometry(0.15, 0.15, 0.9, 6).rotateZ(Math.PI / 2).translate(0, 0.15 * Math.cos(Math.PI / 6), 0), 0xd9b77e),
     stone: colored(new BoxGeometry(0.36, 0.36, 0.36).translate(0, 0.18, 0), 0xc9d1db),
   };
 }

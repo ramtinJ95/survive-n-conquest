@@ -38,7 +38,6 @@ const placed = (mesh: InstancedMesh, instance: number) => new Vector3().setFromM
 const reach = (mesh: InstancedMesh, instance: number, local: Vector3) =>
   local.clone().applyMatrix4(matrixOf(mesh, instance)).sub(placed(mesh, instance)).normalize();
 const sizeOf = (mesh: InstancedMesh, instance: number) => new Vector3().setFromMatrixScale(matrixOf(mesh, instance)).y;
-/** The limbs of villager `id` are `2 * id` on its left and `2 * id + 1` on its right. */
 const limbs = (id: number) => [id * 2, id * 2 + 1];
 const DOWN = new Vector3(0, -1, 0);
 
@@ -141,10 +140,10 @@ describe('createSwarm', () => {
       show(frame(tick, [20, 20, 25, 25], { states }));
       return [0, 1, 2, 3].map((arm) => reach(named('villager arms'), arm, DOWN).y);
     });
-    const working = hands.map(([left]) => left!);
+    const working = hands.map(([right]) => right!);
     expect(Math.max(...working) - Math.min(...working)).toBeGreaterThan(1);
-    for (const [left, right, ...standing] of hands) {
-      expect(right).toBeCloseTo(left!, 5);
+    for (const [right, left, ...standing] of hands) {
+      expect(left).toBeCloseTo(right!, 5);
       for (const arm of standing) expect(arm).toBeCloseTo(-1, 5);
     }
   });
@@ -152,7 +151,6 @@ describe('createSwarm', () => {
   it('swings the arms of a walker against each other and against its legs, and stands a villager that stops on straight legs', () => {
     const { named, show } = swarm(1, 0);
     const ahead = new Vector3(0, 0, 1);
-    /** How far forward each hand and each foot is, left then right. */
     const forward = (name: string) => limbs(0).map((limb) => reach(named(name), limb, DOWN).dot(ahead));
     show(frame(0, [20, 20]));
     let swung = 0;
