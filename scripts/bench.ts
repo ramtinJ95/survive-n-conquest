@@ -1,9 +1,12 @@
 import { fullGC } from 'bun:jsc';
 import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
 import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
-import { type TileMap, tileAt, walkable } from '../src/sim/map';
+import { isNight } from '../src/sim/daylight';
+import { Good } from '../src/sim/goods';
+import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { generateMap } from '../src/sim/mapgen';
 import { BENCHMARK_POPULATION, type Sim, createSim, step } from '../src/sim/sim';
+import { NO_TASK } from '../src/sim/tasks';
 
 const SEED = 7;
 const SIZES = [256, 512];
@@ -27,6 +30,19 @@ function offLand(map: TileMap, x: Float32Array, y: Float32Array): number {
   return count;
 }
 
+/** The work done on the map so far, as the land shows it. */
+function workOf({ map }: Sim) {
+  let trees = 0;
+  let stone = 0;
+  let bare = 0;
+  for (let tile = 0; tile < map.size * map.size; tile++) {
+    trees += map.trees[tile]!;
+    if (map.stackGood[tile] === Good.Stone) stone += map.stackSize[tile]!;
+    if (map.kinds[tile] === TileKind.Bare) bare++;
+  }
+  return { trees, stone, bare };
+}
+
 function atCamp(sim: Sim): number {
   let count = 0;
   for (let id = 0; id < sim.villagers.x.length; id++) {
@@ -36,16 +52,24 @@ function atCamp(sim: Sim): number {
   return count;
 }
 
+// JavaScriptCore scans the stack conservatively. Made in its own frame, the source map leaves no stale pointer that would keep it alive into the measured ticks.
+function setUp(size: number): Sim {
+  return createSim(generateMap(SEED, size), BENCHMARK_POPULATION);
+}
+
 function measure(size: number): boolean {
   const setupStart = performance.now();
-  const map = generateMap(SEED, size);
-  const sim = createSim(map, BENCHMARK_POPULATION);
+  const sim = setUp(size);
   const setupMs = performance.now() - setupStart;
 
   for (let tick = 0; tick < WARMUP_TICKS; tick++) step(sim);
-  const villagerDraws = sum(sim.villagers.draws);
   const monsterDraws = sum(sim.monsters.draws);
+  const workBefore = workOf(sim);
   const samples = new Float64Array(MEASURED_TICKS);
+  const { task } = sim.villagers;
+  const heldTask = new Uint8Array(task.length);
+  let dayVillagerTicks = 0;
+  let dayTaskTicks = 0;
 
   // JavaScriptCore reports its heap size only at a collection, so this sees what the ticks keep, not short-lived garbage.
   atCamp(sim);
@@ -57,8 +81,18 @@ function measure(size: number): boolean {
     step(sim);
     samples[tick] = performance.now() - start;
     if (tickOfDay(sim.tick) === 0) midnights[nights++] = atCamp(sim);
+    const day = !isNight(sim.tick - 1);
+    for (let id = 0; id < task.length; id++) {
+      if (task[id] === NO_TASK) continue;
+      heldTask[id] = 1;
+      if (day) dayTaskTicks++;
+    }
+    if (day) dayVillagerTicks += task.length;
   }
   const heapGrowth = fullGC() - heapBefore;
+  const workAfter = workOf(sim);
+  const villagers = task.length;
+  const percent = (part: number, whole: number) => `${((part / whole) * 100).toFixed(1)}%`;
 
   samples.sort();
   const median = quantile(samples, 0.5);
@@ -73,12 +107,20 @@ function measure(size: number): boolean {
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${pass ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
-    `  work in the measured ticks: ${(sum(sim.villagers.draws) - villagerDraws) / 2} villager targets drawn by day, ` +
-      `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
+    `  work in the measured ticks: ${workBefore.trees - workAfter.trees} trees felled, ${workAfter.stone - workBefore.stone} stone quarried, ` +
+      `${workAfter.bare - workBefore.bare} rock tiles spent, ${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
   );
-  console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${sim.villagers.x.length}`);
+  const held = heldTask.reduce((count, value) => count + value, 0);
   console.log(
-    `  units off land at the end: ${offLand(map, sim.villagers.x, sim.villagers.y) + offLand(map, sim.monsters.x, sim.monsters.y)}; ` +
+    `  villagers that held a task in the measured ticks: ${held} of ${villagers} (${percent(held, villagers)}); ` +
+      `daytime villager-ticks spent holding a task: ${percent(dayTaskTicks, dayVillagerTicks)}`,
+  );
+  console.log(
+    `  gathering tasks open at the end: ${sim.gathering.openCount}, set aside as out of reach: ${sim.gathering.setAsideCount}`,
+  );
+  console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
+  console.log(
+    `  units off land at the end: ${offLand(sim.map, sim.villagers.x, sim.villagers.y) + offLand(sim.map, sim.monsters.x, sim.monsters.y)}; ` +
       `camp ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,
   );
   return pass;
