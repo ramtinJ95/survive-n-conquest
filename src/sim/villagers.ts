@@ -2,20 +2,28 @@ import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { type TileMap, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
-import { MAX_PATH } from './paths';
+import { MAX_PATH, planPath } from './paths';
+import type { Sim } from './sim';
+import { endTask, takeTask, taskKind } from './tasks';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
-/** By day a villager picks its next point within this many tiles of the camp center, on both axes. */
+/** By day an idle villager picks its next point within this many tiles of the camp center, on both axes. */
 export const WANDER_REACH = 8;
+/** An idle villager looks for work on one tick in this many, the tick of its group. Villager `id` is in group `id % THINK_GROUPS`. */
+export const THINK_GROUPS = 10;
 /** Each villager's spot at the camp lies this many tiles from the camp center. */
 const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
 const SPOT_CHECKS = 16;
 
-/** What a villager is doing. By night it walks the flow field to the camp center, then out to its spot, where it stays. */
-export const Activity = { Wandering: 0, GoingHome: 1, Settling: 2 } as const;
-export type Activity = (typeof Activity)[keyof typeof Activity];
+/**
+ * What a villager is doing. By day it is idle near the camp, or walks its route
+ * to a task and works it there. By night it walks the flow field to the camp
+ * center, then out to its spot, where it stays until dawn.
+ */
+export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingHome: 3, Settling: 4 } as const;
+export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
 
@@ -26,20 +34,26 @@ const SALT = 0x5f1a_7e11;
 export interface Villagers {
   readonly x: Float32Array;
   readonly y: Float32Array;
-  /** Where the villager walks by day. */
+  /** Where an idle villager walks by day. */
   readonly targetX: Float32Array;
   readonly targetY: Float32Array;
   /** Where the villager stands at the camp through the night. A straight walk from the camp center reaches it. */
   readonly spotX: Float32Array;
   readonly spotY: Float32Array;
-  /** One `Activity` for each villager. */
-  readonly activity: Uint8Array;
+  /** One `VillagerState` for each villager. It walks or works only while it holds a task. */
+  readonly state: Uint8Array;
   /** How many random numbers each villager has drawn. Each draw hashes the seed, the id, and this count, so no villager's draws depend on another's. */
   readonly draws: Uint32Array;
-  /** `MAX_PATH` tiles of route for each villager, row by row. The villager walks to the center of each in turn. */
+  /** The task each villager holds: `NO_TASK`, or one more than its kind's index in `TASK_KINDS`. */
+  readonly task: Uint8Array;
+  /** The tile of the task, such as the tree or the rock, or -1. */
+  readonly taskTile: Int32Array;
+  /** The tile the villager stands on to work its task, or -1. */
+  readonly workTile: Int32Array;
+  /** `MAX_PATH` tiles of route to the work tile for each villager, row by row. The villager walks to the center of each in turn. */
   readonly path: Int32Array;
   readonly pathLength: Uint16Array;
-  /** The route tile the villager walks to next. It has walked the whole route when this equals `pathLength`. */
+  /** The route tile the villager walks to next. It has walked the whole kept route when this equals `pathLength`. */
   readonly pathCursor: Uint16Array;
 }
 
@@ -89,8 +103,11 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     targetY: new Float32Array(count),
     spotX: new Float32Array(count),
     spotY: new Float32Array(count),
-    activity: new Uint8Array(count),
+    state: new Uint8Array(count),
     draws: new Uint32Array(count),
+    task: new Uint8Array(count),
+    taskTile: new Int32Array(count).fill(-1),
+    workTile: new Int32Array(count).fill(-1),
     path: new Int32Array(count * MAX_PATH),
     pathLength: new Uint16Array(count),
     pathCursor: new Uint16Array(count),
@@ -136,14 +153,30 @@ function stepToward(map: TileMap, villagers: Villagers, id: number, toX: number,
   return true;
 }
 
+/** One step along the camp's flow field. A villager with no walk to the camp stays where it stands. */
+function stepHome(sim: Sim, id: number): void {
+  const { map, flow, villagers } = sim;
+  const next = flow.next[tileAt(map, villagers.x[id]!, villagers.y[id]!)]!;
+  if (next === -1) return;
+  stepToward(map, villagers, id, (next % map.size) + 0.5, Math.floor(next / map.size) + 0.5);
+}
+
 /**
- * By day, walks the villager toward its target near the camp. One that arrives,
- * or whose step would enter water or rock, picks a new target.
+ * By day, walks an idle villager toward its target near the camp. One that
+ * arrives, or whose step would enter water or rock, picks a new target. One
+ * that stands farther from the camp than its targets lie walks back first.
  */
-function wander(map: TileMap, camp: FlowField, villagers: Villagers, id: number): void {
+function idle(sim: Sim, id: number): void {
+  const { map, flow, villagers } = sim;
+  const campX = (flow.goal % map.size) + 0.5;
+  const campY = Math.floor(flow.goal / map.size) + 0.5;
+  if (Math.abs(villagers.x[id]! - campX) > WANDER_REACH || Math.abs(villagers.y[id]! - campY) > WANDER_REACH) {
+    stepHome(sim, id);
+    return;
+  }
   const moved = stepToward(map, villagers, id, villagers.targetX[id]!, villagers.targetY[id]!);
   const arrived = villagers.x[id] === villagers.targetX[id] && villagers.y[id] === villagers.targetY[id];
-  if (!moved || arrived) chooseTarget(map, camp, villagers, id);
+  if (!moved || arrived) chooseTarget(map, flow, villagers, id);
 }
 
 /**
@@ -151,39 +184,132 @@ function wander(map: TileMap, camp: FlowField, villagers: Villagers, id: number)
  * then straight out to its spot, where it stays. A villager with no walk to
  * the camp stays where it stands.
  */
-function goToCamp(map: TileMap, camp: FlowField, villagers: Villagers, id: number): void {
-  const { x, y, activity } = villagers;
-  if (activity[id] === Activity.Settling) {
+function goToCamp(sim: Sim, id: number): void {
+  const { map, flow, villagers } = sim;
+  const { x, y, state } = villagers;
+  if (state[id] === VillagerState.Settling) {
     stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
     return;
   }
   const tile = tileAt(map, x[id]!, y[id]!);
-  const next = camp.next[tile]!;
-  if (next === -1) return;
-  const toX = (next % map.size) + 0.5;
-  const toY = Math.floor(next / map.size) + 0.5;
-  if (tile === camp.goal && x[id] === toX && y[id] === toY) {
-    activity[id] = Activity.Settling;
+  const centerX = (flow.goal % map.size) + 0.5;
+  const centerY = Math.floor(flow.goal / map.size) + 0.5;
+  if (tile === flow.goal && x[id] === centerX && y[id] === centerY) {
+    state[id] = VillagerState.Settling;
     stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
     return;
   }
-  stepToward(map, villagers, id, toX, toY);
+  stepHome(sim, id);
 }
 
-/** Moves every villager one tick: wandering near the camp by day, and to its spot at the camp by night. */
-export function moveVillagers(map: TileMap, camp: FlowField, villagers: Villagers, night: boolean): void {
-  const { activity } = villagers;
-  for (let id = 0; id < activity.length; id++) {
-    if (night) {
-      if (activity[id] === Activity.Wandering) activity[id] = Activity.GoingHome;
-      goToCamp(map, camp, villagers, id);
-    } else {
-      if (activity[id] !== Activity.Wandering) {
-        activity[id] = Activity.Wandering;
-        villagers.targetX[id] = villagers.x[id]!;
-        villagers.targetY[id] = villagers.y[id]!;
-      }
-      wander(map, camp, villagers, id);
+/** Whether the villager stands on the center of its work tile, at the end of its route. */
+function atWork(villagers: Villagers, id: number): boolean {
+  const length = villagers.pathLength[id]!;
+  return (
+    length > 0 &&
+    villagers.pathCursor[id] === length &&
+    villagers.path[id * MAX_PATH + length - 1] === villagers.workTile[id]
+  );
+}
+
+/**
+ * Walks the villager one tick along its route, through as many tile centers as
+ * the step reaches. A kept route that ends short of the work tile is planned
+ * again from where it ends. Returns false when no walk reaches the work tile.
+ */
+function walkRoute(sim: Sim, id: number): boolean {
+  const { map, villagers } = sim;
+  const { size } = map;
+  const { path, pathCursor, pathLength } = villagers;
+  const row = id * MAX_PATH;
+  let x = villagers.x[id]!;
+  let y = villagers.y[id]!;
+  let left = VILLAGER_STEP;
+  while (left > 0 && !atWork(villagers, id)) {
+    const cursor = pathCursor[id]!;
+    if (cursor === pathLength[id]) {
+      if (!planPath(sim, id, villagers.workTile[id]!)) return false;
+      continue;
     }
+    const tile = path[row + cursor]!;
+    const tx = (tile % size) + 0.5;
+    const ty = (tile - (tile % size)) / size + 0.5;
+    const dx = tx - x;
+    const dy = ty - y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance <= left) {
+      x = tx;
+      y = ty;
+      left -= distance;
+      pathCursor[id] = cursor + 1;
+    } else {
+      x += (dx / distance) * left;
+      y += (dy / distance) * left;
+      left = 0;
+    }
+    villagers.x[id] = Math.fround(x);
+    villagers.y[id] = Math.fround(y);
+  }
+  return true;
+}
+
+/** Ends the villager's task and leaves it idle where it stands. */
+function stopTask(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  endTask(sim, id);
+  villagers.state[id] = VillagerState.Idle;
+  villagers.targetX[id] = villagers.x[id]!;
+  villagers.targetY[id] = villagers.y[id]!;
+}
+
+/** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */
+function doTask(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  const kind = taskKind(sim, id);
+  if (!kind.holds(sim, id)) {
+    stopTask(sim, id);
+    return;
+  }
+  if (!atWork(villagers, id)) {
+    villagers.state[id] = VillagerState.Walking;
+    if (!walkRoute(sim, id)) {
+      stopTask(sim, id);
+      return;
+    }
+    if (!atWork(villagers, id)) return;
+  }
+  villagers.state[id] = VillagerState.Working;
+  if (kind.work(sim, id)) stopTask(sim, id);
+}
+
+/**
+ * Moves every villager one tick. By day an idle villager looks for work on the
+ * tick of its group and wanders near the camp until it finds some. At dusk a
+ * villager gives its task up at once and walks to its spot at the camp, and at
+ * dawn it is idle again.
+ */
+export function moveVillagers(sim: Sim, night: boolean): void {
+  const { villagers } = sim;
+  const { state } = villagers;
+  const group = sim.tick % THINK_GROUPS;
+  for (let id = 0; id < state.length; id++) {
+    if (night) {
+      if (state[id] !== VillagerState.GoingHome && state[id] !== VillagerState.Settling) {
+        endTask(sim, id);
+        state[id] = VillagerState.GoingHome;
+      }
+      goToCamp(sim, id);
+      continue;
+    }
+    if (state[id] === VillagerState.GoingHome || state[id] === VillagerState.Settling) {
+      state[id] = VillagerState.Idle;
+      villagers.targetX[id] = villagers.x[id]!;
+      villagers.targetY[id] = villagers.y[id]!;
+    }
+    if (state[id] === VillagerState.Idle && id % THINK_GROUPS === group && takeTask(sim, id)) {
+      state[id] = VillagerState.Walking;
+    }
+    if (state[id] === VillagerState.Idle) idle(sim, id);
+    else doTask(sim, id);
   }
 }

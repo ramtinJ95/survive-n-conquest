@@ -295,6 +295,34 @@ describe('placing a house', () => {
     expect(siteRefusal(map, orders, 19, 13)).toBeNull();
   });
 
+  it('counts spent rock as land: it opens a second way past a corridor, and a pocket of it must keep its walk', () => {
+    const map = plainMap(30);
+    paint(map, TileKind.Water, 21, 0, 23, 9);
+    paint(map, TileKind.Water, 21, 11, 23, 19);
+    paint(map, TileKind.Rock, 21, 20, 23, 20);
+    paint(map, TileKind.Water, 21, 21, 23, 29);
+    const orders = createOrders(map);
+    expect(siteRefusal(map, orders, 19, 10)).toBe('divides');
+    paint(map, TileKind.Bare, 21, 20, 23, 20);
+    expect(siteRefusal(map, orders, 19, 10)).toBeNull();
+    expect(applyOrder(map, orders, house(19, 10))).toMatchObject({ ok: true });
+    expect(siteRefusal(map, orders, 19, 20)).toBe('divides');
+
+    const pocket = plainMap(24);
+    paint(pocket, TileKind.Rock, 1, 1, 10, 1);
+    paint(pocket, TileKind.Rock, 1, 1, 1, 8);
+    paint(pocket, TileKind.Rock, 10, 1, 10, 8);
+    paint(pocket, TileKind.Rock, 2, 2, 9, 7);
+    paint(pocket, TileKind.Rock, 1, 8, 3, 8);
+    paint(pocket, TileKind.Rock, 7, 8, 10, 8);
+    paint(pocket, TileKind.Bare, 5, 5);
+    paint(pocket, TileKind.Bare, 5, 6, 5, 7);
+    const pocketOrders = createOrders(pocket);
+    expect(siteRefusal(pocket, pocketOrders, 5, 9)).toBe('divides');
+    paint(pocket, TileKind.Rock, 5, 5, 5, 7);
+    expect(siteRefusal(pocket, pocketOrders, 5, 9)).toBeNull();
+  });
+
   it('is refused where it would seal a pocket, counting the sites already placed', () => {
     const map = plainMap(24);
     paint(map, TileKind.Rock, 1, 1, 10, 1);

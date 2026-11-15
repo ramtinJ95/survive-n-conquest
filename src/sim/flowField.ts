@@ -18,8 +18,13 @@ export interface FlowField {
   /** The first `entranceCount` entries are the walkable tiles within `ENTRY_BAND` of the map edge that have a walk to the goal. */
   readonly entrances: Int32Array;
   entranceCount: number;
-  /** How many tiles have opened to walking since the field was built. A route can only have grown shorter since then. */
-  openings: number;
+  /**
+   * The first `gainedCount` are the tiles that gained a walk to the goal since
+   * whoever reads them last set `gainedCount` to 0. A rebuild lists every tile
+   * that has a walk.
+   */
+  readonly gained: Int32Array;
+  gainedCount: number;
   readonly heap: TileHeap;
 }
 
@@ -37,7 +42,7 @@ function entryBandTiles(size: number): number {
 /** Settles every queued tile and spreads shorter walks from it, as Dijkstra's search does. */
 function spread(map: TileMap, flow: FlowField): void {
   const { size } = map;
-  const { walk, next, heap, entrances } = flow;
+  const { walk, next, heap, entrances, gained } = flow;
   while (heap.size > 0) {
     const tile = popTile(heap);
     const x = tile % size;
@@ -49,7 +54,10 @@ function spread(map: TileMap, flow: FlowField): void {
       const through = here + stepLength(direction);
       const before = walk[neighbor]!;
       if (through >= before) continue;
-      if (before === Infinity && inEntryBand(size, neighbor)) entrances[flow.entranceCount++] = neighbor;
+      if (before === Infinity) {
+        gained[flow.gainedCount++] = neighbor;
+        if (inEntryBand(size, neighbor)) entrances[flow.entranceCount++] = neighbor;
+      }
       walk[neighbor] = through;
       next[neighbor] = tile;
       pushTile(heap, neighbor, through);
@@ -63,8 +71,10 @@ export function rebuildFlowField(map: TileMap, flow: FlowField): void {
   walk.fill(Infinity);
   next.fill(-1);
   flow.entranceCount = 0;
+  flow.gainedCount = 0;
   walk[goal] = 0;
   next[goal] = goal;
+  flow.gained[flow.gainedCount++] = goal;
   if (inEntryBand(map.size, goal)) entrances[flow.entranceCount++] = goal;
   pushTile(flow.heap, goal, 0);
   spread(map, flow);
@@ -79,10 +89,12 @@ export function createFlowField(map: TileMap, goal: number): FlowField {
     walk: new Float64Array(tiles),
     entrances: new Int32Array(entryBandTiles(map.size)),
     entranceCount: 0,
-    openings: 0,
+    gained: new Int32Array(tiles),
+    gainedCount: 0,
     heap: createTileHeap(tiles),
   };
   rebuildFlowField(map, flow);
+  flow.gainedCount = 0;
   return flow;
 }
 
@@ -103,6 +115,5 @@ export function openFlowTile(map: TileMap, flow: FlowField, tile: number): void 
       if (walk !== Infinity) pushTile(flow.heap, neighbor, walk);
     }
   }
-  flow.openings += 1;
   spread(map, flow);
 }

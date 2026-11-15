@@ -106,7 +106,8 @@ export function openGround(map: TileMap, tile: number): boolean {
   return kind === TileKind.Grass || kind === TileKind.Bare || (kind === TileKind.Forest && map.trees[tile] === 0);
 }
 
-function claim(orders: Orders, tile: number, value: Claim): void {
+/** Sets a tile's claim and lists the tile for `takeOrderChanges`. */
+export function setClaim(orders: Orders, tile: number, value: Claim): void {
   orders.claims[tile] = value;
   const { changes } = orders;
   if (changes.listed[tile]) return;
@@ -121,7 +122,8 @@ function setSite(orders: Orders, slot: number, x: number, y: number, state: Site
   orders.changes.slots[slot] = 1;
 }
 
-function clip(map: TileMap, { x0, y0, x1, y1 }: TileArea): TileArea {
+/** The area with its corners in order, clipped to the map. */
+export function clip(map: TileMap, { x0, y0, x1, y1 }: TileArea): TileArea {
   const last = map.size - 1;
   return {
     x0: Math.max(Math.min(x0, x1), 0),
@@ -301,14 +303,14 @@ export function applyOrder(map: TileMap, orders: Orders, command: OrderCommand):
     const slot = freeSlot(orders);
     setSite(orders, slot, x, y, SiteState.Site);
     for (let ty = y - 1; ty <= y + 1; ty++) {
-      for (let tx = x - 1; tx <= x + 1; tx++) claim(orders, ty * map.size + tx, Claim.Site);
+      for (let tx = x - 1; tx <= x + 1; tx++) setClaim(orders, ty * map.size + tx, Claim.Site);
     }
     return { ok: true, order: 'house', tiles: 9 };
   }
 
   const { order, area } = command;
   const rule = AREA_RULES[order];
-  const tiles = areaEffect(map, orders, order, area, (tile) => claim(orders, tile, rule.claim));
+  const tiles = areaEffect(map, orders, order, area, (tile) => setClaim(orders, tile, rule.claim));
   if (tiles === 0) return { ok: false, order, refusal: rule.refusal };
   if (order === 'cancel') {
     const bounds = clip(map, area);

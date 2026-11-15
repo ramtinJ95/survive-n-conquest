@@ -1,12 +1,14 @@
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
-import { isNight } from './daylight';
+import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
+import { type Gathering, createGathering } from './gathering';
 import { type PutDownSearch, createPutDownSearch } from './goods';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
 import { type PathSearch, createPathSearch } from './paths';
+import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, createVillagers, moveVillagers } from './villagers';
 
@@ -47,6 +49,7 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly monsters: Monsters;
   readonly orders: Orders;
+  readonly gathering: Gathering;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
   tick: number;
@@ -68,6 +71,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
+    gathering: createGathering(map),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     tick: 0,
@@ -86,15 +90,26 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       sim.speed = command.speed;
       sim.paused = false;
       return;
-    case 'markArea':
+    case 'markArea': {
+      const outcome = applyOrder(sim.map, sim.orders, command);
+      if (outcome.ok) refreshTasks(sim, command.area);
+      return outcome;
+    }
     case 'placeHouse':
       return applyOrder(sim.map, sim.orders, command);
   }
 }
 
-/** Runs the systems in their fixed order. Nothing in a tick allocates. */
+/**
+ * Runs the systems in their fixed order. Nothing in a tick allocates. Tasks set
+ * aside as out of reach open again at dawn, and after a tick in which land
+ * gained walks to the camp.
+ */
 export function step(sim: Sim): void {
-  moveVillagers(sim.map, sim.flow, sim.villagers, isNight(sim.tick));
+  const night = isNight(sim.tick);
+  if (isDawn(sim.tick)) reopenTasks(sim);
+  moveVillagers(sim, night);
+  if (sim.flow.gainedCount > 0) reachTasks(sim);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;
 }
