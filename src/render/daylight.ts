@@ -37,11 +37,11 @@ interface Body {
 
 const SUN: Body = {
   strength: 3.4,
-  full: 0.22,
+  full: 0.13,
   low: new Color(0xff8a3d),
   high: new Color(0xffe9c2),
   clear: 0.42,
-  lowest: 0.2,
+  lowest: 0.28,
   highest: 1,
 };
 /** The moon keeps one height all night, so the night is as bright at dusk as at midnight. */
@@ -75,7 +75,7 @@ const ambience = (height: number, backdrop: number, sky: number, ground: number,
 const NIGHT = ambience(-0.22, 0x0b1126, 0x4f73c9, 0x141c30, 0.6);
 const DUSK = ambience(-MOON.full, 0x35325f, 0x9a86d8, 0x3a3050, 1.0);
 const HORIZON = ambience(0, 0xe6a584, 0xffc49c, 0x7a5846, 1.3);
-const GOLDEN_HOUR = ambience(0.12, 0xd4d3da, 0xffe4c4, 0x8f7a5e, 1.35);
+const GOLDEN_HOUR = ambience(0.12, 0xd4d3da, 0xffe4c4, 0x8f7a5e, 1.2);
 /** The sun is this high when the day is in full light. */
 const DAY_HEIGHT = 0.35;
 /** By day the sky lights the shade in its own blue, far weaker than the sun, so shadows are cool and deep. */
