@@ -1757,7 +1757,8 @@ SCENARIOS.building = async (session) => {
     await page.mouse.up();
     const line = await said(page, /House site placed/);
     await session.settle(page);
-    const asideWithTool = (await site(page).count()) === 1 && (await site(page).isHidden());
+    const placedLabel = page.getByRole('status', { name: 'House site', includeHidden: true });
+    const asideWithTool = (await placedLabel.count()) === 1 && (await placedLabel.isHidden());
     await page.keyboard.press('Escape');
     await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
     await session.still(page);
