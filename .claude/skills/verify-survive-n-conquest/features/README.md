@@ -47,6 +47,7 @@ Each feature file starts with an H1 title and one paragraph describing the playe
 - [Terrain](./terrain.md) covers the seeded map of hills, water, forest, and rock, and choosing the seed.
 - [Camera](./camera.md) covers panning, turning, tilting, and zooming by keyboard and mouse, and the limits that keep the camera on the map and above the ground.
 - [Settlers](./settlers.md) covers the 8 settlers at the camp that a new game opens with, who wander near it by day, walk to it at dusk, and stay there until dawn.
+- [Orders to the land](./orders.md) covers the toolbar of Chop, Quarry, Stockpile, House, and Cancel, the marks they leave on the map, the preview and refusal of a house site, and the camera controls that stay free while a tool is active.
 - [Swarm](./swarm.md) covers the 1500 villagers and 3000 monsters that `swarm=on` puts on the map, which move with the clock and hold still while it is paused, and the bare map of `swarm=off`.
 - [Clock and speed controls](./clock.md) covers the time of day and the date advancing in a Web Worker, pausing, and the four speeds by pointer and keyboard. It also says how to reach a chosen time.
 - [Daylight](./daylight.md) covers the sun, the sky, and the shadows following the clock through a day, and the night that stays light enough to play in.

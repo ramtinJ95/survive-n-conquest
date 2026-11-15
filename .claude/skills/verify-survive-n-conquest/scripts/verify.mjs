@@ -1180,6 +1180,8 @@ const ORDER_SPOTS = {
   stockpile: [[0.447, 0.388], [0.5, 0.479]],
   houseFits: [0.472, 0.476],
   houseOnStockpile: [0.455, 0.442],
+  houseOnRock: [0.386, 0.502],
+  houseInForest: [0.67, 0.562],
   cancel: [[0.476, 0.435], [0.476, 0.496]],
 };
 /** The clips zoom in by one wheel step of this many pixels first, to 66 m, so that a house site reads in the GIF. */
@@ -1367,6 +1369,18 @@ SCENARIOS.orders = async (session) => {
     await session.still(view);
     await expectMarks(view, `every kind of mark reads ${label} at the farthest view`, await session.screenshot(view, `orders-marks-${label}-far`), atLeast('far'));
     await view.mouse.wheel(0, BACK_WHEEL);
+    await session.still(view);
+    for (const [where, place, reason] of [
+      ['rock', ORDER_SPOTS.houseOnRock, /cannot stand on rock/],
+      ['forest', ORDER_SPOTS.houseInForest, /Trees stand in the way/],
+    ]) {
+      const over = spot(WIDE, place);
+      await view.mouse.move(over.x, over.y, { steps: 3 });
+      await expectSaid(view, `a house over ${where} says why it does not fit, ${label}`, reason);
+      await session.still(view);
+      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: 60 });
+    }
+    await view.mouse.move(hover.x, hover.y, { steps: 3 });
   };
   await zooms('spring-noon');
   await session.reach(view, { day: 2, time: '00:00' });
