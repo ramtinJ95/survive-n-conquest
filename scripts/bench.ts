@@ -4,6 +4,7 @@ import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar'
 import { isNight } from '../src/sim/daylight';
 import { Good } from '../src/sim/goods';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
+import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { BENCHMARK_POPULATION, type Sim, createSim, step } from '../src/sim/sim';
 import { NO_TASK } from '../src/sim/tasks';
@@ -14,6 +15,10 @@ const WARMUP_TICKS = 2_000;
 const MEASURED_TICKS = 10_000;
 const LIMIT_MS = 4;
 const BUDGET_AT_8X_MS = 1000 / (TICKS_PER_SECOND * 8);
+/** A measurement counts only while at least this share of daytime villager-ticks holds a task and some task stays open. */
+const LEAST_BUSY = 0.9;
+/** Grass within this many tiles of the camp, on either axis, stays bare on the benchmark map. */
+const BARE_REACH = 16;
 
 const sum = (values: Uint32Array) => values.reduce((total, value) => total + value, 0);
 
@@ -53,8 +58,17 @@ function atCamp(sim: Sim): number {
 }
 
 // JavaScriptCore scans the stack conservatively. Made in its own frame, the source map leaves no stale pointer that would keep it alive into the measured ticks.
+// The generated forest has a tree on one tile in six, and 1500 villagers fell every one they can reach on the 256 map
+// before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
+// every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
 function setUp(size: number): Sim {
-  return createSim(generateMap(SEED, size), BENCHMARK_POPULATION);
+  const map = generateMap(SEED, size);
+  const camp = campTile(map);
+  for (let tile = 0; tile < size * size; tile++) {
+    const far = Math.max(Math.abs((tile % size) - (camp % size)), Math.abs(Math.floor(tile / size) - Math.floor(camp / size))) > BARE_REACH;
+    if (map.kinds[tile] === TileKind.Forest || (far && map.kinds[tile] === TileKind.Grass)) map.trees[tile] = 1;
+  }
+  return createSim(map, BENCHMARK_POPULATION);
 }
 
 function measure(size: number): boolean {
@@ -70,6 +84,7 @@ function measure(size: number): boolean {
   const heldTask = new Uint8Array(task.length);
   let dayVillagerTicks = 0;
   let dayTaskTicks = 0;
+  let fewestOpen = Infinity;
 
   // JavaScriptCore reports its heap size only at a collection, so this sees what the ticks keep, not short-lived garbage.
   atCamp(sim);
@@ -88,6 +103,7 @@ function measure(size: number): boolean {
       if (day) dayTaskTicks++;
     }
     if (day) dayVillagerTicks += task.length;
+    if (day) fewestOpen = Math.min(fewestOpen, sim.gathering.openCount);
   }
   const heapGrowth = fullGC() - heapBefore;
   const workAfter = workOf(sim);
@@ -97,7 +113,9 @@ function measure(size: number): boolean {
   samples.sort();
   const median = quantile(samples, 0.5);
   const p99 = quantile(samples, 0.99);
-  const pass = p99 < LIMIT_MS;
+  const busy = dayTaskTicks / dayVillagerTicks;
+  const workHeld = busy >= LEAST_BUSY && fewestOpen > 0;
+  const pass = p99 < LIMIT_MS && workHeld;
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
@@ -105,7 +123,7 @@ function measure(size: number): boolean {
   console.log(`\nmap ${size}x${size}`);
   console.log(`  median ${ms(median)}, p99 ${ms(p99)}, max ${ms(samples[samples.length - 1]!)}`);
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
-  console.log(`  p99 against the ${LIMIT_MS} ms limit: ${pass ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
+  console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
     `  work in the measured ticks: ${workBefore.trees - workAfter.trees} trees felled, ${workAfter.stone - workBefore.stone} stone quarried, ` +
       `${workAfter.bare - workBefore.bare} rock tiles spent, ${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
@@ -116,7 +134,10 @@ function measure(size: number): boolean {
       `daytime villager-ticks spent holding a task: ${percent(dayTaskTicks, dayVillagerTicks)}`,
   );
   console.log(
-    `  gathering tasks open at the end: ${sim.gathering.openCount}, set aside as out of reach: ${sim.gathering.setAsideCount}`,
+    `  gathering tasks open at the end: ${sim.gathering.openCount}, fewest open by day: ${fewestOpen}, set aside as out of reach: ${sim.gathering.setAsideCount}`,
+  );
+  console.log(
+    `  work held through the measured ticks: ${workHeld ? 'PASS' : 'FAIL'}, needs ${percent(LEAST_BUSY, 1)} of daytime villager-ticks on a task and a task open at every daytime tick`,
   );
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
   console.log(
@@ -133,7 +154,7 @@ console.log(
     `${platform()} ${arch()}, bun ${Bun.version}, load average ${loadavg().map((load) => load.toFixed(2)).join(' ')}`,
 );
 console.log(
-  `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED}, ` +
+  `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, every tree and rock tile marked, ` +
     `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = SIZES.map(measure);
