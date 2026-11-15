@@ -9,6 +9,7 @@ import { createGoods } from './goods';
 import { PALETTES } from './palette';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
+import { createSites } from './sites';
 import { SEASON_COLORS, seasonMixAt, seasonalMaterial } from './seasonal';
 import { createTerrain } from './terrainMesh';
 
@@ -83,6 +84,9 @@ export function createWorld(map: TileMap) {
   const goods = createGoods(map);
   scene.add(goods.group);
 
+  const sites = createSites(map);
+  scene.add(sites.group);
+
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
@@ -115,6 +119,7 @@ export function createWorld(map: TileMap) {
     if (changes.claims.length === 0 && changes.sites.length === 0) return;
     applyOrderChanges(orders, changes);
     marks.showOrders(orders);
+    if (changes.sites.length > 0) sites.show(orders);
   };
 
   return { scene, rig, show, changeTiles, orders, marks, changeOrders };
