@@ -122,6 +122,7 @@ function workTileFor(sim: Sim, tile: number, px: number, py: number): number {
 
 function take(sim: Sim, id: number): boolean {
   const { villagers, gathering } = sim;
+  if (villagers.carried[id] !== Good.None) return false;
   const px = villagers.x[id]!;
   const py = villagers.y[id]!;
   for (;;) {

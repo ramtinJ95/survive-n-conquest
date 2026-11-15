@@ -48,7 +48,7 @@ export interface Villagers {
   readonly draws: Uint32Array;
   /** The task each villager holds: `NO_TASK`, or one more than its kind's index in `TASK_KINDS`. */
   readonly task: Uint8Array;
-  /** The tile of the task, such as the tree or the rock, or -1. */
+  /** The tile of the task, such as the tree, the rock, or the unit to carry, or -1. */
   readonly taskTile: Int32Array;
   /** The tile the villager stands on to work its task, or -1. */
   readonly workTile: Int32Array;

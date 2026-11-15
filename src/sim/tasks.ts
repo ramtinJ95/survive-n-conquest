@@ -1,3 +1,4 @@
+import { CARRYING } from './carrying';
 import { GATHERING } from './gathering';
 import { sideOf } from './map';
 import { type TileArea, clip } from './orders';
@@ -33,10 +34,9 @@ export interface TaskKind {
 
 /**
  * Every kind of task, most urgent first. An idle villager takes a task of the
- * first kind that has one open. Stage 2 adds building work at a site (2.5),
- * carrying to a site (2.5), and carrying to a stockpile (2.4) ahead of gathering.
+ * first kind that has one open.
  */
-export const TASK_KINDS: readonly TaskKind[] = [GATHERING];
+export const TASK_KINDS: readonly TaskKind[] = [CARRYING, GATHERING];
 
 /** Gives the villager a task of the most urgent kind that has one open. Returns false when no kind has one. */
 export function takeTask(sim: Sim, id: number): boolean {
