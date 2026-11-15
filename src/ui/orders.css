@@ -1,0 +1,103 @@
+.orders {
+  position: fixed;
+  right: var(--edge-gap);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  user-select: none;
+}
+
+.order-tool {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  width: 132px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: 14px/1.2 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+
+.order-tool svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--tool-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.order-tool kbd {
+  min-width: 14px;
+  padding: 1px 4px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  color: var(--ink-soft);
+  font: 11px/1.3 var(--ui-font);
+  text-align: center;
+}
+
+.order-tool:hover {
+  background: var(--hover);
+}
+
+.order-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.order-tool[aria-pressed='true'] {
+  border-color: var(--tool-color);
+  background: var(--tool-color);
+  color: var(--ink-dark);
+}
+
+.order-tool[aria-pressed='true'] svg {
+  stroke: var(--ink-dark);
+}
+
+.order-tool[aria-pressed='true'] kbd {
+  border-color: rgb(0 0 0 / 0.25);
+  color: var(--ink-dark);
+}
+
+.order-status {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(560px, calc(100% - 2 * var(--edge-gap)));
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 13px/1.35 var(--ui-font);
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.order-status[data-refused] {
+  color: #ffc2b8;
+  box-shadow: var(--panel-shadow), inset 0 0 0 1px rgb(255 77 141 / 0.6);
+}
+
+#world[data-order-tool] {
+  cursor: crosshair;
+}

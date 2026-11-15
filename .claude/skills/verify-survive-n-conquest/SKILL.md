@@ -66,11 +66,13 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `hold(page, key, ms)` holds a key for `ms` of wall time, and `drag(page, from, to, button)` drags the mouse. The game caps each frame's step at 0.1 s, so on a slow machine a held key moves the camera less far than on a fast one.
 - `screenshot(page, label)` waits for two drawn frames, then saves `<label>.png`.
 - `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`, and `width` caps the GIF's width. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
+- `finishClips(context, page, cuts)` closes the page once and makes one GIF for each cut of its video, `{ label, from, to, width }`, with the same steps and check as `finishClip`. `to` ends the cut, in the seconds of `since()`.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
 - `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot. The colors it looks for are those of a spring noon.
 - `expectShares(name, kinds, png, { atLeast, atMost }, rows)` checks the share of any set of pixel kinds, such as `SEASON_MARKS`, against lower and upper limits.
 - `unitPixels(png)` counts the full-resolution pixels in villager yellow and in monster red, as they look in daylight.
+- `orderPixels(png, width, skip)` counts the full-resolution pixels in the pure color of each order mark, `chop`, `quarry`, `stockpile`, `site`, `fits`, and `blocks`, in a screenshot `width` pixels wide, leaving out the box `skip`.
 - `check(name, ok, detail)` records any other check.
 
 Drive the game through the page, as a player does: viewport changes, pointer, and keyboard. Do not call into the game's modules or add test-only hooks to prove a behavior.

@@ -4,12 +4,16 @@ import { isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
 import type { TileKind, TileMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
+import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
 import { type Villagers, createVillagers, moveVillagers } from './villagers';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 export type Speed = (typeof SPEEDS)[number];
 
-export type Command = { readonly kind: 'togglePause' } | { readonly kind: 'setSpeed'; readonly speed: Speed };
+export type Command =
+  | { readonly kind: 'togglePause' }
+  | { readonly kind: 'setSpeed'; readonly speed: Speed }
+  | OrderCommand;
 
 export interface Population {
   readonly villagers: number;
@@ -46,6 +50,7 @@ export interface Sim {
   readonly tileChanges: TileChanges;
   readonly villagers: Villagers;
   readonly monsters: Monsters;
+  readonly orders: Orders;
   tick: number;
   speed: Speed;
   paused: boolean;
@@ -63,13 +68,15 @@ export function createSim(map: TileMap, population: Population): Sim {
     tileChanges: { listed: new Uint8Array(tiles), tiles: new Int32Array(tiles), count: 0 },
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
+    orders: createOrders(map, camp),
     tick: 0,
     speed: 1,
     paused: false,
   };
 }
 
-export function applyCommand(sim: Sim, command: Command): void {
+/** Returns what became of an order, and nothing for a clock command. */
+export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefined {
   switch (command.kind) {
     case 'togglePause':
       sim.paused = !sim.paused;
@@ -78,6 +85,9 @@ export function applyCommand(sim: Sim, command: Command): void {
       sim.speed = command.speed;
       sim.paused = false;
       return;
+    case 'markArea':
+    case 'placeHouse':
+      return applyOrder(sim.map, sim.orders, command);
   }
 }
 

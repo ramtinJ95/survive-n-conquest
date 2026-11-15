@@ -1,4 +1,5 @@
 import type { TileMap } from './sim/map';
+import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, takeTileChanges, ticksPerSecond } from './sim/sim';
 
 export type ToSim = { readonly kind: 'start'; readonly map: TileMap; readonly population: Population } | Command;
@@ -15,6 +16,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly monsters: Float32Array;
   /** The tiles changed since the last frame, as pairs of a tile index and its kind now. */
   readonly tiles: Int32Array;
+  /** The claims and sites changed since the last frame. */
+  readonly orders: OrderChanges;
+  /** What became of the order command applied just before this frame. */
+  readonly outcome?: OrderOutcome;
 }
 
 const PUMP_MS = 1000 / 60;
@@ -30,13 +35,14 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
   return pairs;
 }
 
-function publish(sim: Sim) {
+function publish(sim: Sim, outcome?: OrderOutcome) {
   const villagers = positions(sim.villagers);
   const monsters = positions(sim.monsters);
   const tiles = takeTileChanges(sim);
+  const orders = takeOrderChanges(sim.orders);
   self.postMessage(
-    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, tiles } satisfies SimFrame,
-    { transfer: [villagers.buffer, monsters.buffer, tiles.buffer] },
+    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, tiles, orders, outcome } satisfies SimFrame,
+    { transfer: [villagers.buffer, monsters.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
   );
 }
 
@@ -58,8 +64,7 @@ function host(map: TileMap, population: Population): (command: Command) => void 
   publish(sim);
   return (command) => {
     catchUp();
-    applyCommand(sim, command);
-    publish(sim);
+    publish(sim, applyCommand(sim, command));
   };
 }
 

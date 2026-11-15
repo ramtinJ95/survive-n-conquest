@@ -17,7 +17,11 @@ const { scene, show } = createWorld(generateMap(7, 48));
 
 /** What three.js hands a material to compile. */
 function compiled(mesh: Mesh) {
-  const shader = { uniforms: {} as Record<string, { value: Vector4 }>, vertexShader: ShaderLib.lambert.vertexShader };
+  const shader = {
+    uniforms: {} as Record<string, { value: Vector4 }>,
+    vertexShader: ShaderLib.lambert.vertexShader,
+    fragmentShader: ShaderLib.lambert.fragmentShader,
+  };
   (mesh.material as { onBeforeCompile(shader: unknown, renderer: unknown): void }).onBeforeCompile(shader, null);
   return shader;
 }

@@ -7,6 +7,7 @@ import { parseSeed } from './sim/seed';
 import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
+import { mountOrders } from './ui/orders';
 import './ui/style.css';
 import type { SimFrame, ToSim } from './worker';
 
@@ -19,11 +20,10 @@ document.body.append(renderer.domElement);
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
 const population = populationFor(params.get('swarm'));
-const { scene, rig, show, changeTiles } = createWorld(map);
+const { scene, rig, show, changeTiles, orders, marks, changeOrders } = createWorld(map);
 const swarm = createSwarm(map, population);
 scene.add(...swarm.meshes);
 const camera = rig.camera;
-bindCameraInput(renderer.domElement, rig);
 showControlsHint(map.seed);
 
 function fitToWindow() {
@@ -41,15 +41,20 @@ let tick = 0;
 renderer.setAnimationLoop((now) => {
   rig.update(Math.min((now - lastFrame) / 1000, LONGEST_FRAME));
   lastFrame = now;
+  toolbar.follow();
   show(tick);
   renderer.render(scene, camera);
 });
 
 const sim = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 mountClock(document.body, sim);
+const toolbar = mountOrders(document.body, sim, { map, orders, canvas: renderer.domElement, camera, marks });
+bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   tick = data.tick;
   changeTiles(data.tiles);
+  changeOrders(data.orders);
+  toolbar.heard(data);
   swarm.show(data);
 });
 sim.postMessage({ kind: 'start', map, population } satisfies ToSim);

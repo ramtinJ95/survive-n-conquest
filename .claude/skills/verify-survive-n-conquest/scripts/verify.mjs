@@ -345,6 +345,37 @@ function surfaceShares(png, rows) {
   return found;
 }
 
+/** The pure colors that the outlines of the orders and the chop pins draw, which no light or fog changes. */
+const ORDER_RGB = {
+  chop: [0xff, 0x7a, 0x1a],
+  quarry: [0xc7, 0x7d, 0xff],
+  stockpile: [0x2f, 0xd6, 0xc4],
+  site: [0x5a, 0xa8, 0xff],
+  fits: [0x7d, 0xff, 0x8a],
+  blocks: [0xff, 0x4d, 0x8d],
+};
+const ORDER_TOLERANCE = 24;
+
+/**
+ * Counts the pixels of each order color in a screenshot `width` pixels wide, leaving out `skip`, a box in page pixels
+ * such as the toolbar, whose buttons wear the same colors.
+ */
+function orderPixels(png, width, skip) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const counts = Object.fromEntries(Object.keys(ORDER_RGB).map((kind) => [kind, 0]));
+  const skipped = (pixel) => {
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    return skip && x >= skip.x && x < skip.x + skip.width && y >= skip.y && y < skip.y + skip.height;
+  };
+  for (let i = 0; i < pixels.length; i += 3) {
+    if (skipped(i / 3)) continue;
+    const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+    for (const [kind, color] of Object.entries(ORDER_RGB)) if (distance(rgb, color) < ORDER_TOLERANCE) counts[kind] += 1;
+  }
+  return counts;
+}
+
 function unitPixels(png) {
   const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const counts = Object.fromEntries(Object.keys(UNIT_COLORS).map((group) => [group, 0]));
@@ -375,13 +406,13 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
 }
 
 /** Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until it is under the limit. */
-function toGif(video, gif, { from = 0, width = GIF_STEPS[0].width } = {}) {
+function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width } = {}) {
+  const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
     const palette = `fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
-    ffmpeg(['-ss', from.toFixed(2), '-i', video, '-vf', palette, gif]);
+    ffmpeg(['-ss', from.toFixed(2), ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }
-  rmSync(video);
 }
 
 const clockMinutes = ({ day, time }) => {
@@ -520,16 +551,25 @@ function createSession(browser, instance, dir, evidence) {
     },
 
     async finishClip(context, page, label, cut) {
+      await this.finishClips(context, page, [{ label, ...cut }]);
+    },
+
+    async finishClips(context, page, cuts) {
       await page.close();
       await context.close();
-      const gif = capture(`${label}.gif`);
-      toGif(await page.video().path(), gif, cut);
-      const bytes = statSync(gif).size;
-      check(`${label}.gif stays under 8 MB`, bytes <= GIF_BYTE_LIMIT, `${(bytes / 1e6).toFixed(1)} MB`);
+      const video = await page.video().path();
+      for (const { label, ...cut } of cuts) {
+        const gif = capture(`${label}.gif`);
+        toGif(video, gif, cut);
+        const bytes = statSync(gif).size;
+        check(`${label}.gif stays under 8 MB`, bytes <= GIF_BYTE_LIMIT, `${(bytes / 1e6).toFixed(1)} MB`);
+      }
+      rmSync(video);
     },
 
     difference,
     unitPixels,
+    orderPixels,
 
     expectShares(name, kinds, png, { atLeast = {}, atMost = {} }, rows) {
       const found = shares(kinds, png, rows);
@@ -1130,6 +1170,299 @@ SCENARIOS.settlers = async (session) => {
     session.check(label, at[name].spread > 2 * gathered.spread, `${describe(name)} against ${describe('night')}; needs more than twice the night spread`);
   }
   const seen = [...clip.errors, ...settled.errors, ...bare.errors];
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/** Where each order goes on the opening view of seed 7, as shares of the viewport's width and height. */
+const ORDER_SPOTS = {
+  chop: [[0.577, 0.488], [0.63, 0.571]],
+  quarry: [[0.371, 0.429], [0.398, 0.531]],
+  stockpile: [[0.447, 0.388], [0.5, 0.479]],
+  houseFits: [0.472, 0.476],
+  houseOnStockpile: [0.455, 0.442],
+  houseOnRock: [0.386, 0.502],
+  houseInForest: [0.67, 0.562],
+  cancel: [[0.476, 0.435], [0.476, 0.496]],
+};
+/** The clips zoom in by one wheel step of this many pixels first, to 66 m, so that a house site reads in the GIF. */
+const CLIP_WHEEL = -400;
+const CLIP_SPOTS = {
+  chop: [[0.639, 0.478], [0.759, 0.642]],
+  quarry: [[0.258, 0.368], [0.294, 0.563]],
+  stockpile: [[0.411, 0.314], [0.5, 0.463]],
+  houseFits: [0.45, 0.456],
+  houseOnStockpile: [0.421, 0.397],
+  cancel: [[0.459, 0.387], [0.455, 0.493]],
+};
+const TOOL_NAMES = ['Chop', 'Quarry', 'Stockpile', 'House', 'Cancel'];
+/** Wheel pixels from the opening view of 120 m to a near view of 36 m, then out to the farthest view, then back to 120 m. */
+const NEAR_WHEEL = -800;
+const FAR_WHEEL = 2000;
+const BACK_WHEEL = Math.log(120 / 243.2) / 0.0015;
+/** The fewest outline and pin pixels that each kind of mark must draw in a 1280x720 view, at each zoom. */
+const MARKS_AT_LEAST = { mid: 20, near: 50, far: 10 };
+
+SCENARIOS.orders = async (session) => {
+  const seen = [];
+  const spot = (viewport, [fx, fy]) => ({ x: Math.round(fx * viewport.width), y: Math.round(fy * viewport.height) });
+  const toolbar = (page) => page.getByRole('toolbar', { name: 'Orders' });
+  const tool = (page, name) => toolbar(page).getByRole('button', { name, exact: true });
+  const status = (page) => page.getByRole('status', { name: 'Order' });
+  const pressedTools = async (page) => {
+    const states = await Promise.all(TOOL_NAMES.map(async (name) => [name, await tool(page, name).getAttribute('aria-pressed')]));
+    return states.filter(([, state]) => state === 'true').map(([name]) => name).join(', ');
+  };
+  const expectTool = async (page, name, wanted) => {
+    const pressed = await pressedTools(page);
+    session.check(name, pressed === wanted, `pressed: ${pressed || 'no tool'}`);
+  };
+  const expectSaid = async (page, name, pattern) => {
+    const said = status(page).filter({ hasText: pattern });
+    const ok = await said.waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    session.check(name, ok, `the status line reads "${(await status(page).textContent()) ?? ''}"`);
+  };
+  const marksIn = async (page, png) => session.orderPixels(png, page.viewportSize().width, await toolbar(page).boundingBox());
+  const expectMarks = async (page, name, png, least) => {
+    const counted = await marksIn(page, png);
+    counted.preview = counted.fits + counted.blocks;
+    const short = Object.entries(least).filter(([kind, fewest]) => counted[kind] < fewest);
+    session.check(name, short.length === 0, Object.entries(least).map(([kind, fewest]) => `${kind} ${counted[kind]} of at least ${fewest}`).join(', '));
+    return counted;
+  };
+  const dragOn = async (page, viewport, [from, to]) => {
+    await session.drag(page, spot(viewport, from), spot(viewport, to));
+  };
+  const coverBox = (page, box, margin = COVER_MARGIN) => {
+    const { width, height } = page.viewportSize();
+    return {
+      region: 'order',
+      left: Math.max(0, Math.floor(((box.x - margin) * PROBE.width) / width)),
+      top: Math.max(0, Math.floor(((box.y - margin) * PROBE.height) / height)),
+      right: Math.min(PROBE.width, Math.ceil(((box.x + box.width + margin) * PROBE.width) / width)),
+      bottom: Math.min(PROBE.height, Math.ceil(((box.y + box.height + margin) * PROBE.height) / height)),
+    };
+  };
+  const boxOf = (viewport, [from, to]) => {
+    const a = spot(viewport, from);
+    const b = spot(viewport, to);
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
+  };
+  const statusCover = async (page) => coverBox(page, (await status(page).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 });
+
+  const clip = await session.open(CLIP, { record: true });
+  const { page } = clip;
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, CLIP_WHEEL);
+  await session.still(page);
+  const start = await session.screenshot(page, 'orders-01-start');
+  const cuts = [];
+
+  let from = clip.since();
+  await page.keyboard.press('KeyC');
+  await expectTool(page, 'the C key picks Chop', 'Chop');
+  await expectSaid(page, 'Chop says what a drag does', /Drag over trees/);
+  const chop = boxOf(CLIP, CLIP_SPOTS.chop);
+  await page.mouse.move(spot(CLIP, CLIP_SPOTS.chop[0]).x, spot(CLIP, CLIP_SPOTS.chop[0]).y);
+  await page.mouse.down();
+  await page.mouse.move(spot(CLIP, CLIP_SPOTS.chop[1]).x, spot(CLIP, CLIP_SPOTS.chop[1]).y, { steps: 6 });
+  await expectSaid(page, 'a Chop drag counts the trees before the release', /Release to mark \d+ trees?/);
+  await session.screenshot(page, 'orders-02-chop-dragging');
+  await page.mouse.up();
+  await expectSaid(page, 'a Chop drag marks trees', /\d+ trees? marked for felling/);
+  await session.still(page);
+  const chopped = await session.screenshot(page, 'orders-03-chopped');
+  await expectMarks(page, 'marked trees show pins and outlines', chopped, { chop: 50 });
+  const untouched = unionOf(unionOf(coverBox(page, chop, 60), await statusCover(page)), coverBox(page, (await toolbar(page).boundingBox())));
+  session.expectSameOutside('a main-button drag with a tool marks instead of moving the camera', start, chopped, untouched, 0.5);
+  cuts.push({ label: 'orders-chop', from, to: clip.since() });
+
+  from = clip.since();
+  await page.keyboard.press('KeyM');
+  await expectTool(page, 'the M key picks Quarry', 'Quarry');
+  await dragOn(page, CLIP, CLIP_SPOTS.quarry);
+  await expectSaid(page, 'a Quarry drag marks rock', /\d+ rock tiles? marked for quarrying/);
+  await session.still(page);
+  await expectMarks(page, 'marked rock shows its outline', await session.screenshot(page, 'orders-04-quarried'), { quarry: 50 });
+  cuts.push({ label: 'orders-quarry', from, to: clip.since() });
+
+  from = clip.since();
+  await page.keyboard.press('KeyP');
+  await expectTool(page, 'the P key picks Stockpile', 'Stockpile');
+  await dragOn(page, CLIP, CLIP_SPOTS.stockpile);
+  await expectSaid(page, 'a Stockpile drag makes a zone', /\d+ tiles? joins? the stockpile zone/);
+  await session.still(page);
+  const stocked = await session.screenshot(page, 'orders-05-stockpile');
+  await expectMarks(page, 'the stockpile zone shows its outline', stocked, { stockpile: 50 });
+  cuts.push({ label: 'orders-stockpile', from, to: clip.since() });
+
+  from = clip.since();
+  await page.keyboard.press('KeyH');
+  await expectTool(page, 'the H key picks House', 'House');
+  const fits = spot(CLIP, CLIP_SPOTS.houseFits);
+  await page.mouse.move(fits.x, fits.y, { steps: 3 });
+  await expectSaid(page, 'a house that fits says so before it is placed', /Click to place the house site here/);
+  await session.still(page);
+  await expectMarks(page, 'a house that fits previews green', await session.screenshot(page, 'orders-06-house-fits'), { fits: 30 });
+  await page.mouse.click(fits.x, fits.y);
+  await expectSaid(page, 'a click places the house site', /House site placed/);
+  await session.still(page);
+  await expectMarks(page, 'the house site shows its outline', await session.screenshot(page, 'orders-07-house-placed'), { site: 30 });
+  const refused = spot(CLIP, CLIP_SPOTS.houseOnStockpile);
+  await page.mouse.move(refused.x, refused.y, { steps: 3 });
+  await expectSaid(page, 'a house over the stockpile says why it does not fit before it is placed', /Cannot build here\. A stockpile stands in the way/);
+  await session.still(page);
+  const refusedBefore = await session.screenshot(page, 'orders-08-house-refused-preview');
+  await expectMarks(page, 'a house that does not fit previews red', refusedBefore, { blocks: 10 });
+  const coverBefore = await statusCover(page);
+  await page.mouse.click(refused.x, refused.y);
+  await expectSaid(page, 'a refused house says why after the click', /Cannot build here\. A stockpile stands in the way/);
+  await session.still(page);
+  const refusedAfter = await session.screenshot(page, 'orders-09-house-refused');
+  session.expectSameOutside('a refused house changes nothing on the map', refusedBefore, refusedAfter, unionOf(coverBefore, await statusCover(page)), 0.05);
+  cuts.push({ label: 'orders-house', from, to: clip.since() });
+
+  from = clip.since();
+  await page.keyboard.press('Delete');
+  await expectTool(page, 'the Delete key picks Cancel', 'Cancel');
+  await dragOn(page, CLIP, CLIP_SPOTS.cancel);
+  await expectSaid(page, 'a Cancel drag removes orders', /Orders removed from \d+ tiles?/);
+  const removed = Number(/from (\d+) tile/.exec((await status(page).textContent()) ?? '')?.[1] ?? 0);
+  session.check('Cancel removes stockpile tiles as well as the nine of the site', removed > 9, `${removed} tiles removed`);
+  await page.mouse.move(CLIP.width / 2, 20);
+  await session.still(page);
+  const cancelled = await expectMarks(page, 'Cancel leaves the other marks', await session.screenshot(page, 'orders-10-cancelled'), { chop: 50, quarry: 50 });
+  session.check('Cancel removes the house site', cancelled.site < 30, `${cancelled.site} site pixels, needs fewer than 30`);
+  await page.keyboard.press('Escape');
+  await expectTool(page, 'Escape puts the tool away', '');
+  session.check('the status line hides without a tool', await status(page).isHidden(), 'hidden');
+  cuts.push({ label: 'orders-cancel', from, to: clip.since() + 1 });
+  await session.finishClips(clip.context, page, cuts.map((cut) => ({ ...cut, width: 800 })));
+  seen.push(...clip.errors);
+
+  const wide = await session.open(WIDE);
+  const view = wide.page;
+  await session.still(view);
+  const bare = await session.screenshot(view, 'orders-11-bare');
+  const none = await marksIn(view, bare);
+  session.check('the map draws no order colors before any order', Object.values(none).every((count) => count < 30), JSON.stringify(none));
+  for (const [key, order] of [['KeyC', 'chop'], ['KeyM', 'quarry'], ['KeyP', 'stockpile']]) {
+    await view.keyboard.press(key);
+    await dragOn(view, WIDE, ORDER_SPOTS[order]);
+    await expectSaid(view, `the ${order} order lands on the 1280x720 view`, /marked|joins? the stockpile/);
+  }
+  await view.keyboard.press('KeyH');
+  const placed = spot(WIDE, ORDER_SPOTS.houseFits);
+  await view.mouse.click(placed.x, placed.y);
+  await expectSaid(view, 'the house site lands on the 1280x720 view', /House site placed/);
+  const hover = spot(WIDE, ORDER_SPOTS.houseOnStockpile);
+  await view.mouse.move(hover.x, hover.y, { steps: 3 });
+  await expectSaid(view, 'a house over the stockpile edge previews beside the marks', /Cannot build here\. A stockpile stands in the way/);
+
+  // The preview follows the tile under the resting pointer as the view zooms, so it is green on some views and red on others.
+  const every = { chop: 1, quarry: 1, stockpile: 1, site: 1, preview: 1 };
+  const atLeast = (zoom) => Object.fromEntries(Object.keys(every).map((kind) => [kind, MARKS_AT_LEAST[zoom]]));
+  const zooms = async (label) => {
+    await session.still(view);
+    await expectMarks(view, `every kind of mark reads ${label} at the opening view`, await session.screenshot(view, `orders-marks-${label}-mid`), atLeast('mid'));
+    await view.mouse.wheel(0, NEAR_WHEEL);
+    await session.still(view);
+    await expectMarks(view, `every kind of mark reads ${label} at a near view`, await session.screenshot(view, `orders-marks-${label}-near`), atLeast('near'));
+    await view.mouse.wheel(0, FAR_WHEEL);
+    await session.still(view);
+    await expectMarks(view, `every kind of mark reads ${label} at the farthest view`, await session.screenshot(view, `orders-marks-${label}-far`), atLeast('far'));
+    await view.mouse.wheel(0, BACK_WHEEL);
+    await session.still(view);
+    for (const [where, place, reason] of [
+      ['rock', ORDER_SPOTS.houseOnRock, /cannot stand on rock/],
+      ['forest', ORDER_SPOTS.houseInForest, /Trees stand in the way/],
+    ]) {
+      const over = spot(WIDE, place);
+      await view.mouse.move(over.x, over.y, { steps: 3 });
+      await expectSaid(view, `a house over ${where} says why it does not fit, ${label}`, reason);
+      await session.still(view);
+      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: 60 });
+    }
+    await view.mouse.move(hover.x, hover.y, { steps: 3 });
+  };
+  await zooms('spring-noon');
+  await session.reach(view, { day: 2, time: '00:00' });
+  await zooms('spring-midnight');
+  await session.reach(view, { day: 10, time: '12:00' });
+  await zooms('winter-noon');
+  await session.reach(view, { day: 11, time: '00:00' });
+  await zooms('winter-midnight');
+
+  await session.still(view);
+  const beforeTurn = await session.screenshot(view, 'orders-12-before-turn');
+  await session.drag(view, { x: 500, y: 300 }, { x: 700, y: 380 }, 'right');
+  await session.still(view);
+  session.expectChanged('a right-drag still turns the camera while a tool is active', beforeTurn, await session.screenshot(view, 'orders-13-turned'));
+  await expectTool(view, 'the tool stays active through a right-drag', 'House');
+  await view.keyboard.press('Escape');
+  await expectTool(view, 'Escape puts House away', '');
+  await tool(view, 'Chop').click();
+  await expectTool(view, 'a click on Chop picks it', 'Chop');
+  await tool(view, 'Chop').click();
+  await expectTool(view, 'a second click on Chop puts it away', '');
+  const inToolbar = () => toolbar(view).evaluate((node) => node.contains(document.activeElement));
+  let stops = 0;
+  for (; stops < 12 && !(await inToolbar()); stops++) await view.keyboard.press('Tab');
+  session.check('the toolbar is one stop in the Tab order', await tool(view, 'Chop').evaluate((node) => node === document.activeElement), `${stops} presses of Tab reached it, at Chop`);
+  const beforeArrow = await session.screenshot(view, 'orders-15a-before-arrow');
+  await view.keyboard.press('ArrowDown');
+  await session.still(view);
+  session.check('ArrowDown moves from Chop to Quarry', await tool(view, 'Quarry').evaluate((node) => node === document.activeElement), 'focus on Quarry');
+  const afterArrow = await session.screenshot(view, 'orders-15b-after-arrow');
+  session.expectSameOutside('an arrow key in the toolbar leaves the camera alone', beforeArrow, afterArrow, coverBox(view, await toolbar(view).boundingBox()), 0.2);
+  await view.keyboard.press('Enter');
+  await expectTool(view, 'Tab, ArrowDown, and Enter pick Quarry', 'Quarry');
+  await view.keyboard.press('Escape');
+  await view.locator(WORLD).focus().catch(() => {});
+  await session.still(view);
+  const beforePan = await session.screenshot(view, 'orders-14-before-pan');
+  await session.drag(view, { x: 800, y: 300 }, { x: 500, y: 450 });
+  await session.still(view);
+  session.expectChanged('a main-button drag with no tool moves the camera', beforePan, await session.screenshot(view, 'orders-15-panned'));
+
+  const panels = async (page) => ({
+    clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
+    controls: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+    toolbar: await toolbar(page).boundingBox(),
+    status: await status(page).boundingBox(),
+  });
+  const expectApart = async (page, viewport) => {
+    const boxes = await panels(page);
+    const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height;
+    const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    const named = Object.entries(boxes);
+    const ok = named.every(([, box]) => inside(box)) && named.every(([a, boxA], i) => named.slice(i + 1).every(([, boxB]) => disjoint(boxA, boxB)));
+    const detail = named.map(([name, box]) => `${name} ${box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing'}`).join('; ');
+    session.check(`the toolbar, status line, clock, and camera controls fit apart at ${viewport.width}x${viewport.height}`, ok, detail);
+  };
+  await view.keyboard.press('KeyH');
+  await view.mouse.move(hover.x, hover.y, { steps: 3 });
+  await expectApart(view, WIDE);
+  await wide.context.close();
+  seen.push(...wide.errors);
+
+  const narrow = await session.open({ width: 960, height: 600 });
+  for (const size of [{ width: 960, height: 600 }, { width: 960, height: 540 }]) {
+    await narrow.page.setViewportSize(size);
+    await session.settle(narrow.page);
+    await narrow.page.keyboard.press('KeyH');
+    const at = spot(size, ORDER_SPOTS.houseFits);
+    await narrow.page.mouse.move(at.x, at.y, { steps: 3 });
+    await expectSaid(narrow.page, `House previews a site at ${size.width}x${size.height}`, /Click to place the house site here/);
+    await session.still(narrow.page);
+    await expectApart(narrow.page, size);
+    const date = await narrow.page.getByRole('status', { name: 'Date' }).boundingBox();
+    const time = await narrow.page.getByRole('timer', { name: 'Time of day' }).boundingBox();
+    session.check(`the date stays on one line at ${size.width}x${size.height}`, date.height < time.height, `date ${date.height.toFixed(0)} px tall, time ${time.height.toFixed(0)} px`);
+    await session.screenshot(narrow.page, `orders-${size.width}x${size.height}`);
+    await narrow.page.keyboard.press('Escape');
+  }
+  await narrow.context.close();
+  seen.push(...narrow.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
