@@ -17,6 +17,10 @@ export const LOG_COLOR = 0xd9b77e;
 export const STONE_COLOR = 0xc9d1db;
 const FIRST_BLOCKS = 256;
 
+/** One unit of each good, centered on the origin. A log stands along y until it is turned. */
+export const logGeometry = () => new CylinderGeometry(0.15, 0.15, 0.9, 6);
+export const stoneGeometry = () => new BoxGeometry(0.36, 0.36, 0.36);
+
 interface Pile {
   mesh: InstancedMesh;
   /** The first of the `STACK_LIMIT` instances that each tile with this good owns, by tile. */
@@ -67,8 +71,8 @@ const placeStone = (unit: number, pose: Object3D) => {
 export function createGoods(map: TileMap) {
   const half = map.size / 2;
   const piles: Partial<Record<Good, Pile>> = {
-    [Good.Log]: createPile('logs', new CylinderGeometry(0.15, 0.15, 0.9, 6), LOG_COLOR, placeLog),
-    [Good.Stone]: createPile('stone', new BoxGeometry(0.36, 0.36, 0.36), STONE_COLOR, placeStone),
+    [Good.Log]: createPile('logs', logGeometry(), LOG_COLOR, placeLog),
+    [Good.Stone]: createPile('stone', stoneGeometry(), STONE_COLOR, placeStone),
   };
   const group = new Group();
   group.name = 'goods';
