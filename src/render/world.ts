@@ -5,6 +5,7 @@ import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/order
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
+import { createGoods } from './goods';
 import { PALETTES } from './palette';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
@@ -79,6 +80,9 @@ export function createWorld(map: TileMap) {
     },
   );
 
+  const goods = createGoods(map);
+  scene.add(goods.group);
+
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
@@ -93,12 +97,14 @@ export function createWorld(map: TileMap) {
       const tree = groups[i + 2]!;
       const reshaped = map.kinds[tile] !== kind;
       const felled = map.trees[tile] !== tree;
+      const stacked = map.stackGood[tile] !== groups[i + 3] || map.stackSize[tile] !== groups[i + 4];
       map.kinds[tile] = kind;
       map.trees[tile] = tree;
       map.stackGood[tile] = groups[i + 3]!;
       map.stackSize[tile] = groups[i + 4]!;
       if (reshaped) repaint(tile);
       if (reshaped || felled) scenery.refresh(tile);
+      if (stacked) goods.refresh(tile);
     }
   };
 
