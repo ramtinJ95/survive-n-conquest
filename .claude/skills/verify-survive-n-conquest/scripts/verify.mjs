@@ -1840,8 +1840,9 @@ function siteDriver(session) {
     return (await order(page).textContent()) ?? '';
   };
   const reads = async (page) => {
-    if ((await site(page).count()) === 0) return null;
-    const text = await site(page).innerText();
+    // One round trip: a label that a count saw can be gone before a second call reads it, when the house is finished in between.
+    const text = await site(page).evaluateAll((labels) => (labels.length === 0 ? null : labels[0].innerText));
+    if (text === null) return null;
     const read = /Logs\s*(\d+)\/12\s*Stone\s*(\d+)\/6\s*(?:(Waiting for materials)|(\d+)%)/.exec(text);
     if (!read) fail(`the site label reads "${text}", not the logs, the stone, and the work`);
     return { text: text.replace(/\s+/g, ' '), logs: Number(read[1]), stone: Number(read[2]), waiting: Boolean(read[3]), percent: read[4] === undefined ? null : Number(read[4]) };
