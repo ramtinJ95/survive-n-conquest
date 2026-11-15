@@ -1,5 +1,11 @@
 import {
   BackSide,
+  BoxGeometry,
+  EdgesGeometry,
+  Group,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
   Color,
   DataTexture,
   InstancedMesh,
@@ -128,6 +134,34 @@ function patchTerrain(shader: WebGLProgramParametersWithUniforms, uniforms: Reco
   shader.fragmentShader = fragment;
 }
 
+/** The ghost of a house the pointer would place: three tiles square and this tall, in meters. */
+const GHOST_HEIGHT = 2.6;
+const GHOST_OPACITY = 0.55;
+/** A dark copy of the edges, a little larger, keeps the ghost apart from snow and pale marks. */
+const GHOST_SHADOW = { scale: 1.06, color: '#1a0d0d' };
+
+/**
+ * A see-through house volume over the site under the pointer, drawn over the
+ * trees and boulders, so that a site over rock or forest still reads.
+ */
+function createGhost() {
+  const box = new BoxGeometry(3, GHOST_HEIGHT, 3);
+  const faces = new MeshBasicMaterial({ transparent: true, opacity: GHOST_OPACITY, depthTest: false, depthWrite: false, fog: false });
+  const edges = new LineBasicMaterial({ depthTest: false, fog: false });
+  const outline = new EdgesGeometry(box);
+  const shadow = new LineSegments(outline, new LineBasicMaterial({ color: GHOST_SHADOW.color, depthTest: false, fog: false }));
+  shadow.scale.setScalar(GHOST_SHADOW.scale);
+  const ghost = new Group();
+  ghost.name = 'house-ghost';
+  ghost.add(shadow, new Mesh(box, faces), new LineSegments(outline, edges));
+  ghost.renderOrder = 10;
+  ghost.children.forEach((part, order) => {
+    part.renderOrder = 10 + order;
+  });
+  ghost.visible = false;
+  return { ghost, faces, edges };
+}
+
 const PIN_SIZE = 0.55;
 const PIN_FLOAT = 1.1;
 const OUTLINE = 1.35;
@@ -185,6 +219,7 @@ export function createOrderMarks(
   terrainMaterial.needsUpdate = true;
 
   let trees = 0;
+  const { ghost, faces, edges } = createGhost();
   const pose = new Object3D();
   for (let tile = 0; tile < size * size; tile++) if (treeTop(tile, pose.position)) trees++;
   const pinScale = { value: 1 };
@@ -205,7 +240,24 @@ export function createOrderMarks(
   const previewed: number[] = [];
 
   return {
-    meshes: [outlines, pins],
+    meshes: [outlines, pins, ghost],
+
+    /** Stands the ghost of a house on the nine tiles around a center tile, in green when it fits and red when not, or hides it. */
+    showGhost(center: { x: number; y: number } | null, fits: boolean) {
+      ghost.visible = center !== null;
+      if (!center) return;
+      let highest = -Infinity;
+      for (let y = center.y - 1; y <= center.y + 1; y++) {
+        for (let x = center.x - 1; x <= center.x + 1; x++) {
+          const tile = Math.min(Math.max(y, 0), size - 1) * size + Math.min(Math.max(x, 0), size - 1);
+          highest = Math.max(highest, map.heights[tile]!, 0);
+        }
+      }
+      ghost.position.set(center.x + 0.5 - size / 2, highest + GHOST_HEIGHT / 2, center.y + 0.5 - size / 2);
+      const color = fits ? ORDER_COLORS.fits : ORDER_COLORS.cancel;
+      faces.color.set(color);
+      edges.color.set(color);
+    },
 
     /** Copies the claims of every tile into the marks, and puts a pin on each tree marked for felling. */
     showOrders(orders: Orders) {

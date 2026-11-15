@@ -212,9 +212,11 @@ export function mountOrders(
       line = refusal ? `Cannot build here. ${REFUSALS[refusal]}` : 'Click to place the house site here.';
       refused = refusal !== null;
       marks.showArea(null, color);
+      marks.showGhost(hovered, refusal === null);
     } else {
       marks.showArea(null, color);
     }
+    if (!(tool?.id === 'house' && hovered?.onMap && !sameTile(placed, hovered))) marks.showGhost(null, false);
     marks.showPreview(tiles, kinds, color);
     if (outcome && performance.now() < outcome.until && !drag) say(outcome.text, outcome.refused);
     else say(line, refused);
