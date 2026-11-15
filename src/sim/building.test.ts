@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING, HOUSE_NEEDS, HOUSE_WORK_TICKS, arrived } from './building';
+import { TICKS_PER_DAY } from './calendar';
 import { CARRYING } from './carrying';
 import { isDawn, isNight } from './daylight';
 import { createFlowField } from './flowField';
 import { GATHERING } from './gathering';
 import { Good } from './goods';
-import { TileKind, tileAt, walkable } from './map';
-import { type AreaOrder, type OrderCommand, SiteState, takeOrderChanges } from './orders';
-import { type Sim, applyCommand, createSim, step } from './sim';
+import { DEFAULT_MAP_SIZE, TileKind, tileAt, walkable } from './map';
+import { generateMap } from './mapgen';
+import { type AreaOrder, type OrderCommand, SiteState, siteRefusal, takeOrderChanges } from './orders';
+import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
+import { VillagerState } from './villagers';
 
 const BUILD = TASK_KINDS.indexOf(BUILDING) + 1;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
@@ -187,7 +190,7 @@ describe('building', () => {
       6000,
       () => {
         if (sim.villagers.task[0] === BUILD && !allArrived()) early++;
-        if (sim.villagers.task[0] === BUILD && sim.villagers.state[0] === 2) working++;
+        if (sim.villagers.task[0] === BUILD && sim.villagers.state[0] === VillagerState.Working) working++;
         if (isNight(sim.tick) && workAtDusk < 0) workAtDusk = sim.orders.sites.work[slot]!;
         if (isDawn(sim.tick - 1)) workAtDawn = sim.orders.sites.work[slot]!;
       },
@@ -220,7 +223,7 @@ describe('building', () => {
         const spots = builders.map((id) => sim.villagers.workTile[id]!);
         if (new Set(spots).size !== spots.length || spots.some((tile) => !corners.includes(tile))) misstepped.push(`tick ${sim.tick}`);
         const done = sim.orders.sites.work[slot]!;
-        const workers = builders.filter((id) => sim.villagers.state[id] === 2).length;
+        const workers = builders.filter((id) => sim.villagers.state[id] === VillagerState.Working).length;
         if (sim.orders.sites.state[slot] === SiteState.Site && done - work !== workers) misstepped.push(`work on tick ${sim.tick}`);
         work = done;
       },
@@ -302,5 +305,199 @@ describe('a finished house', () => {
       },
     );
     expect(trespasses).toEqual([]);
+  });
+});
+
+/** Every unit of a good on the map and in the villagers' hands. */
+function everywhere(sim: Sim, good: Good): number {
+  let count = 0;
+  sim.map.stackSize.forEach((size, tile) => {
+    if (sim.map.stackGood[tile] === good) count += size;
+  });
+  return count + sim.villagers.carried.filter((carried) => carried === good).length;
+}
+
+describe('a cancelled site', () => {
+  it('loses its work, frees its builders at once, and leaves its goods as goods on the ground, even outside the area', () => {
+    const sim = siteWithGoods(4);
+    applyCommand(sim, mark('stockpile', 4, 4, 5, 5));
+    applyCommand(sim, house(21, 15));
+    const slot = slotAt(sim, 21, 15);
+    runUntil(sim, () => sim.orders.sites.work[slot]! >= 100, 3000);
+    expect(holding(sim, BUILD).length).toBeGreaterThan(0);
+
+    expect(applyCommand(sim, mark('cancel', 22, 16, 25, 19))).toMatchObject({ ok: true, order: 'cancel' });
+    expect(holding(sim, BUILD)).toEqual([]);
+    expect([sim.orders.sites.state[slot], sim.orders.sites.work[slot], slotAt(sim, 20, 14)]).toEqual([SiteState.Free, 0, -1]);
+    expect([stack(sim, 20, 14), stack(sim, 21, 14), stack(sim, 22, 16)]).toEqual([
+      [Good.Log, 8],
+      [Good.Log, 4],
+      [Good.Stone, 6],
+    ]);
+
+    const stockpiled = () => [stack(sim, 4, 4), stack(sim, 5, 4), stack(sim, 4, 5), stack(sim, 5, 5)].reduce((sum, [, size]) => sum + size!, 0);
+    runUntil(sim, () => stockpiled() === 18, 3000);
+    expect(applyCommand(sim, house(21, 15))).toMatchObject({ ok: true });
+    expect(sim.orders.sites.work[slotAt(sim, 21, 15)]).toBe(0);
+  });
+
+  it('frees every settler on its way to it at once, and placed again in the same pause, gets no unit that set out for the old one', () => {
+    const sim = siteWithGoods(6);
+    applyCommand(sim, house(21, 15));
+    const slot = slotAt(sim, 21, 15);
+    const carrying = () => holding(sim, SUPPLY).filter((id) => sim.villagers.carried[id] !== Good.None);
+    const delivered = () => units(sim, slot, Good.Log) + units(sim, slot, Good.Stone);
+    runUntil(sim, () => carrying().length >= 2 && holding(sim, SUPPLY).length > carrying().length, 600);
+    expect(delivered()).toBe(0);
+    const suppliers = holding(sim, SUPPLY);
+    const feet = carrying().map((id) => [id, tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!), sim.villagers.carried[id]!]);
+
+    applyCommand(sim, { kind: 'togglePause' });
+    applyCommand(sim, mark('cancel', 20, 14, 22, 16));
+    expect(applyCommand(sim, house(21, 15))).toMatchObject({ ok: true });
+    applyCommand(sim, { kind: 'togglePause' });
+    expect(slotAt(sim, 21, 15)).toBe(slot);
+    expect(suppliers.map((id) => [sim.villagers.task[id], sim.villagers.carried[id]])).toEqual(suppliers.map(() => [0, Good.None]));
+    for (const [, tile, good] of feet) expect(sim.map.stackGood[tile!]).toBe(good);
+    expect([everywhere(sim, Good.Log), everywhere(sim, Good.Stone)]).toEqual([12, 6]);
+
+    const before = sim.tally.delivered;
+    runUntil(sim, () => sim.orders.sites.state[slot] === SiteState.House, 6000);
+    expect(sim.tally.delivered - before).toBe(18);
+  });
+});
+
+describe('a site at dusk', () => {
+  it('sees its settlers put down what they carry and walk to the camp, then gets its tasks taken again at dawn and is finished', () => {
+    const sim = siteWithGoods(4);
+    runUntil(sim, () => sim.tick === 1310, 1310);
+    applyCommand(sim, house(21, 15));
+    const slot = slotAt(sim, 21, 15);
+    runUntil(sim, () => isNight(sim.tick), 200);
+    expect(holding(sim, SUPPLY).some((id) => sim.villagers.carried[id] !== Good.None)).toBe(true);
+    step(sim);
+    expect(ids(sim).map((id) => [sim.villagers.task[id], sim.villagers.carried[id], sim.villagers.state[id]])).toEqual(
+      ids(sim).map(() => [0, Good.None, VillagerState.GoingHome]),
+    );
+    expect([everywhere(sim, Good.Log), everywhere(sim, Good.Stone)]).toEqual([12, 6]);
+    let takenAtNight = 0;
+    runUntil(sim, () => isDawn(sim.tick), 2000, () => {
+      takenAtNight += ids(sim).filter((id) => sim.villagers.task[id] !== 0).length;
+    });
+    expect(takenAtNight).toBe(0);
+    runUntil(sim, () => sim.orders.sites.state[slot] === SiteState.House, 1500);
+    expect(isNight(sim.tick)).toBe(false);
+  });
+});
+
+describe('a house that cuts off land', () => {
+  it('closes the tasks and goods on land that reached the camp only across its site, and leaves no settler there', () => {
+    const rows = open(24);
+    rows[9] = '.'.repeat(19) + '#####';
+    rows[10] = '.'.repeat(19) + '#TTT#';
+    rows[11] = '.'.repeat(19) + '#T.T#';
+    rows[12] = '.'.repeat(19) + '#...#';
+    rows[13] = '.'.repeat(19) + '#T.T#';
+    rows[14] = '.'.repeat(19) + '#TTT#';
+    rows[15] = '.'.repeat(19) + '#####';
+    const sim = simWith(rows, 6, [
+      [14, 12, Good.Log, 8],
+      [14, 13, Good.Log, 3],
+      [14, 11, Good.Stone, 6],
+      [21, 12, Good.Log, 5],
+    ]);
+    const inPocket = (tile: number) => tile % 24 >= 19 && Math.floor(tile / 24) >= 9 && Math.floor(tile / 24) <= 15;
+    const standing = () => ids(sim).filter((id) => inPocket(tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!)));
+    expect(applyCommand(sim, house(17, 12))).toMatchObject({ ok: true });
+    applyCommand(sim, mark('quarry', 19, 12));
+    applyCommand(sim, mark('chop', 20, 10, 22, 14));
+    const slot = slotAt(sim, 17, 12);
+    let beforeFinish = 0;
+    runUntil(sim, () => sim.orders.sites.state[slot] === SiteState.House, 9000, () => {
+      if (sim.orders.sites.state[slot] === SiteState.Site) beforeFinish = standing().length;
+    });
+    expect(sim.map.kinds[at(sim.map, 19, 12)]).toBe(TileKind.Bare);
+    expect(beforeFinish).toBeGreaterThan(0);
+    expect(standing()).toEqual([]);
+
+    const pocket = Array.from({ length: 24 * 24 }, (_, tile) => tile).filter(inPocket);
+    const goodsThere = () => pocket.map((tile) => [sim.map.trees[tile], sim.map.stackGood[tile], sim.map.stackSize[tile]]);
+    const left = goodsThere();
+    expect(left.some(([, , size]) => size! > 0)).toBe(true);
+    expect(left.some(([tree]) => tree === 1)).toBe(true);
+    const intrusions: string[] = [];
+    runUntil(sim, () => isNight(sim.tick), 3000, () => {
+      for (const id of standing()) intrusions.push(`villager ${id} stands there on tick ${sim.tick}`);
+      for (const id of ids(sim)) {
+        if (sim.villagers.task[id] !== 0 && inPocket(sim.villagers.taskTile[id]!)) intrusions.push(`villager ${id} works there on tick ${sim.tick}`);
+      }
+    });
+    expect(intrusions).toEqual([]);
+    expect(goodsThere()).toEqual(left);
+  });
+});
+
+describe('the simulation with a house', () => {
+  it('reaches the same state from one seed and the same commands, from an empty site to a finished house', () => {
+    const map = generateMap(7, 64);
+    const probe = createSim(map, { villagers: 0, monsters: 0 });
+    const [campX, campY] = [probe.camp % 64, Math.floor(probe.camp / 64)];
+    const nearCamp = (count: number) => {
+      const spots: [number, number][] = [];
+      for (let y = 1; y < 63; y++) for (let x = 1; x < 63; x++) if (siteRefusal(probe.map, probe.orders, x, y) === null) spots.push([x, y]);
+      return spots.sort(([ax, ay], [bx, by]) => Math.hypot(ax - campX, ay - campY) - Math.hypot(bx - campX, by - campY)).slice(0, count);
+    };
+    const [hx, hy] = nearCamp(1)[0]!;
+    applyCommand(probe, house(hx, hy));
+    const [cx, cy] = nearCamp(1)[0]!;
+    const script: readonly { tick: number; command: Command }[] = [
+      { tick: 0, command: house(hx, hy) },
+      { tick: 0, command: house(cx, cy) },
+      { tick: 0, command: mark('chop', 0, 0, 63, 63) },
+      { tick: 0, command: mark('quarry', 0, 0, 63, 63) },
+      { tick: 300, command: mark('cancel', cx, cy) },
+      { tick: 600, command: mark('stockpile', 26, 26, 38, 38) },
+    ];
+    const play = () => {
+      const sim = createSim(map, { villagers: 8, monsters: 10 });
+      while (sim.tick < 6000) {
+        for (const { tick, command } of script) if (tick === sim.tick) applyCommand(sim, command);
+        step(sim);
+      }
+      return sim;
+    };
+    const first = play();
+    const second = play();
+    expect(first.tally.built).toBe(1);
+    expect(first.orders.sites.state[first.orders.siteOf[hy * 64 + hx]!]).toBe(SiteState.House);
+    expect(second.villagers).toEqual(first.villagers);
+    expect(second.map).toEqual(first.map);
+    expect(second).toEqual(first);
+  });
+});
+
+describe('the first house on seed 7', () => {
+  /**
+   * The layout a player would give: the house on the open site nearest the
+   * camp, a stockpile beside the camp, and every tree and rock tile within 40
+   * tiles of the house marked. The brief's target is two spring days.
+   */
+  it('takes 8 settlers 1196 ticks from placement to the finished house, all 1196 of them in daylight', () => {
+    const sim = createSim(generateMap(7, DEFAULT_MAP_SIZE), SETTLERS);
+    expect(sim.camp).toBe(127 * DEFAULT_MAP_SIZE + 127);
+    for (const command of [
+      house(127, 123),
+      mark('stockpile', 131, 125, 134, 128),
+      mark('chop', 87, 83, 167, 163),
+      mark('quarry', 87, 83, 167, 163),
+    ]) {
+      expect(applyCommand(sim, command)).toMatchObject({ ok: true });
+    }
+    const slot = slotAt(sim, 127, 123);
+    let daylight = 0;
+    runUntil(sim, () => sim.orders.sites.state[slot] === SiteState.House, 2 * TICKS_PER_DAY, () => {
+      if (!isNight(sim.tick - 1)) daylight++;
+    });
+    expect({ ticks: sim.tick, daylight }).toEqual({ ticks: 1196, daylight: 1196 });
   });
 });
