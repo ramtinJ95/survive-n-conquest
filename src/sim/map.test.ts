@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { heightAt, type TileMap } from './map';
+import { createTileMap, heightAt } from './map';
 
-const map: TileMap = {
-  seed: 0,
-  size: 3,
-  heights: Float32Array.from([0, 2, 4, 0, 2, 4, 6, 8, 10]),
-  kinds: new Uint8Array(9),
-};
+const map = createTileMap(0, 3, Float32Array.from([0, 2, 4, 0, 2, 4, 6, 8, 10]), new Uint8Array(9));
 
 describe('heightAt', () => {
   it('returns the tile height at a tile center', () => {

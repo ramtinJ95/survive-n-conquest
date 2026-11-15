@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { campTile } from './camp';
 import { generateMap } from './mapgen';
-import { TileKind, type TileMap } from './map';
+import { TileKind, type TileMap, createTileMap } from './map';
 
 const KINDS: Readonly<Record<string, TileKind>> = { '.': TileKind.Grass, '~': TileKind.Water, '#': TileKind.Rock };
 
 function mapFrom(rows: readonly string[]): TileMap {
   const size = rows.length;
   const kinds = Uint8Array.from(rows.join(''), (cell) => KINDS[cell]!);
-  return { seed: 1, size, heights: new Float32Array(size * size).fill(1), kinds };
+  return createTileMap(1, size, new Float32Array(size * size).fill(1), kinds);
 }
 
 describe('the camp', () => {

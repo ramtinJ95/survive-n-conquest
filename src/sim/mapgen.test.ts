@@ -24,6 +24,21 @@ describe('generateMap', () => {
     const second = generateMap(42);
     expect(second.heights).toEqual(first.heights);
     expect(second.kinds).toEqual(first.kinds);
+    expect(second.trees).toEqual(first.trees);
+  });
+
+  it.each(SEEDS)('stands a tree on about one forest tile in six, and only on forest, for seed %i', (seed) => {
+    const { kinds, trees } = generateMap(seed);
+    const forest = kinds.filter((kind) => kind === TileKind.Forest).length;
+    const wooded = trees.filter((tree, i) => tree === 1 && kinds[i] === TileKind.Forest).length;
+    expect(trees.filter((tree) => tree === 1).length).toBe(wooded);
+    expect(wooded / forest).toBeGreaterThan(0.15);
+    expect(wooded / forest).toBeLessThan(0.19);
+  });
+
+  it('starts with no goods on the ground', () => {
+    const { stackSize } = generateMap(7);
+    expect(stackSize.every((size) => size === 0)).toBe(true);
   });
 
   it('gives different maps for different seeds', () => {

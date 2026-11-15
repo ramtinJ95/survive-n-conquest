@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { campTile } from './camp';
 import { isNight } from './daylight';
 import { createFlowField } from './flowField';
-import { TileKind, type TileMap, tileAt, walkable } from './map';
+import { TileKind, type TileMap, createTileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
-import { type Command, SETTLERS, type Sim, applyCommand, changeTile, createSim, step, takeTileChanges } from './sim';
+import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { changeTile, takeTileChanges } from './tileChanges';
 import { WANDER_REACH, createVillagers, moveVillagers } from './villagers';
 
 const map = generateMap(7);
@@ -13,7 +14,7 @@ const KINDS: Readonly<Record<string, TileKind>> = { '.': TileKind.Grass, '~': Ti
 function mapFrom(rows: readonly string[]): TileMap {
   const size = rows.length;
   const kinds = Uint8Array.from(rows.join(''), (cell) => KINDS[cell]!);
-  return { seed: 3, size, heights: new Float32Array(size * size).fill(1), kinds };
+  return createTileMap(3, size, new Float32Array(size * size).fill(1), kinds);
 }
 
 function runUntil(sim: Sim, done: (sim: Sim) => boolean, afterEach: () => void = () => {}): void {
@@ -163,7 +164,7 @@ describe('tile changes', () => {
     changeTile(sim, first, TileKind.Water);
     changeTile(sim, second, TileKind.Rock);
     changeTile(sim, first, TileKind.Rock);
-    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, second, TileKind.Rock]);
+    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, 0, 0, 0, second, TileKind.Rock, 0, 0, 0]);
     expect(takeTileChanges(sim).length).toBe(0);
     expect(sim.flow.next[first]).toBe(-1);
     expect(sim.flow.next[second]).toBe(-1);

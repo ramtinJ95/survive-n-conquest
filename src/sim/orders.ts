@@ -1,6 +1,5 @@
 import { campTile, underCamp } from './camp';
 import { TileKind, type TileMap, walkable } from './map';
-import { hasTree } from './trees';
 
 export const Claim = { None: 0, Chop: 1, Quarry: 2, Stockpile: 3, Site: 4 } as const;
 export type Claim = (typeof Claim)[keyof typeof Claim];
@@ -71,6 +70,7 @@ export type Refusal =
   | 'camp'
   | 'site'
   | 'stockpile'
+  | 'goods'
   // The whole site.
   | 'uneven'
   | 'divides'
@@ -100,10 +100,10 @@ export function createOrders(map: TileMap, camp: number = campTile(map)): Orders
   };
 }
 
-/** Grass, or forest with no tree. */
+/** Grass, forest with no tree, or a spent rock tile. */
 export function openGround(map: TileMap, tile: number): boolean {
   const kind = map.kinds[tile];
-  return kind === TileKind.Grass || (kind === TileKind.Forest && !hasTree(map, tile));
+  return kind === TileKind.Grass || kind === TileKind.Bare || (kind === TileKind.Forest && map.trees[tile] === 0);
 }
 
 function claim(orders: Orders, tile: number, value: Claim): void {
@@ -148,7 +148,7 @@ const AREA_RULES: Record<AreaOrder, AreaRule> = {
   chop: {
     claim: Claim.Chop,
     refusal: 'no-trees',
-    changes: (map, orders, tile) => orders.claims[tile] === Claim.None && hasTree(map, tile),
+    changes: (map, orders, tile) => orders.claims[tile] === Claim.None && map.trees[tile] === 1,
   },
   quarry: {
     claim: Claim.Quarry,
@@ -210,17 +210,18 @@ export function areaEffect(
 
 /**
  * What stops this one tile from taking part in a house site, or null. Order: water, rock, trees, camp,
- * site (incl. house), stockpile. Goods on the tile join this list when goods exist.
+ * site (incl. house), stockpile, goods.
  */
 export function siteTileProblem(map: TileMap, orders: Orders, tile: number): Refusal | null {
   const kind = map.kinds[tile];
   if (kind === TileKind.Water) return 'water';
   if (kind === TileKind.Rock) return 'rock';
-  if (hasTree(map, tile)) return 'trees';
+  if (map.trees[tile] === 1) return 'trees';
   if (underCamp(map, orders.camp, tile)) return 'camp';
   const claim = orders.claims[tile];
   if (claim === Claim.Site) return 'site';
   if (claim === Claim.Stockpile) return 'stockpile';
+  if (map.stackSize[tile]! > 0) return 'goods';
   return null;
 }
 

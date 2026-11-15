@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TileKind, type TileMap } from './map';
+import { TileKind, type TileMap, createTileMap } from './map';
 import { generateMap } from './mapgen';
 import {
   type AreaOrder,
@@ -17,31 +17,26 @@ import {
   applyOrderChanges,
   takeOrderChanges,
 } from './orders';
-import { hasTree } from './trees';
 import { underCamp } from './camp';
+import { Good } from './goods';
 
 function plainMap(size: number): TileMap {
-  return {
-    seed: 11,
-    size,
-    heights: new Float32Array(size * size),
-    kinds: new Uint8Array(size * size).fill(TileKind.Grass),
-  };
+  return createTileMap(11, size, new Float32Array(size * size), new Uint8Array(size * size).fill(TileKind.Grass));
 }
 
 function paint(map: TileMap, kind: TileKind, x0: number, y0: number, x1 = x0, y1 = y0): void {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) map.kinds[y * map.size + x] = kind;
 }
 
-/** Turns the first tile in the rectangle whose seed grows a tree (or, with `tree` false, does not) into forest. */
+/** Turns the first grass tile in the rectangle into forest, with a tree on it or, with `tree` false, without. */
 function forestTile(map: TileMap, tree: boolean, x0: number, y0: number, x1: number, y1: number): number {
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       const tile = y * map.size + x;
-      const kind = map.kinds[tile]!;
+      if (map.kinds[tile] !== TileKind.Grass) continue;
       map.kinds[tile] = TileKind.Forest;
-      if (hasTree(map, tile) === tree) return tile;
-      map.kinds[tile] = kind;
+      map.trees[tile] = tree ? 1 : 0;
+      return tile;
     }
   }
   throw new Error('no such tile in the rectangle');
@@ -95,13 +90,15 @@ function stateOf({ claims, sites }: Orders) {
 }
 
 describe('open ground', () => {
-  it('is grass, or forest without a tree', () => {
+  it('is grass, forest without a tree, or a spent rock tile', () => {
     const map = plainMap(20);
     paint(map, TileKind.Water, 0, 0);
     paint(map, TileKind.Rock, 1, 0);
+    paint(map, TileKind.Bare, 3, 0);
     const bare = forestTile(map, false, 0, 5, 19, 5);
     const tree = forestTile(map, true, 0, 6, 19, 19);
     expect(openGround(map, 2)).toBe(true);
+    expect(openGround(map, 3)).toBe(true);
     expect(openGround(map, bare)).toBe(true);
     expect(openGround(map, tree)).toBe(false);
     expect(openGround(map, 0)).toBe(false);
@@ -117,7 +114,7 @@ describe('area orders on a generated map', () => {
   const stockpile = applyOrder(map, orders, mark('stockpile', WHOLE(map)));
 
   it('marks exactly the tiles that hold a tree for chopping', () => {
-    const trees = tilesWhere(map, (tile) => hasTree(map, tile));
+    const trees = tilesWhere(map, (tile) => map.trees[tile] === 1);
     expect(trees.length).toBeGreaterThan(0);
     expect(tilesWith(orders, Claim.Chop)).toEqual(trees);
     expect(chop).toEqual({ ok: true, order: 'chop', tiles: trees.length });
@@ -251,6 +248,14 @@ describe('placing a house', () => {
       },
     ],
     ['trees', (map) => xy(map, forestTile(map, true, 3, 3, 7, 7))],
+    [
+      'goods',
+      (map) => {
+        map.stackGood[5 * map.size + 5] = Good.Log;
+        map.stackSize[5 * map.size + 5] = 1;
+        return [4, 4];
+      },
+    ],
     [
       'water',
       (map) => {

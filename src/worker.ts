@@ -1,6 +1,7 @@
 import type { TileMap } from './sim/map';
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
-import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, takeTileChanges, ticksPerSecond } from './sim/sim';
+import { type Command, type Population, type Sim, type Speed, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
+import { takeTileChanges } from './sim/tileChanges';
 
 export type ToSim = { readonly kind: 'start'; readonly map: TileMap; readonly population: Population } | Command;
 
@@ -14,7 +15,7 @@ export interface ClockSnapshot {
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
-  /** The tiles changed since the last frame, as pairs of a tile index and its kind now. */
+  /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
   readonly orders: OrderChanges;

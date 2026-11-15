@@ -2,7 +2,9 @@ import { type BufferAttribute, type InstancedMesh, Matrix4, type Mesh, Vector3 }
 import { describe, expect, it } from 'vitest';
 import { TileKind, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
-import { SETTLERS, changeTile, createSim, takeTileChanges } from '../sim/sim';
+import { Good } from '../sim/goods';
+import { SETTLERS, createSim } from '../sim/sim';
+import { changeTile, noteTileChange, takeTileChanges } from '../sim/tileChanges';
 import { SEASON_COLORS } from './seasonal';
 import { createWorld } from './world';
 
@@ -27,33 +29,41 @@ function scale(mesh: InstancedMesh, instance: number): number {
 }
 
 describe('tile changes from the simulation', () => {
-  it('bring the main thread copy of the map, the ground, and the trees up to date', () => {
+  it('bring the main thread copy of the map, the ground, the trees, and the boulders up to date', () => {
     const mainMap = generateMap(7, SIZE);
     const world = createWorld(mainMap);
-    const sim = createSim(structuredClone(mainMap) as TileMap, SETTLERS);
+    const sim = createSim(mainMap, SETTLERS);
     const trees = world.scene.getObjectByName('broadleaves') as InstancedMesh;
     const boulders = world.scene.getObjectByName('boulders') as InstancedMesh;
     const felled = tileOf(trees, 0);
     const quarried = tileOf(boulders, 0);
-    expect(mainMap.kinds[felled]).toBe(TileKind.Forest);
+    expect(mainMap.trees[felled]).toBe(1);
     expect(mainMap.kinds[quarried]).toBe(TileKind.Rock);
 
-    changeTile(sim, felled, TileKind.Grass);
-    changeTile(sim, quarried, TileKind.Grass);
+    sim.map.trees[felled] = 0;
+    sim.map.stackGood[felled] = Good.Log;
+    sim.map.stackSize[felled] = 2;
+    noteTileChange(sim, felled);
+    changeTile(sim, quarried, TileKind.Bare);
     world.changeTiles(takeTileChanges(sim));
 
     expect(mainMap.kinds).toEqual(sim.map.kinds);
+    expect(mainMap.trees).toEqual(sim.map.trees);
+    expect(mainMap.stackGood).toEqual(sim.map.stackGood);
+    expect(mainMap.stackSize).toEqual(sim.map.stackSize);
     expect(scale(trees, 0)).toBe(0);
     expect(scale(boulders, 0)).toBe(0);
     expect(scale(trees, 1)).toBeGreaterThan(0);
+    expect(scale(boulders, 1)).toBeGreaterThan(0);
     expect(groundColors(world)).toEqual(groundColors(createWorld(structuredClone(sim.map) as TileMap)));
+    expect(groundColors(world)).not.toEqual(groundColors(createWorld(generateMap(7, SIZE))));
   });
 
   it('change nothing when no tile changed', () => {
     const mainMap = generateMap(7, SIZE);
     const world = createWorld(mainMap);
     const before = groundColors(world);
-    world.changeTiles(takeTileChanges(createSim(structuredClone(mainMap) as TileMap, SETTLERS)));
+    world.changeTiles(takeTileChanges(createSim(mainMap, SETTLERS)));
     expect(groundColors(world)).toEqual(before);
   });
 });
