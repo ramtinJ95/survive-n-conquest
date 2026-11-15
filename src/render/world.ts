@@ -1,21 +1,21 @@
-import { CylinderGeometry, type IUniform, type Material, Mesh, MeshLambertMaterial, PlaneGeometry, Scene, Vector4 } from 'three';
-import { CAMP_RADIUS, campTile } from '../sim/camp';
+import { type IUniform, type Material, Mesh, PlaneGeometry, Scene, Vector4 } from 'three';
+import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
+import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
 import { createGoods } from './goods';
 import { PALETTES } from './palette';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
+import type { Shapes } from './shapes';
 import { createSites } from './sites';
 import { SEASON_COLORS, seasonMixAt, seasonalMaterial } from './seasonal';
 import { createTerrain } from './terrainMesh';
 
 const NEAREST_VIEW = 22;
-/** The camp is a disc of trodden earth, wide enough to hold the settlers' spots. */
-const CAMP = { color: 0x6e4b2e };
 /** The camera flies this far above the tallest tree, in meters. */
 const TREETOP_MARGIN = 1;
 
@@ -36,32 +36,20 @@ function createWater(map: TileMap, seasonMix: IUniform<Vector4>): Mesh {
   return water;
 }
 
-function createCamp(map: TileMap, tile: number): Mesh {
-  const x = (tile % map.size) + 0.5;
-  const y = Math.floor(tile / map.size) + 0.5;
-  const camp = new Mesh(
-    new CylinderGeometry(CAMP_RADIUS, CAMP_RADIUS, 0.3, 12),
-    new MeshLambertMaterial({ color: CAMP.color, flatShading: true }),
-  );
-  camp.name = 'camp';
-  camp.position.set(x - map.size / 2, heightAt(map, x, y), y - map.size / 2);
-  camp.receiveShadow = true;
-  return camp;
-}
-
 /**
- * Builds the scene for a map, centered on the world origin, and the camera
- * that flies over it. `show` lights the scene and colors the land for a tick
+ * Builds the scene for a map, centered on the world origin, out of `shapes`,
+ * and the camera that flies over it. `show` lights the scene and colors the land for a tick
  * of the simulation clock. The simulation owns the map, and `changeTiles`
  * brings this copy of it, the ground, and the scenery up to date.
  */
-export function createWorld(map: TileMap) {
+export function createWorld(map: TileMap, shapes: Shapes) {
   const scene = new Scene();
   const seasonMix = { value: new Vector4(1, 0, 0, 0) };
   const { terrain, repaint } = createTerrain(map, seasonMix);
   const scenery = createScenery(map, seasonMix);
   const camp = campTile(map);
-  scene.add(terrain, createWater(map, seasonMix), createCamp(map, camp), ...scenery.meshes);
+  const campsite = createCamp(map, camp, shapes);
+  scene.add(terrain, createWater(map, seasonMix), campsite.mesh, ...scenery.meshes);
   let lowest = WATER_LEVEL;
   let highest = WATER_LEVEL;
   for (const height of map.heights) {
@@ -81,16 +69,19 @@ export function createWorld(map: TileMap) {
     },
   );
 
-  const goods = createGoods(map);
+  const goods = createGoods(map, shapes);
   scene.add(goods.group);
 
-  const sites = createSites(map);
-  scene.add(sites.group);
+  const sites = createSites(map, shapes);
+  scene.add(sites.houses, sites.scaffolds);
 
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
-  const show = (tick: number) => light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
+  const show = (tick: number) => {
+    light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
+    campsite.show(tick);
+  };
   show(0);
 
   /** Applies tile changes from the simulation, as `takeTileChanges` groups them, to the map and the scene. */
@@ -122,5 +113,5 @@ export function createWorld(map: TileMap) {
     if (changes.sites.length > 0) sites.show(orders);
   };
 
-  return { scene, rig, show, changeTiles, orders, marks, changeOrders };
+  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders };
 }

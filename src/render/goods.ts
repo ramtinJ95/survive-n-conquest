@@ -1,25 +1,11 @@
-import {
-  BoxGeometry,
-  type BufferGeometry,
-  CylinderGeometry,
-  DynamicDrawUsage,
-  Group,
-  InstancedMesh,
-  Matrix4,
-  MeshLambertMaterial,
-  Object3D,
-} from 'three';
+import { type BufferGeometry, DynamicDrawUsage, Group, InstancedMesh, type Material, Matrix4, Object3D, Vector3 } from 'three';
 import { Good, STACK_LIMIT } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
+import { type Shapes, shapeMaterial } from './shapes';
 
-/** Logs read as pale cut wood and stone as a cool grey, so neither passes for a settler, a monster, rock, or an order mark. */
-export const LOG_COLOR = 0xd9b77e;
-export const STONE_COLOR = 0xc9d1db;
 const FIRST_BLOCKS = 256;
-
-/** One unit of each good, centered on the origin. A log stands along y until it is turned. */
-export const logGeometry = () => new CylinderGeometry(0.15, 0.15, 0.9, 6);
-export const stoneGeometry = () => new BoxGeometry(0.36, 0.36, 0.36);
+/** A unit rests this share of its own height above the unit under it, so a stack settles a little. */
+const SETTLED = 0.85;
 
 interface Pile {
   mesh: InstancedMesh;
@@ -30,7 +16,7 @@ interface Pile {
   readonly place: (unit: number, pose: Object3D) => void;
 }
 
-function pileMesh(name: string, geometry: BufferGeometry, material: MeshLambertMaterial, capacity: number): InstancedMesh {
+function pileMesh(name: string, geometry: BufferGeometry, material: Material, capacity: number): InstancedMesh {
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.name = name;
   mesh.castShadow = true;
@@ -41,38 +27,39 @@ function pileMesh(name: string, geometry: BufferGeometry, material: MeshLambertM
   return mesh;
 }
 
-function createPile(name: string, geometry: BufferGeometry, color: number, place: Pile['place']): Pile {
-  const material = new MeshLambertMaterial({ color, flatShading: true });
-  return { mesh: pileMesh(name, geometry, material, FIRST_BLOCKS * STACK_LIMIT), blocks: new Map(), free: [], place };
+function createPile(name: string, geometry: BufferGeometry, place: (size: Vector3) => Pile['place']): Pile {
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new Vector3());
+  return { mesh: pileMesh(name, geometry, shapeMaterial(), FIRST_BLOCKS * STACK_LIMIT), blocks: new Map(), free: [], place: place(size) };
 }
 
-const placeLog = (unit: number, pose: Object3D) => {
+const placeLogs = (size: Vector3) => (unit: number, pose: Object3D) => {
   const layer = Math.floor(unit / 2);
-  const side = unit % 2 === 0 ? -0.18 : 0.18;
+  const side = (unit % 2 === 0 ? -0.4 : 0.4) * size.z;
   const across = layer % 2 === 1;
-  pose.position.set(across ? side : 0, 0.15 + layer * 0.28, across ? 0 : side);
-  pose.rotation.set(across ? Math.PI / 2 : 0, 0, across ? 0 : Math.PI / 2);
+  pose.position.set(across ? side : 0, layer * size.y * SETTLED, across ? 0 : side);
+  pose.rotation.set(0, across ? Math.PI / 2 : 0, 0);
 };
 
-const placeStone = (unit: number, pose: Object3D) => {
+const placeStones = (size: Vector3) => (unit: number, pose: Object3D) => {
   const layer = Math.floor(unit / 4);
   const corner = unit % 4;
-  pose.position.set(corner % 2 === 0 ? -0.2 : 0.2, 0.18 + layer * 0.36, corner < 2 ? -0.2 : 0.2);
-  pose.rotation.set(0, (unit * 0.7) % 1, 0);
+  const reach = 0.5 * Math.max(size.x, size.z);
+  pose.position.set(corner % 2 === 0 ? -reach : reach, layer * size.y * SETTLED, corner < 2 ? -reach : reach);
+  pose.rotation.set(0, unit * 2.4, 0);
 };
 
 /**
- * Draws the goods on the ground as readable primitives: up to 8 logs or 8
- * stones on a tile, one instance each. Each tile that holds goods owns a block
- * of 8 instances of its good's mesh, and `refresh` rewrites that block from the
- * map's stack. A mesh that runs out of blocks is replaced by one twice its size
- * inside `group`.
+ * Draws the goods on the ground: up to 8 logs or 8 stones on a tile, one
+ * instance each. Each tile that holds goods owns a block of 8 instances of its
+ * good's mesh, and `refresh` rewrites that block from the map's stack. A mesh
+ * that runs out of blocks is replaced by one twice its size inside `group`.
  */
-export function createGoods(map: TileMap) {
+export function createGoods(map: TileMap, shapes: Shapes) {
   const half = map.size / 2;
   const piles: Partial<Record<Good, Pile>> = {
-    [Good.Log]: createPile('logs', logGeometry(), LOG_COLOR, placeLog),
-    [Good.Stone]: createPile('stone', stoneGeometry(), STONE_COLOR, placeStone),
+    [Good.Log]: createPile('logs', shapes.log, placeLogs),
+    [Good.Stone]: createPile('stone', shapes.stone, placeStones),
   };
   const group = new Group();
   group.name = 'goods';
@@ -95,7 +82,7 @@ export function createGoods(map: TileMap) {
 
   const grow = (pile: Pile) => {
     const old = pile.mesh;
-    const mesh = pileMesh(old.name, old.geometry, old.material as MeshLambertMaterial, old.instanceMatrix.count * 2);
+    const mesh = pileMesh(old.name, old.geometry, old.material as Material, old.instanceMatrix.count * 2);
     mesh.instanceMatrix.array.set(old.instanceMatrix.array);
     mesh.count = old.count;
     group.remove(old);

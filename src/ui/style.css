@@ -23,6 +23,21 @@ body {
   display: block;
 }
 
+.models-notice {
+  position: fixed;
+  top: var(--edge-gap);
+  right: var(--edge-gap);
+  max-width: 230px;
+  margin: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  color: var(--ink);
+  font: 12px/1.4 var(--ui-font);
+  pointer-events: none;
+}
+
 .clock {
   position: fixed;
   top: var(--edge-gap);

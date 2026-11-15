@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { SEASONS, TICKS_PER_DAY } from '../sim/calendar';
 import { generateMap } from '../sim/mapgen';
 import { SEASON_COLORS, seasonMixAt } from './seasonal';
+import { primitiveShapes } from './shapes';
 import { createWorld } from './world';
 
 const DAY = TICKS_PER_DAY;
@@ -13,7 +14,7 @@ const FIRST_MIDNIGHT = 16 * HOUR;
 const at = (day: number, hour: number) => FIRST_MIDNIGHT + (day - 2) * DAY + hour * HOUR;
 const [SPRING, SUMMER, AUTUMN, WINTER] = [1, 4, 7, 10].map((day) => at(day, 12)) as [number, number, number, number];
 
-const { scene, show } = createWorld(generateMap(7, 48));
+const { scene, show } = createWorld(generateMap(7, 48), primitiveShapes());
 
 /** What three.js hands a material to compile. */
 function compiled(mesh: Mesh) {

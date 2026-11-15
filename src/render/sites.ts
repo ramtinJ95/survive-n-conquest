@@ -1,28 +1,75 @@
-import { BoxGeometry, ConeGeometry, Group, InstancedMesh, MeshLambertMaterial, Object3D } from 'three';
+import {
+  BoxGeometry,
+  type BufferGeometry,
+  DoubleSide,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  type Material,
+  MeshDepthMaterial,
+  Object3D,
+  RGBADepthPacking,
+} from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HOUSE_WORK_TICKS } from '../sim/building';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
+import { type Shapes, colored, shapeMaterial } from './shapes';
 
-/** Dark timber for the frame, so that it stands apart from the pale logs stacked beside it. */
-const FRAME_COLOR = 0x5b3a1e;
-/** Cream walls and a slate roof, which pass for no settler, monster, rock, good, or order mark. */
-const WALL_COLOR = 0xeadfc8;
-const ROOF_COLOR = 0x4b5363;
-/** The walls stand this far in from the edge of the nine tiles, and this tall above the highest of them, in meters. */
-const WALL_INSET = 0.2;
-const WALL_HEIGHT = 1.9;
-/** The walls reach this far below the lowest tile, so that a house on a slope shows no gap under it. */
-const WALL_FOOTING = 0.3;
-const ROOF_HEIGHT = 1.4;
-const ROOF_HALF_SIDE = 1.55;
-/** The posts stand on the outer corners of the nine tiles, outside the builders who stand on the corner tiles. */
-const POST_WIDTH = 0.3;
-const BEAM_WIDTH = 0.2;
-const FRAME_REACH = 1.5 - POST_WIDTH / 2;
-const POSTS_PER_SITE = 4;
+/** A house stands on a footing of grey stone that reaches this far below its floor, past the lowest of its nine tiles. */
+const FOOTING = { color: 0x8d8a82, depth: 1.8, inset: 0.05 };
 
-function partMesh(name: string, geometry: BoxGeometry | ConeGeometry, color: number, perSite: number): InstancedMesh {
-  const mesh = new InstancedMesh(geometry, new MeshLambertMaterial({ color, flatShading: true }), MAX_SITES * perSite);
+/**
+ * A site under work stands in a scaffold of poles and rails, so a house that is half up reads as building work and
+ * not as a low house. The poles are the light timber of the house model, this thick, and reach this share of its height.
+ */
+const SCAFFOLD = { color: 0x855637, thickness: 0.09, height: 0.85, rails: [0.45, 0.95], out: 0.1 };
+
+function scaffoldGeometry(minX: number, maxX: number, minZ: number, maxZ: number, top: number): BufferGeometry {
+  const { color, thickness, rails, out } = SCAFFOLD;
+  const height = top * SCAFFOLD.height;
+  const [left, right] = [minX - out, maxX + out];
+  const middle = (minZ + maxZ) / 2;
+  const poles = [left, right].flatMap((x) => [minZ, middle, maxZ].map((z) => new BoxGeometry(thickness, height, thickness).translate(x, height / 2, z)));
+  const rings = rails.flatMap((share) => [
+    ...[left, right].map((x) => new BoxGeometry(thickness, thickness, maxZ - minZ).translate(x, height * share, middle)),
+    ...[minZ, maxZ].map((z) => new BoxGeometry(right - left, thickness, thickness).translate((left + right) / 2, height * share, z)),
+  ]);
+  return mergeGeometries([...poles, ...rings].map((part) => colored(part, color)));
+}
+
+/**
+ * The walls go up first and the roof closes last: the walls are this share of the house's height and take this share
+ * of the building work. A house cut through its roof shows the flat underside of the thatch and reads as a low hut.
+ */
+const WALLS = { height: 0.49, work: 0.8 };
+
+function heightShareAt(workShare: number): number {
+  return workShare <= WALLS.work
+    ? (workShare / WALLS.work) * WALLS.height
+    : WALLS.height + ((workShare - WALLS.work) / (1 - WALLS.work)) * (1 - WALLS.height);
+}
+
+const DECLARED = 'attribute float rise;\nvarying float vOverRise;';
+const MEASURED = 'vOverRise = position.y - rise;';
+const CUT = 'if (vOverRise > 0.0) discard;';
+
+function cutAboveRise<M extends Material>(material: M): M {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${DECLARED}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${MEASURED}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vOverRise;')
+      .replace('#include <clipping_planes_fragment>', `${CUT}\n#include <clipping_planes_fragment>`);
+    if (!shader.vertexShader.includes(MEASURED) || !shader.fragmentShader.includes(CUT)) {
+      throw new Error('three.js changed the shader that the rising house cuts');
+    }
+  };
+  return material;
+}
+
+function instanced(name: string, geometry: BufferGeometry, material: Material): InstancedMesh {
+  const mesh = new InstancedMesh(geometry, material, MAX_SITES);
   mesh.name = name;
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -32,96 +79,60 @@ function partMesh(name: string, geometry: BoxGeometry | ConeGeometry, color: num
 }
 
 /**
- * Draws each site's building work and each finished house as readable
- * primitives. A frame of four posts rises on a site with its share of the work
- * done, joined by beams at its top, so the progress reads without the label. A
- * finished house is a box inset from its nine tiles under a pyramid roof.
+ * Draws every house, finished or not, as one instanced mesh, and the scaffolds
+ * of the sites under work as another. A house on a site rises from its footing
+ * inside its scaffold with the share of the building work done, so the
+ * progress reads without the label. A finished house stands whole and without
+ * a scaffold. The floor lies on the highest of the nine tiles, and the footing
+ * fills the fall of the ground under it.
  */
-export function createSites(map: TileMap) {
+export function createSites(map: TileMap, shapes: Shapes) {
   const half = map.size / 2;
-  const unitBox = () => new BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-  const posts = partMesh('site-posts', unitBox(), FRAME_COLOR, POSTS_PER_SITE);
-  const beams = partMesh('site-beams', unitBox(), FRAME_COLOR, POSTS_PER_SITE);
-  const walls = partMesh('house-walls', unitBox(), WALL_COLOR, 1);
-  const roofs = partMesh(
-    'house-roofs',
-    new ConeGeometry(Math.SQRT2, 1, 4).rotateY(Math.PI / 4).translate(0, 0.5, 0),
-    ROOF_COLOR,
-    1,
-  );
-  const group = new Group();
-  group.name = 'sites';
-  group.add(posts, beams, walls, roofs);
+  shapes.house.computeBoundingBox();
+  const { min, max } = shapes.house.boundingBox!;
+  const footing = new BoxGeometry(max.x - min.x - 2 * FOOTING.inset, FOOTING.depth, max.z - min.z - 2 * FOOTING.inset);
+  const geometry = mergeGeometries([
+    shapes.house,
+    colored(footing.translate((min.x + max.x) / 2, -FOOTING.depth / 2, (min.z + max.z) / 2), FOOTING.color),
+  ]);
+  const aboveTheRoof = max.y + 1;
+  const rise = new InstancedBufferAttribute(new Float32Array(MAX_SITES), 1);
+  geometry.setAttribute('rise', rise);
+  const material = cutAboveRise(shapeMaterial());
+  material.side = DoubleSide;
+  const houses = instanced('houses', geometry, material);
+  houses.customDepthMaterial = cutAboveRise(new MeshDepthMaterial({ depthPacking: RGBADepthPacking, side: DoubleSide }));
+  const scaffolds = instanced('scaffolds', scaffoldGeometry(min.x, max.x, min.z, max.z, max.y), shapeMaterial());
   const pose = new Object3D();
-
-  const put = (mesh: InstancedMesh, index: number, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
-    pose.position.set(x, y, z);
-    pose.scale.set(sx, sy, sz);
-    pose.updateMatrix();
-    mesh.setMatrixAt(index, pose.matrix);
-  };
 
   /** Redraws every site and house from the orders. */
   const show = (orders: Orders) => {
     const { sites } = orders;
-    let frames = 0;
-    let houses = 0;
+    let count = 0;
+    let underWork = 0;
     for (let slot = 0; slot < MAX_SITES; slot++) {
       const state = sites.state[slot]!;
       const work = sites.work[slot]!;
       if (state === SiteState.Free || (state === SiteState.Site && work === 0)) continue;
       const cx = sites.x[slot]!;
       const cy = sites.y[slot]!;
-      let lowest = Infinity;
       let highest = -Infinity;
       for (let y = cy - 1; y <= cy + 1; y++) {
-        for (let x = cx - 1; x <= cx + 1; x++) {
-          const height = map.heights[y * map.size + x]!;
-          lowest = Math.min(lowest, height);
-          highest = Math.max(highest, height);
-        }
+        for (let x = cx - 1; x <= cx + 1; x++) highest = Math.max(highest, map.heights[y * map.size + x]!);
       }
-      const x = cx + 0.5 - half;
-      const z = cy + 0.5 - half;
-      const base = lowest - WALL_FOOTING;
-      const top = highest + WALL_HEIGHT;
-      const side = 3 - 2 * WALL_INSET;
-      if (state === SiteState.House) {
-        put(walls, houses, x, base, z, side, top - base, side);
-        put(roofs, houses, x, top, z, ROOF_HALF_SIDE, ROOF_HEIGHT, ROOF_HALF_SIDE);
-        houses++;
-        continue;
-      }
-      const rise = (Math.min(work, HOUSE_WORK_TICKS) / HOUSE_WORK_TICKS) * (top - base);
-      for (let corner = 0; corner < POSTS_PER_SITE; corner++) {
-        const index = frames * POSTS_PER_SITE + corner;
-        put(posts, index, x + (corner & 1 ? FRAME_REACH : -FRAME_REACH), base, z + (corner & 2 ? FRAME_REACH : -FRAME_REACH), POST_WIDTH, rise, POST_WIDTH);
-        const along = corner < 2;
-        const offset = corner % 2 === 0 ? -FRAME_REACH : FRAME_REACH;
-        const length = 2 * FRAME_REACH + POST_WIDTH;
-        put(
-          beams,
-          index,
-          x + (along ? 0 : offset),
-          base + Math.max(rise - BEAM_WIDTH, 0),
-          z + (along ? offset : 0),
-          along ? length : BEAM_WIDTH,
-          BEAM_WIDTH,
-          along ? BEAM_WIDTH : length,
-        );
-      }
-      frames++;
+      pose.position.set(cx + 0.5 - half, highest, cy + 0.5 - half);
+      pose.updateMatrix();
+      houses.setMatrixAt(count, pose.matrix);
+      rise.setX(count, state === SiteState.House ? aboveTheRoof : heightShareAt(Math.min(work, HOUSE_WORK_TICKS) / HOUSE_WORK_TICKS) * max.y);
+      count++;
+      if (state === SiteState.Site) scaffolds.setMatrixAt(underWork++, pose.matrix);
     }
-    for (const [mesh, count] of [
-      [posts, frames * POSTS_PER_SITE],
-      [beams, frames * POSTS_PER_SITE],
-      [walls, houses],
-      [roofs, houses],
-    ] as const) {
-      mesh.count = count;
-      mesh.instanceMatrix.needsUpdate = true;
-    }
+    houses.count = count;
+    houses.instanceMatrix.needsUpdate = true;
+    rise.needsUpdate = true;
+    scaffolds.count = underWork;
+    scaffolds.instanceMatrix.needsUpdate = true;
   };
 
-  return { group, show };
+  return { houses, scaffolds, show };
 }

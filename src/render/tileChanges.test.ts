@@ -6,7 +6,10 @@ import { Good } from '../sim/goods';
 import { SETTLERS, createSim } from '../sim/sim';
 import { changeTile, noteTileChange, takeTileChanges } from '../sim/tileChanges';
 import { SEASON_COLORS } from './seasonal';
-import { createWorld } from './world';
+import { primitiveShapes } from './shapes';
+import { createWorld as createWorldFrom } from './world';
+
+const createWorld = (map: TileMap) => createWorldFrom(map, primitiveShapes());
 
 const SIZE = 64;
 

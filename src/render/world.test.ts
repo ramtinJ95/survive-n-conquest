@@ -11,7 +11,10 @@ import { describe, expect, it } from 'vitest';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
 import { TALLEST_TREE } from './scenery';
-import { createWorld } from './world';
+import { primitiveShapes } from './shapes';
+import { createWorld as createWorldFrom } from './world';
+
+const createWorld = (map: TileMap) => createWorldFrom(map, primitiveShapes());
 
 const SIZE = 96;
 const map = generateMap(7, SIZE);

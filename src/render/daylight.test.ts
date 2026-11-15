@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { SEASONS, TICKS_PER_DAY } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { generateMap } from '../sim/mapgen';
+import { primitiveShapes } from './shapes';
 import { createWorld } from './world';
 
 const DAY = TICKS_PER_DAY;
@@ -13,7 +14,7 @@ const FIRST_MIDNIGHT = 16 * HOUR;
 /** The tick of an hour on the middle day of a season. Day 2 is the middle day of the first spring. */
 const midSeason = (season: number, hour: number) => FIRST_MIDNIGHT + season * 3 * DAY + hour * HOUR;
 
-const { scene, show } = createWorld(generateMap(7, 48));
+const { scene, show } = createWorld(generateMap(7, 48), primitiveShapes());
 const sky = scene.getObjectByName('sky') as HemisphereLight;
 const light = scene.getObjectByName('sun') as DirectionalLight;
 

@@ -1,5 +1,6 @@
 import { WebGLRenderer } from 'three';
 import { bindCameraInput } from './render/cameraInput';
+import { loadShapes } from './render/shapes';
 import { createSwarm } from './render/swarm';
 import { createWorld } from './render/world';
 import { generateMap } from './sim/mapgen';
@@ -22,11 +23,20 @@ document.body.append(renderer.domElement);
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
 const population = populationFor(params.get('swarm'));
-const { scene, rig, show, changeTiles, orders, marks, changeOrders } = createWorld(map);
-const swarm = createSwarm(map, population);
+const look = await loadShapes();
+const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
+const swarm = createSwarm(map, population, look.shapes, camp);
 scene.add(...swarm.meshes);
 const camera = rig.camera;
 showControlsHint(map.seed);
+if (look.fallback) {
+  const notice = document.createElement('p');
+  notice.className = 'models-notice';
+  notice.setAttribute('role', 'status');
+  notice.textContent = look.fallback;
+  document.body.append(notice);
+  console.warn(look.fallback);
+}
 
 function fitToWindow() {
   renderer.setSize(window.innerWidth, window.innerHeight);
