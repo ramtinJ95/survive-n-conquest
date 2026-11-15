@@ -1,7 +1,18 @@
 #!/bin/sh
-# Runs on every wake. Installs the packages from bun.lock, and the ffmpeg build that their Playwright records videos with, only when bun.lock or package.json changed since the last install.
+# Runs on every wake. Fetches the models, then installs the packages from bun.lock, and the ffmpeg build that their Playwright records videos with, only when bun.lock or package.json changed since the last install.
 # With --strict a failed install fails, as .nexus/setup and .nexus/check ask. On a wake it only warns, so a registry blip never fails a wake and the next wake tries again.
 cd "$(dirname "$0")/.." || exit 1
+
+origin=$(git remote get-url origin)
+assets=$(echo "$origin" | sed 's#/survive-n-conquest\(\.git\)\{0,1\}$#/survive-n-conquest-assets\1#')
+if [ "$assets" = "$origin" ]; then
+  false
+elif [ -d game-assets/.git ]; then
+  git -C game-assets pull --quiet --ff-only
+else
+  git clone --quiet --depth 1 "$assets" game-assets
+fi || echo "The models are not fetched from $assets: the game draws stand-in shapes." >&2
+
 stamp=node_modules/.nexus-install-sha256
 sum=$(cat package.json bun.lock | sha256sum | cut -d " " -f 1)
 installed() { [ "$(cat "$stamp" 2>/dev/null)" = "$sum" ]; }
