@@ -405,11 +405,16 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
   return { count: xs.length, x, y, spread };
 }
 
-/** Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until it is under the limit. */
-function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width } = {}) {
+/**
+ * Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until
+ * it is under the limit. `crop`, a box in video pixels, keeps only that part of the picture, and `colors` caps the
+ * palette of every step.
+ */
+function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256 } = {}) {
   const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
+  const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
-    const palette = `fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+    const palette = `${cut}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg(['-ss', from.toFixed(2), ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }
@@ -1170,6 +1175,254 @@ SCENARIOS.settlers = async (session) => {
     session.check(label, at[name].spread > 2 * gathered.spread, `${describe(name)} against ${describe('night')}; needs more than twice the night spread`);
   }
   const seen = [...clip.errors, ...settled.errors, ...bare.errors];
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * How the gathering scenario frames its work on seed 7, at 960 by 540. Each view zooms in by a wheel step, turns and
+ * tilts by a right-drag, then pans forward by a main-button drag with no tool, all from the opening view on the camp.
+ * Each of these moves depends only on its pixels once the view is at rest, so every run lands on the same view. The
+ * grove view looks east from the camp at a grove on the near edge of the forest, with no other trees in front of it.
+ * The rock view looks south at the north face of an outcrop, where the settlers stand to quarry it.
+ *
+ * `area` is the drag, as shares of the viewport. The grove drag covers tiles (140, 119) to (147, 127), which hold 12
+ * trees. The rock drag covers tiles (116, 142) to (123, 144), 21 rock tiles, of which 8 have a walkable side. Each
+ * spot picks its corner tile exactly. The boxes are in clip pixels: the grove with its crowns and pins, the rock face
+ * with the settlers in front of it, and the camp disc with the settlers standing on it.
+ */
+const GATHER_VIEWS = {
+  grove: {
+    wheel: -500,
+    turn: { x: 424, y: 60 },
+    pan: 76,
+    area: [[0.403, 0.429], [0.495, 0.299]],
+    box: { x: 370, y: 110, width: 125, height: 135 },
+  },
+  rock: {
+    wheel: -500,
+    turn: { x: -518, y: 60 },
+    pan: 76,
+    area: [[0.636, 0.344], [0.551, 0.321]],
+    box: { x: 510, y: 140, width: 120, height: 75 },
+    camp: { x: 440, y: 305, width: 95, height: 80 },
+  },
+};
+/**
+ * The clips keep the clock, the camp, and the work at full size, and leave out the toolbar and the camera hint. 64
+ * colors keep each clip under 4 MB, and the logs, the stone, and the settlers still read.
+ */
+const GATHER_CLIP = { crop: { x: 200, y: 0, width: 560, height: 420 }, width: 560, colors: 64 };
+/** Pale cut wood and cool grey stone, as `LOG_COLOR` and `STONE_COLOR` in `src/render/goods.ts` look in spring daylight. */
+const GOOD_COLORS = {
+  logs: ([r, g, b]) => r > 150 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r,
+  stone: ([r, g, b]) => g >= r && b >= g && b > r + 4 && Math.min(r, g, b) > 120 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
+};
+
+/**
+ * On seed 7, with the drags a few minutes after 08:00, the grove was clear by 12:42. All 8 settlers stood at the camp
+ * by 20:10 and were back at work by 06:00. The 8 rock tiles open to a side were spent between 08:05 and 08:56 on
+ * day 2. Each stop leaves half an hour or more on both sides of those times.
+ */
+const GROVE_CLEARED = { day: 1, time: '13:30' };
+const GATHER_STOPS = [
+  ['working', { day: 1, time: '12:00' }],
+  ['dusk', { from: { day: 1, time: '18:55' }, to: { day: 1, time: '20:15' } }],
+  ['night', { day: 1, time: '21:00' }],
+  ['dawn', { from: { day: 2, time: '04:40' }, to: { day: 2, time: '06:10' } }],
+  ['back', { day: 2, time: '07:00' }],
+  ['spent', { day: 2, time: '09:30' }],
+];
+/**
+ * On rj-firebat the grove box held 527 pin pixels before and 0 after, and 0 log pixels before and 192 after. The rock
+ * box held 0 stone pixels before and 412 at the last stop, and 64 and 126 villager pixels at the two day stops. The camp
+ * box differed from the bare map in 0 pixels by day and 501 at night. The marks' tint fell from 2976 to 1590 pixels
+ * once the first row of the face was spent, and the settlers moved 15 pixels up the screen onto it.
+ */
+const GATHER_LEAST = { pins: 200, logs: 80, stone: 150, workers: 25, campAtNight: 200, tintLost: 0.25, climb: 6 };
+const GATHER_MOST = { leftover: 10, goodsBefore: 10, campByDay: 20 };
+
+/** The violet that the quarry mark mixes into the ground of each marked rock tile. */
+const QUARRY_TINT = ([r, g, b]) => b > g + 35 && r > g + 15;
+
+/** Counts the pixels inside `box` of a screenshot `width` pixels wide that `matches` accepts, and their mean row. */
+function pixelsIn(png, width, box, matches) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  let count = 0;
+  let rows = 0;
+  for (let y = box.y; y < box.y + box.height; y++) {
+    for (let x = box.x; x < box.x + box.width; x++) {
+      const i = (y * width + x) * 3;
+      if (!matches([pixels[i], pixels[i + 1], pixels[i + 2]])) continue;
+      count += 1;
+      rows += y;
+    }
+  }
+  return { count, row: count > 0 ? rows / count : NaN };
+}
+
+/** Counts the pixels inside `box` where two screenshots of one size differ by more than `SETTLER_THRESHOLD` in some channel. */
+function changedIn(pngA, pngB, width, box) {
+  const a = ffmpeg(['-i', pngA, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const b = ffmpeg(['-i', pngB, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  let count = 0;
+  for (let y = box.y; y < box.y + box.height; y++) {
+    for (let x = box.x; x < box.x + box.width; x++) {
+      const i = (y * width + x) * 3;
+      if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > SETTLER_THRESHOLD) count += 1;
+    }
+  }
+  return count;
+}
+
+SCENARIOS.gathering = async (session) => {
+  const seen = [];
+  const spot = ([fx, fy]) => ({ x: Math.round(fx * CLIP.width), y: Math.round(fy * CLIP.height) });
+  const status = (page) => page.getByRole('status', { name: 'Order' });
+  const expectSaid = async (page, name, pattern) => {
+    const ok = await status(page).filter({ hasText: pattern }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    session.check(name, ok, `the status line reads "${(await status(page).textContent()) ?? ''}"`);
+  };
+  const frame = async (page, view) => {
+    const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+    await page.mouse.move(middle.x, middle.y);
+    await page.mouse.wheel(0, view.wheel);
+    await session.still(page);
+    const from = { x: middle.x - view.turn.x / 2, y: middle.y - view.turn.y / 2 };
+    await session.drag(page, from, { x: from.x + view.turn.x, y: from.y + view.turn.y }, 'right');
+    await session.still(page);
+    await session.drag(page, { x: middle.x, y: middle.y - view.pan / 2 }, { x: middle.x, y: middle.y + view.pan / 2 });
+    await session.still(page);
+  };
+  const mark = async (page, key, [from, to]) => {
+    await page.keyboard.press(key);
+    await session.drag(page, spot(from), spot(to));
+  };
+  const count = (png, box, matches) => pixelsIn(png, CLIP.width, box, matches).count;
+  const chopPins = (png) => count(png, GATHER_VIEWS.grove.box, (rgb) => distance(rgb, ORDER_RGB.chop) < ORDER_TOLERANCE);
+
+  // Runs the clock at the speed of `key` until it shows `when`, then pauses, a few game minutes past it at 8×.
+  const runTo = async (page, key, when) => {
+    await page.keyboard.press(key);
+    const wanted = clockMinutes(when);
+    const deadline = Date.now() + 180_000;
+    while ((await session.gameMinutes(page)) < wanted) {
+      if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in three minutes`);
+      await page.waitForTimeout(100);
+    }
+    await session.pause(page);
+  };
+
+  const grove = await session.open(CLIP, { record: true, clock: 'paused' });
+  await frame(grove.page, GATHER_VIEWS.grove);
+  const groveFrom = grove.since();
+  await mark(grove.page, 'KeyC', GATHER_VIEWS.grove.area);
+  await expectSaid(grove.page, 'a Chop drag marks the grove', /^12 trees marked for felling/);
+  await grove.page.keyboard.press('Escape');
+  await session.still(grove.page);
+  const marked = await session.screenshot(grove.page, 'gathering-grove-marked');
+  await runTo(grove.page, '4', GROVE_CLEARED);
+  await session.still(grove.page);
+  const cleared = await session.screenshot(grove.page, 'gathering-grove-cleared');
+  const groveTo = grove.since();
+  await session.finishClips(grove.context, grove.page, [{ label: 'gathering-grove', from: groveFrom, to: groveTo, ...GATHER_CLIP }]);
+  seen.push(...grove.errors);
+
+  const pins = { before: chopPins(marked), after: chopPins(cleared) };
+  session.check('the marked grove shows its pins', pins.before >= GATHER_LEAST.pins, `${pins.before} pure chop pixels in the grove, needs ${GATHER_LEAST.pins}`);
+  session.check(
+    `by ${GROVE_CLEARED.time} the settlers have felled every marked tree`,
+    pins.after <= GATHER_MOST.leftover,
+    `${pins.after} pure chop pixels left in the grove, from ${pins.before}; needs at most ${GATHER_MOST.leftover}`,
+  );
+  const logs = { before: count(marked, GATHER_VIEWS.grove.box, GOOD_COLORS.logs), after: count(cleared, GATHER_VIEWS.grove.box, GOOD_COLORS.logs) };
+  session.check(
+    'the felled trees leave logs on the ground',
+    logs.before <= GATHER_MOST.goodsBefore && logs.after >= GATHER_LEAST.logs,
+    `${logs.before} log pixels in the grove before and ${logs.after} after, needs at most ${GATHER_MOST.goodsBefore} and then ${GATHER_LEAST.logs}`,
+  );
+
+  const rock = await session.open(CLIP, { record: true, clock: 'paused' });
+  await frame(rock.page, GATHER_VIEWS.rock);
+  await mark(rock.page, 'KeyM', GATHER_VIEWS.rock.area);
+  await expectSaid(rock.page, 'a Quarry drag marks the rock face', /^21 rock tiles marked for quarrying/);
+  await rock.page.keyboard.press('Escape');
+  await session.still(rock.page);
+  const face = await session.screenshot(rock.page, 'gathering-rock-marked');
+  const cuts = [];
+  const shots = {};
+  for (const [name, when] of GATHER_STOPS) {
+    if (name === 'dusk' || name === 'dawn') {
+      await session.reach(rock.page, when.from);
+      const from = rock.since();
+      await runTo(rock.page, '2', when.to);
+      cuts.push({ label: `gathering-${name}`, from, to: rock.since(), ...GATHER_CLIP });
+      continue;
+    }
+    if (name === 'spent') {
+      const from = rock.since();
+      await runTo(rock.page, '3', when);
+      await session.still(rock.page);
+      shots.spent = await session.screenshot(rock.page, 'gathering-rock-spent');
+      cuts.push({ label: 'gathering-quarry', from, to: rock.since(), ...GATHER_CLIP });
+      continue;
+    }
+    await session.reach(rock.page, when);
+    await session.still(rock.page);
+    shots[name] = await session.screenshot(rock.page, `gathering-${name}`);
+  }
+  await session.finishClips(rock.context, rock.page, cuts);
+  seen.push(...rock.errors);
+
+  const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
+  await frame(bare.page, GATHER_VIEWS.rock);
+  const empty = {};
+  for (const [name, when] of GATHER_STOPS) {
+    if (!['working', 'night', 'back'].includes(name)) continue;
+    await session.reach(bare.page, when);
+    await session.still(bare.page);
+    empty[name] = await session.screenshot(bare.page, `gathering-bare-${name}`);
+  }
+  await bare.context.close();
+  seen.push(...bare.errors);
+
+  const atCamp = (name) => changedIn(empty[name], shots[name], CLIP.width, GATHER_VIEWS.rock.camp);
+  const atRock = (name) => pixelsIn(shots[name], CLIP.width, GATHER_VIEWS.rock.box, UNIT_COLORS.villagers);
+  const camp = { working: atCamp('working'), night: atCamp('night'), back: atCamp('back') };
+  const workers = { working: atRock('working').count, back: atRock('back').count };
+  const when = Object.fromEntries(GATHER_STOPS.map(([name, stop]) => [name, stop.time ?? stop.to?.time]));
+  session.check(
+    `at ${when.working} the settlers quarry the rock face, away from the camp`,
+    workers.working >= GATHER_LEAST.workers && camp.working <= GATHER_MOST.campByDay,
+    `${workers.working} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.working} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+  );
+  session.check(
+    `at ${when.night} the settlers have left the work and stand at the camp`,
+    camp.night >= GATHER_LEAST.campAtNight,
+    `${camp.night} pixels at the camp differ from the bare map, needs ${GATHER_LEAST.campAtNight}`,
+  );
+  session.check(
+    `at ${when.back} on day 2 the settlers are back at the rock face`,
+    workers.back >= GATHER_LEAST.workers && camp.back <= GATHER_MOST.campByDay,
+    `${workers.back} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.back} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+  );
+  const stone = { before: count(face, GATHER_VIEWS.rock.box, GOOD_COLORS.stone), after: count(shots.spent, GATHER_VIEWS.rock.box, GOOD_COLORS.stone) };
+  session.check(
+    'quarried rock leaves stone in front of the rock face',
+    stone.before <= GATHER_MOST.goodsBefore && stone.after >= GATHER_LEAST.stone,
+    `${stone.before} stone pixels at the rock face before and ${stone.after} at ${when.spent} on day 2, needs at most ${GATHER_MOST.goodsBefore} and then ${GATHER_LEAST.stone}`,
+  );
+  const tint = { back: count(shots.back, GATHER_VIEWS.rock.box, QUARRY_TINT), spent: count(shots.spent, GATHER_VIEWS.rock.box, QUARRY_TINT) };
+  session.check(
+    `by ${when.spent} on day 2 rock tiles are spent and lose their mark`,
+    tint.spent <= tint.back * (1 - GATHER_LEAST.tintLost),
+    `${tint.back} quarry-tinted pixels at the rock face at ${when.back} and ${tint.spent} at ${when.spent}, needs ${GATHER_LEAST.tintLost * 100}% fewer`,
+  );
+  const climb = atRock('back').row - atRock('spent').row;
+  session.check(
+    `by ${when.spent} the settlers stand on the spent tiles to quarry the rock behind them`,
+    climb >= GATHER_LEAST.climb,
+    `the settlers at the rock face moved ${climb.toFixed(1)} pixels up the screen, toward the rock, from ${when.back}; needs ${GATHER_LEAST.climb}`,
+  );
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
