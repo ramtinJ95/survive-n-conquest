@@ -18,6 +18,7 @@ V=.claude/skills/verify-survive-n-conquest/scripts/verify.mjs
 In a Nexus pylon, `.nexus/setup` installs all of these when the pylon is made, and `.nexus/resume` keeps the packages current on every wake.
 
 - `bun install` has run in the checkout.
+- The private assets repository is cloned at `game-assets/`, so the build serves `models.glb`. Without it the game draws stand-in shapes and says so, and doctor fails.
 - `bun` and `ffmpeg` are on `PATH`.
 - A headless Chromium is installed. In a pylon it is Debian's `chromium-headless-shell` package at `/usr/lib/chromium/chromium-headless-shell`, and `verify.mjs` launches that binary whenever it exists. A pylon cannot install Playwright's own Chromium, because it downloads from `storage.googleapis.com`, which the pylon's allowlist does not include. On a machine without the Debian package, run `node_modules/.bin/playwright install chromium-headless-shell`.
 - Playwright's ffmpeg build is installed, because Playwright records video with it. Run `node_modules/.bin/playwright install ffmpeg`.
@@ -49,7 +50,7 @@ Pick a free port for each checkout. Two worktrees can run side by side on differ
 $V doctor
 ```
 
-Doctor is read-only. It checks that an instance is recorded, that the port serves this build, that this shell can signal the preview process, that the build revision matches the checkout, that `ffmpeg` runs, and that headless Chromium launches with WebGL2. It prints the WebGL renderer string. Run it first whenever anything looks off, and fix every `FAIL` before you trust a capture.
+Doctor is read-only. It checks that an instance is recorded, that the port serves this build, that this shell can signal the preview process, that the build revision matches the checkout, that the build serves the models, that `ffmpeg` runs, and that headless Chromium launches with WebGL2. It prints the WebGL renderer string. Run it first whenever anything looks off, and fix every `FAIL` before you trust a capture.
 
 ## Drive
 
@@ -72,6 +73,7 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `expectSurfaces(name, png, minimums, rows)` checks the share of sky, water, plants, rock, or ground in a screenshot. The colors it looks for are those of a spring noon.
 - `expectShares(name, kinds, png, { atLeast, atMost }, rows)` checks the share of any set of pixel kinds, such as `SEASON_MARKS`, against lower and upper limits.
 - `unitPixels(png)` counts the full-resolution pixels in villager yellow and in monster red, as they look in daylight.
+- `drawsPerFrame(page)` returns the draw calls and the triangles that one frame sends to WebGL, the shadow pass included, as the mean of ten frames. An init script counts them inside the page, so the game needs no hook and an older build can be measured too.
 - `orderPixels(png, width, skip)` counts the full-resolution pixels in the pure color of each order mark, `chop`, `quarry`, `stockpile`, `site`, `fits`, and `blocks`, in a screenshot `width` pixels wide, leaving out the box `skip`.
 - `check(name, ok, detail)` records any other check.
 
@@ -85,6 +87,7 @@ Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git i
 - A check that reads pixels from a screenshot proves what the player sees. Report its detail line next to the image.
 - Report every `FAIL` line. A failed check is a finding, not a reason to loosen the check.
 - Headless Chromium renders WebGL through SwiftShader on the CPU. Its frame rate says nothing about the game's frame rate. Never report it as performance.
+- `drive frames` is the one scenario that measures frame time. It launches a browser that draws on the machine's GPU, and fails where none does, as in a pylon. `features/frames.md` says what it reports and how to compare two builds.
 - PR media goes to the `pr-media` branch under `pr-<number>/`. Upload only the files the pull request body embeds. Copy a GIF from the evidence folder as it is. Upload a screenshot as a lossy WebP copy at quality 85, and keep the PNG in the evidence folder, where the pixel checks read it. Never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
 
 ```sh

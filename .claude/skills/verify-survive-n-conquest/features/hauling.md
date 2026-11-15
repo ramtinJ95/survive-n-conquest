@@ -32,7 +32,7 @@ Preconditions:
   - `by 17:30 the logs have left the grove` needs the grove's log pixels to fall to half or less.
 - **Fill a small stockpile.** The second page drags `HAUL_SPOTS.small` at 13:30, 2 tiles and 16 places, and `a Stockpile drag makes fewer places than the 24 logs` reads the count from the status line. It takes `hauling-full-filled.png` at 17:00 and `hauling-full.png` at 10:00 on day 2.
   - `the full stockpile holds as many logs as it has places ...` needs the Logs total to equal the places at both stops.
-  - `... the logs with no place still lie in the grove` counts log pixels in the grove's box at both stops.
+  - `... the logs with no place still lie in the grove` counts `LOGS_IN_A_CLEARED_GROVE_BY_DAY` in the grove's box at both stops.
 - **Put the units down at dusk.** The third page takes `hauling-route-before.png` at 15:30, then drags `HAUL_SPOTS.far` near the lake, a long walk from the grove. It takes `hauling-dusk-before.png` at 19:05, with carriers on the route and logs above their heads, reads the panel at 19:30, takes `hauling-dusk-after.png` at 21:00, reads the panel at 04:30 on day 2, and takes `hauling-dawn-lying.png` at 07:00 and `hauling-dawn-carried.png` at 11:00 on day 2. A fourth page with `?swarm=off` takes the same view at 15:30, 19:05, and 21:00, `hauling-bare-<stop>.png`. `changedIn` counts the pixels in `HAUL_BOXES.route` and `HAUL_BOXES.camp` that differ from that bare page.
   - `at 15:30, before the far stockpile, nothing lies on the route` needs no log pixels and almost no change on the route.
   - `at 19:05 carriers walk the route` needs the route to differ from the bare map.
@@ -49,7 +49,7 @@ Preconditions:
 - `GOOD_COLORS` matches the logs in spring daylight only. It finds them at 17:30 and not at 18:30, so every log count stops between 07:00 and 17:30.
 - A log put down at night differs from the bare ground by about 25 in its brightest channel, no more than `SETTLER_THRESHOLD`. The night check uses `NIGHT_THRESHOLD`.
 - At 19:30 the settlers still walk across the route to the camp. The after-dusk screenshot waits until 21:00, when they all stand at the camp.
-- The carriers take the front logs first. Beside the full stockpile the 8 logs left lie under the crowns at the back of the grove and show as about 10 log pixels.
+- The carriers take the front logs first. Beside the full stockpile the 8 logs left lie under the crowns at the back of the grove. In that shade only 3 to 7 of their pixels are as bright as `GOOD_COLORS.logs` asks, so this check counts `LOGS_IN_A_CLEARED_GROVE_BY_DAY`, about 9 pixels for each log. That predicate also matches the forest in the evening light, so use it only in a cleared grove by day.
 - The wheel zooms toward the middle of the screen, not the pointer. A closer view of the route loses the far stockpile and hides the grove behind its crowns, so the dusk page keeps the grove view, where a carrier and its log are a few pixels across.
 - A grove tile holds the 2 logs of its tree, so two settlers often walk to the same tile, each for one of its logs.
 - Do not take these checks from the clip. Its frames depend on how fast SwiftShader draws.

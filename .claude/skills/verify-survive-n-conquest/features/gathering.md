@@ -43,7 +43,7 @@ Preconditions:
 - One settler quarries a rock tile for 1600 ticks, nearly a whole spring day of 1800 daylight ticks. The settlers reach the face about an hour after the drag, so no rock tile is spent on day 1. The work done stays on the tile through the night, and the first tiles are spent on the morning of day 2.
 - Only 8 of the 21 marked rock tiles have a walkable side at first. The others wait until a tile beside them is spent, and then a settler walks onto the spent tile to quarry them.
 - The clock pauses at a slightly different tick on each page load, so the work starts a few game minutes apart on each run. The stops leave room for that.
-- The logs and stone are lit primitives, so their colors follow the light. `GOOD_COLORS` matches them in spring daylight only, and the checks that use it stop in daylight.
+- The logs and stone are lit models in the pale wood and the cool grey of `assets/models.json`, so their colors follow the light. `GOOD_COLORS` matches them in spring daylight only, and the checks that use it stop in daylight.
 - From the opening view the forest stands between the camera and any grove near the camp, so the felled trees and their logs hide behind other crowns. The grove view looks at the forest's near edge from the camp's side.
 - At 17:00 the outcrop's shadow falls on the settlers at the rock face, and they read too dark for `UNIT_COLORS.villagers`. The day stops are at noon and 07:00.
 - `GOOD_COLORS.logs` also matches the sand at the lake shore, so it only counts inside the grove's box.

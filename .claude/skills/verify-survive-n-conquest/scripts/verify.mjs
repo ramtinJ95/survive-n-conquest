@@ -102,6 +102,46 @@ function paceFramesToTheGpu() {
   };
 }
 
+function countDraws() {
+  const sent = { calls: 0, triangles: 0 };
+  window.drawsSent = sent;
+  const gl = WebGL2RenderingContext.prototype;
+  const count = (name, vertices, instances) => {
+    const draw = gl[name];
+    gl[name] = function (...args) {
+      sent.calls++;
+      if (args[0] === this.TRIANGLES) sent.triangles += (args[vertices] / 3) * (instances ? args[instances] : 1);
+      return draw.apply(this, args);
+    };
+  };
+  count('drawArrays', 2);
+  count('drawElements', 1);
+  count('drawArraysInstanced', 2, 3);
+  count('drawElementsInstanced', 1, 4);
+}
+
+function timeFrames() {
+  if (!window.drawsSent) throw new Error('timeFrames tells a drawn frame by the draws that countDraws counts, so countDraws runs first');
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  const contexts = new Set();
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const context = getContext.call(this, type, ...rest);
+    if (type === 'webgl2' && context) contexts.add(context);
+    return context;
+  };
+  const request = window.requestAnimationFrame.bind(window);
+  window.frameCosts = [];
+  window.requestAnimationFrame = (callback) =>
+    request((time) => {
+      const drawn = window.drawsSent.calls;
+      const from = performance.now();
+      callback(time);
+      if (window.drawsSent.calls === drawn) return;
+      for (const gl of contexts) gl.finish();
+      window.frameCosts.push(performance.now() - from);
+    });
+}
+
 function fail(message) {
   throw new VerifyError(message);
 }
@@ -150,6 +190,16 @@ async function servesThisBuild(url) {
   try {
     const response = await fetch(url);
     return response.ok && existsSync(built) && (await response.text()) === readFileSync(built, 'utf8');
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the instance serves a binary glTF file of models. `vite preview` answers a missing file with the page itself. */
+async function servesModels(url) {
+  try {
+    const response = await fetch(`${url}models.glb`);
+    return response.ok && Buffer.from(await response.arrayBuffer()).subarray(0, 4).toString('latin1') === 'glTF';
   } catch {
     return false;
   }
@@ -217,6 +267,28 @@ function launchBrowser() {
   return playwright().chromium.launch({ args: BROWSER_ARGS, executablePath: BROWSER_PATH });
 }
 
+const rendererOf = (page) =>
+  page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const info = gl?.getExtension('WEBGL_debug_renderer_info');
+    return gl && info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown renderer';
+  });
+
+async function launchGpuBrowser() {
+  const args = ['--enable-gpu', '--ignore-gpu-blocklist', `--use-angle=${process.platform === 'darwin' ? 'metal' : 'default'}`, '--disable-gpu-vsync', '--disable-frame-rate-limit'];
+  const seen = [];
+  for (const headless of [true, false]) {
+    const browser = await playwright().chromium.launch({ args, headless });
+    const page = await browser.newPage();
+    const renderer = await rendererOf(page);
+    await page.close();
+    if (!/swiftshader|llvmpipe|software/i.test(renderer)) return { browser, renderer };
+    seen.push(`${headless ? 'headless' : 'a window'}: ${renderer}`);
+    await browser.close();
+  }
+  fail(`no browser here draws on a GPU (${seen.join('; ')})`);
+}
+
 async function probeBrowser() {
   try {
     const browser = await launchBrowser();
@@ -250,6 +322,11 @@ async function doctor() {
     const reach = signal(instance.pid, 0);
     check('preview pid can be stopped from this shell', reach === 'sent', `pid ${instance.pid} ${reach}`);
     check('build matches checkout', instance.revision === revision(), `built ${instance.revision}, checkout ${revision()}`);
+    check(
+      'the build serves the models',
+      await servesModels(instance.url),
+      `${instance.url}models.glb; without it the game draws stand-in shapes, so clone the private assets repository into game-assets/ and launch again`,
+    );
   }
   check('ffmpeg on PATH', spawnSync('ffmpeg', ['-version']).status === 0, 'needed for GIFs and pixel probes');
   const browser = await probeBrowser();
@@ -436,7 +513,7 @@ const clockText = (minutes) => {
   return `day ${day} ${time}`;
 };
 
-function createSession(browser, instance, dir, evidence) {
+function createSession(browser, instance, dir, evidence, gpu = false) {
   const check = (name, ok, detail) => evidence.checks.push({ name, ok, detail });
   const capture = (file) => {
     evidence.files.push(file);
@@ -456,7 +533,8 @@ function createSession(browser, instance, dir, evidence) {
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
-      await context.addInitScript(paceFramesToTheGpu);
+      await context.addInitScript(countDraws);
+      await context.addInitScript(gpu ? timeFrames : paceFramesToTheGpu);
       const page = await context.newPage();
       const created = Date.now();
       const errors = [];
@@ -540,6 +618,26 @@ function createSession(browser, instance, dir, evidence) {
         last = next;
       }
       check('the view comes to rest', false, 'two screenshots a drawn frame apart still differ after 60 tries');
+    },
+
+    async drawsPerFrame(page) {
+      return page.evaluate(async () => {
+        const frames = 10;
+        const frame = () => new Promise((done) => requestAnimationFrame(done));
+        await frame();
+        const { calls, triangles } = window.drawsSent;
+        for (let drawn = 0; drawn < frames; drawn++) await frame();
+        return { calls: (window.drawsSent.calls - calls) / frames, triangles: Math.round((window.drawsSent.triangles - triangles) / frames) };
+      });
+    },
+
+    async frameWork(page, ms) {
+      if (!gpu) fail('only a scenario marked `gpu` times its frames, because headless Chromium draws on the CPU');
+      await page.evaluate(() => (window.frameCosts.length = 0));
+      await page.waitForTimeout(ms);
+      const costs = await page.evaluate(() => window.frameCosts.slice());
+      if (costs.length === 0) fail(`the page drew no frame in ${ms} ms`);
+      return { frames: costs.length, mean: costs.reduce((sum, cost) => sum + cost, 0) / costs.length, perSecond: (costs.length * 1000) / ms };
     },
 
     async hold(page, key, ms) {
@@ -1212,7 +1310,7 @@ const GATHER_VIEWS = {
  * colors keep each clip under 4 MB, and the logs, the stone, and the settlers still read.
  */
 const GATHER_CLIP = { crop: { x: 200, y: 0, width: 560, height: 420 }, width: 560, colors: 64 };
-/** Pale cut wood and cool grey stone, as `LOG_COLOR` and `STONE_COLOR` in `src/render/goods.ts` look in spring daylight. */
+/** Pale cut wood and cool grey stone, as the `paint` of the log and the stone in `assets/models.json` looks in spring daylight. */
 const GOOD_COLORS = {
   logs: ([r, g, b]) => r > 150 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r,
   stone: ([r, g, b]) => g >= r && b >= g && b > r + 4 && Math.min(r, g, b) > 120 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
@@ -1474,14 +1572,18 @@ const HAUL_STOPS = {
 };
 /**
  * On rj-firebat the grove box held 192 log pixels at 13:30 and 34 at 17:30, and the near stockpile's box 0, 114, and
- * 280 at 13:30, 15:00, and 17:30. Beside the full stockpile the grove box held 10 log pixels at 17:00 and 9 at 10:00 on
- * day 2: the carriers take the front logs first, and the 8 left lie under the crowns at the back. A grove with no logs
- * reads 0. The route held 0 log pixels and differed from the bare map in 0 pixels before the far stockpile, differed in
- * 317 at 19:05 and in 149 at 21:00, and held 60 log pixels at 07:00 on day 2 and 0 at 11:00. The camp box differed from
- * the bare map in 377 pixels at 21:00.
+ * 280 at 13:30, 15:00, and 17:30. Beside the full stockpile the carriers take the front logs first, and the 8 left lie
+ * under the crowns at the back, where a model log shows 3 to 7 pixels as bright as `GOOD_COLORS.logs` asks. On the
+ * owner's Mac the grove box held 77 pixels of `LOGS_IN_A_CLEARED_GROVE_BY_DAY` at 17:00 and 75 at 10:00 on day 2,
+ * about 9 for each log. The grove at 17:30, with its last logs in the sun, held 38 of them against 36 of
+ * `GOOD_COLORS.logs`. The route held 0 log pixels and differed from the bare map in 0 pixels before the far stockpile,
+ * differed in 317 at 19:05 and in 149 at 21:00, and held 60 log pixels at 07:00 on day 2 and 0 at 11:00. The camp box
+ * differed from the bare map in 377 pixels at 21:00.
  */
-const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 5, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
+const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 40, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
 const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, routeBefore: 20, routeCarried: 0.5 };
+/** The wood of `GOOD_COLORS.logs`, lit or under a crown. The forest matches it too in the evening light. */
+const LOGS_IN_A_CLEARED_GROVE_BY_DAY = ([r, g, b]) => r > 105 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r;
 /** A log put down at night differs from the bare ground by about 25 in its brightest channel, too little for `SETTLER_THRESHOLD`. */
 const NIGHT_THRESHOLD = 12;
 
@@ -1577,7 +1679,8 @@ SCENARIOS.hauling = async (session) => {
     filled.totals.logs === small.places && stillFull.totals.logs === small.places,
     `Logs ${filled.totals.logs} and then ${stillFull.totals.logs}, needs ${small.places} both times`,
   );
-  const outside = { filled: logsIn(filled.png, grove), stillFull: logsIn(stillFull.png, grove) };
+  const shadedLogsIn = (png) => pixelsIn(png, CLIP.width, grove, LOGS_IN_A_CLEARED_GROVE_BY_DAY).count;
+  const outside = { filled: shadedLogsIn(filled.png), stillFull: shadedLogsIn(stillFull.png) };
   session.check(
     `at ${when('full')} and at ${when('stillFull')} the logs with no place still lie in the grove`,
     outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace,
@@ -1714,23 +1817,22 @@ const BUILD_STOPS = {
 };
 /** Wheel pixels that reach the nearest view of 22 m and the farthest of 243 m from any view. */
 const READ_WHEELS = { near: -3000, far: 3000 };
-/** The slate of the house roof, as it looks in the late afternoon: a dark grey with a cool cast. */
-const HOUSE_ROOF = ([r, g, b]) => Math.abs(r - g) <= 8 && b >= g && b - r <= 24 && Math.max(r, g, b) < 100;
-/** The dark timber of a site's frame, `FRAME_COLOR` in `src/render/sites.ts`, in the afternoon light. */
-const SITE_FRAME = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
+/** The thatch of the house roof, as it looks in the late afternoon: a dull gold, redder than a tunic and with less blue than timber. */
+const HOUSE_ROOF = ([r, g, b]) => r > 85 && r < 170 && g > 0.64 * r && g < 0.78 * r && b < 0.28 * r;
+/** The timber of a site's scaffold and of the walls that rise inside it, in the afternoon light. */
+const SITE_TIMBER = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
 /** The label's text is near white, on a dark panel. */
 const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
 /**
- * On rj-firebat the stockpile held 5 logs at 11:30. The site held 237 log and 69 stone pixels half supplied, and 228 log
- * pixels at half its work. Its box held 15 roof pixels at half the work and 3017 once the house stood, and 0 log pixels.
- * Beside the house stood 340, 308, and 37 villager pixels at the three stops of day 2, a carrier or two. Each label
- * held 129 to 136 near-white text pixels.
+ * On the owner's Mac the stockpile held 5 logs at 11:30. The site held 233 log and 40 stone pixels half supplied, and
+ * 280 log pixels at half its work. Its box held 23 timber pixels half supplied and 1886 at half the work, 48 roof
+ * pixels at half the work and 2198 once the house stood, and 0 log pixels. Beside the house stood 207, 218, and 9
+ * villager pixels at the three stops of day 2, a carrier or two. Each label held 149 to 157 near-white text pixels.
  */
-const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, frame: 40, roof: 1500, walkers: 150, ink: 60 };
+const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, timber: 40, roof: 1500, walkers: 150, ink: 60 };
 const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, goodsAfter: 10 };
 
-SCENARIOS.building = async (session) => {
-  const seen = [];
+function siteDriver(session) {
   const site = (page) => page.getByRole('status', { name: 'House site' });
   const order = (page) => page.getByRole('status', { name: 'Order' });
   const said = async (page, pattern) => {
@@ -1777,6 +1879,27 @@ SCENARIOS.building = async (session) => {
     await session.pause(page);
     await session.still(page);
   };
+  const markWork = async (page) => {
+    await takeView(session, page, BUILD_VIEW);
+    const marked = [];
+    for (const [key, name, pattern] of [
+      ['KeyC', 'Chop', /^7 trees marked for felling/],
+      ['KeyM', 'Quarry', /^23 rock tiles marked for quarrying/],
+      ['KeyP', 'Stockpile', /^4 tiles join the stockpile zone/],
+    ]) {
+      await page.keyboard.press(key);
+      await session.drag(page, ...BUILD_SPOTS[name.toLowerCase()]);
+      marked.push({ name, pattern, line: await said(page, pattern) });
+      await page.keyboard.press('Escape');
+    }
+    return marked;
+  };
+  return { site, said, reads, totals, placeHouse, runUntil, markWork };
+}
+
+SCENARIOS.building = async (session) => {
+  const seen = [];
+  const { site, reads, totals, placeHouse, runUntil, markWork } = siteDriver(session);
   const barOf = async (page) => {
     const bar = site(page).getByRole('progressbar', { name: 'Building work' });
     if ((await bar.count()) === 0 || !(await bar.isVisible())) return null;
@@ -1797,17 +1920,8 @@ SCENARIOS.building = async (session) => {
   const build = await session.open(CLIP, { record: true, clock: 'paused' });
   const { page } = build;
   await session.reach(page, BUILD_STOPS.marked);
-  await takeView(session, page, BUILD_VIEW);
-  for (const [key, name, pattern] of [
-    ['KeyC', 'Chop', /^7 trees marked for felling/],
-    ['KeyM', 'Quarry', /^23 rock tiles marked for quarrying/],
-    ['KeyP', 'Stockpile', /^4 tiles join the stockpile zone/],
-  ]) {
-    await page.keyboard.press(key);
-    await session.drag(page, ...BUILD_SPOTS[name.toLowerCase()]);
-    const line = await said(page, pattern);
+  for (const { name, pattern, line } of await markWork(page)) {
     session.check(`a ${name} drag marks its tiles`, pattern.test(line), `the status line reads "${line}"`);
-    await page.keyboard.press('Escape');
   }
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, BUILD_CLOSER);
@@ -1878,11 +1992,11 @@ SCENARIOS.building = async (session) => {
     work.bar !== null && work.bar.now === work.label?.percent && Math.abs(work.bar.share - work.bar.now / 100) <= 0.05,
     work.bar ? `aria-valuenow ${work.bar.now}, the fill spans ${(work.bar.share * 100).toFixed(1)}% of the bar, the label reads ${work.label?.percent}%` : 'no visible bar',
   );
-  const frame = { half: count(half.png, BUILD_BOXES.site, SITE_FRAME), work: count(work.png, BUILD_BOXES.site, SITE_FRAME) };
+  const timber = { half: count(half.png, BUILD_BOXES.site, SITE_TIMBER), work: count(work.png, BUILD_BOXES.site, SITE_TIMBER) };
   session.check(
-    `at ${work.at} the frame has risen on the site`,
-    frame.work >= frame.half + BUILD_LEAST.frame,
-    `${frame.half} frame pixels on the site at ${half.at} and ${frame.work} at ${work.at}, needs ${BUILD_LEAST.frame} more`,
+    `at ${work.at} the walls have risen in their scaffold on the site`,
+    timber.work >= timber.half + BUILD_LEAST.timber,
+    `${timber.half} timber pixels on the site at ${half.at} and ${timber.work} at ${work.at}, needs ${BUILD_LEAST.timber} more`,
   );
   const roof = { work: count(work.png, BUILD_BOXES.site, HOUSE_ROOF), done: count(done.png, BUILD_BOXES.site, HOUSE_ROOF) };
   session.check(
@@ -1930,6 +2044,169 @@ SCENARIOS.building = async (session) => {
   seen.push(...labels.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
+
+/**
+ * The `look` scenario builds the house of `building` from the same marks, views, and stops, so the settlement it shows
+ * is the one that scenario measures. The dusk clip runs at 1× from before the settlers stop work until they stand at
+ * the camp. The views are read at the nearest and the farthest zoom: the first midnight, the next noon, and a noon and
+ * a midnight of winter, which starts on day 10.
+ */
+const LOOK_STOPS = {
+  dusk: { from: { day: 1, time: '18:45' }, to: { day: 1, time: '19:40' } },
+  views: [
+    { name: 'midnight', when: { day: 2, time: '00:00' } },
+    { name: 'noon', when: { day: 2, time: '12:00' } },
+    { name: 'winter-noon', when: { day: 10, time: '12:00' } },
+    { name: 'winter-midnight', when: { day: 11, time: '00:00' } },
+  ],
+};
+const LOOK_CLIP = { crop: { x: 200, y: 40, width: 560, height: 420 }, width: 560, colors: 64 };
+/** Pixels the land is dragged up once the house is placed, so the nearest view holds the camp below the house. */
+const LOOK_PAN = 40;
+/** Wheel pixels from the nearest view of 22 m back to the 31 m the house is placed from. */
+const LOOK_BACK_WHEEL = Math.log(31.1 / 22) / 0.0015;
+/** The boxes are in clip pixels of the nearest view: the house up to its ridge, the fire in the middle of the camp, and the land clear of the panels. */
+const LOOK_BOXES = {
+  house: { x: 460, y: 160, width: 90, height: 110 },
+  fire: { x: 440, y: 330, width: 50, height: 50 },
+  land: { x: 150, y: 60, width: 640, height: 420 },
+};
+/** The thatch of the house roof in daylight: a dull gold, redder than a villager's tunic and yellower than timber and soil. */
+const THATCH = ([r, g, b]) => r > 120 && g > 0.6 * r && g < 0.8 * r && b > 0.15 * r && b < 0.4 * r;
+/** The flame of the campfire, which the sun does not light: orange to yellow at full brightness at any hour. */
+const FLAME = ([r, g, b]) => r > 200 && g > 90 && g < 220 && b < 110 && r > g + 30;
+/**
+ * On the owner's Mac the house held 2640 thatch pixels at noon in spring and 2930 in winter, against 293 on the site
+ * before the house stood. The land held 1401 and 2732 villager pixels, and the fire 107 flame pixels at both
+ * midnights, with none elsewhere. A frame took 22 to 24 draw calls with the settlers and with the swarm, against 20
+ * to 22 before the models.
+ */
+const LOOK_LEAST = { thatch: 1500, settlers: 500, flame: 60 };
+const LOOK_MOST = { flameElsewhere: 5, calls: 30 };
+
+SCENARIOS.look = async (session) => {
+  const seen = [];
+  const { placeHouse, runUntil, markWork } = siteDriver(session);
+  const draws = [];
+  const shots = {};
+  const shot = async (page, label) => {
+    shots[label] = await session.screenshot(page, label);
+    draws.push({ label, ...(await session.drawsPerFrame(page)) });
+  };
+  const count = (label, box, matches) => pixelsIn(shots[label], CLIP.width, box, matches).count;
+  const zoom = async (page, wheel) => {
+    await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+    await page.mouse.wheel(0, wheel);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+  };
+
+  const town = await session.open(CLIP, { record: true, clock: 'paused' });
+  const { page } = town;
+  const notice = await page.locator('.models-notice').allTextContents();
+  session.check('the game draws the models, not stand-in shapes', notice.length === 0, notice.join(' ') || 'no notice on the page');
+  await session.reach(page, BUILD_STOPS.marked);
+  await markWork(page);
+  await zoom(page, BUILD_CLOSER);
+  await session.reach(page, BUILD_STOPS.placed);
+  await placeHouse(page, BUILD_SPOTS.closerHouse);
+  await session.drag(page, { x: CLIP.width / 2, y: CLIP.height / 2 + LOOK_PAN / 2 }, { x: CLIP.width / 2, y: CLIP.height / 2 - LOOK_PAN / 2 });
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
+  await shot(page, 'look-site-supplied');
+  await zoom(page, READ_WHEELS.near);
+  await shot(page, 'look-site-supplied-near');
+  await zoom(page, LOOK_BACK_WHEEL);
+  await runUntil(page, 'got half its work done', (label) => label?.percent >= 50);
+  await shot(page, 'look-site-half-built');
+  await runUntil(page, 'was finished', (label) => label === null);
+  await shot(page, 'look-house-finished');
+  await session.reach(page, LOOK_STOPS.dusk.from);
+  const from = town.since();
+  await page.keyboard.press('1');
+  while ((await session.gameMinutes(page)) < clockMinutes(LOOK_STOPS.dusk.to)) await page.waitForTimeout(100);
+  await session.pause(page);
+  const to = town.since();
+  for (const { name, when } of LOOK_STOPS.views) {
+    await session.reach(page, when);
+    for (const distance of ['near', 'far']) {
+      await zoom(page, READ_WHEELS[distance]);
+      await shot(page, `look-${name}-${distance}`);
+    }
+  }
+  await session.finishClips(town.context, page, [{ label: 'look-dusk', from, to, ...LOOK_CLIP }]);
+  seen.push(...town.errors);
+
+  const crowd = await session.open(CLIP, { search: SWARM });
+  await takeView(session, crowd.page, BUILD_VIEW);
+  await shot(crowd.page, 'look-swarm');
+  await crowd.context.close();
+  seen.push(...crowd.errors);
+
+  for (const season of ['', 'winter-']) {
+    const noon = `look-${season}noon-near`;
+    const midnight = `look-${season}midnight-near`;
+    const roof = count(noon, LOOK_BOXES.house, THATCH);
+    session.check(`${noon} shows the house under its thatch`, roof >= LOOK_LEAST.thatch, `${roof} thatch pixels on the house, needs ${LOOK_LEAST.thatch}`);
+    const settlers = count(noon, LOOK_BOXES.land, UNIT_COLORS.villagers);
+    session.check(`${noon} shows the settlers in their tunics`, settlers >= LOOK_LEAST.settlers, `${settlers} villager pixels, needs ${LOOK_LEAST.settlers}`);
+    const fire = count(midnight, LOOK_BOXES.fire, FLAME);
+    const elsewhere = count(midnight, LOOK_BOXES.land, FLAME) - fire;
+    session.check(
+      `${midnight} shows the fire burning at the camp, and nothing else as bright`,
+      fire >= LOOK_LEAST.flame && elsewhere <= LOOK_MOST.flameElsewhere,
+      `${fire} flame pixels at the fire and ${elsewhere} elsewhere, needs ${LOOK_LEAST.flame} and at most ${LOOK_MOST.flameElsewhere}`,
+    );
+  }
+  for (const { label, calls, triangles } of draws) {
+    session.check(
+      `${label} takes few draw calls, so its repeated shapes are instanced`,
+      calls > 0 && calls <= LOOK_MOST.calls,
+      `${calls} draw calls and ${triangles} triangles a frame, needs at most ${LOOK_MOST.calls} calls`,
+    );
+  }
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/** Each case is sampled this many times for this long, at 1×, so the units move and their shapes are posed on every tick. */
+const FRAME_SAMPLES = { count: 5, ms: 4000 };
+
+SCENARIOS.frames = async (session) => {
+  const { placeHouse, runUntil, markWork } = siteDriver(session);
+  const measure = async (name, page) => {
+    await page.keyboard.press('1');
+    const samples = [];
+    for (let sample = 0; sample < FRAME_SAMPLES.count; sample++) samples.push(await session.frameWork(page, FRAME_SAMPLES.ms));
+    await session.pause(page);
+    const { calls, triangles } = await session.drawsPerFrame(page);
+    const means = samples.map((sample) => sample.mean).sort((a, b) => a - b);
+    const rates = samples.map((sample) => sample.perSecond).sort((a, b) => a - b);
+    const middle = Math.floor(samples.length / 2);
+    session.check(
+      `${name}: frames are drawn and timed`,
+      samples.every((sample) => sample.frames > 0),
+      `median ${means[middle].toFixed(2)} ms of work a frame, ${means[0].toFixed(2)} to ${means.at(-1).toFixed(2)} ms over ${samples.length} samples of ${FRAME_SAMPLES.ms / 1000} s; ` +
+        `median ${rates[middle].toFixed(0)} frames a second, ${rates[0].toFixed(0)} to ${rates.at(-1).toFixed(0)}; ${calls} draw calls and ${triangles} triangles a frame`,
+    );
+  };
+
+  const town = await session.open(CLIP, { clock: 'paused' });
+  await session.reach(town.page, BUILD_STOPS.marked);
+  await markWork(town.page);
+  await session.reach(town.page, BUILD_STOPS.placed);
+  await placeHouse(town.page, BUILD_SPOTS.house);
+  await runUntil(town.page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
+  await measure('the settlement at work', town.page);
+  await town.context.close();
+
+  const crowd = await session.open(CLIP, { search: SWARM });
+  await takeView(session, crowd.page, BUILD_VIEW);
+  await measure('the swarm', crowd.page);
+  await crowd.context.close();
+  session.check('no page errors', town.errors.length + crowd.errors.length === 0, [...town.errors, ...crowd.errors].join(' | ') || 'none');
+};
+SCENARIOS.frames.gpu = true;
 
 /** Where each order goes on the opening view of seed 7, as shares of the viewport's width and height. */
 const ORDER_SPOTS = {
@@ -2240,10 +2517,10 @@ async function drive(name) {
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const browser = await launchBrowser();
-    evidence.browser = browser.version();
+    const { browser, renderer } = scenario.gpu ? await launchGpuBrowser() : { browser: await launchBrowser() };
+    evidence.browser = renderer ? `${browser.version()} on ${renderer}` : browser.version();
     try {
-      await scenario(createSession(browser, instance, dir, evidence));
+      await scenario(createSession(browser, instance, dir, evidence, Boolean(scenario.gpu)));
     } finally {
       await browser.close();
     }

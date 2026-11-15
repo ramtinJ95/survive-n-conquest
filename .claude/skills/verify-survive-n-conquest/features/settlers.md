@@ -1,6 +1,6 @@
 # Settlers
 
-A new game opens with 8 settlers in villager yellow at the camp, a disc of brown earth on the walkable tile nearest the map center that a walk from the map edge reaches. By day each settler walks between random points within 8 tiles of the camp at 1.5 tiles per second. At dusk, 19:12 in spring, every settler walks to the camp center along the shortest walk over land, then straight out to its own spot in a ring 1.5 tiles around it. A spot that a straight walk from the center cannot reach is the center itself. It stays there until dawn, 04:48 in spring, and then wanders out again. Settlers never step onto water or rock. A settler with no walk to the camp stays where it stands through the night.
+A new game opens with 8 settlers in villager yellow at the camp, a floor of soil with three tents and a fire, on the walkable tile nearest the map center that a walk from the map edge reaches. By day each settler walks between random points within 8 tiles of the camp at 1.5 tiles per second. At dusk, 19:12 in spring, every settler walks to the camp center along the shortest walk over land, then straight out to its own spot in a ring 1.5 tiles around it. A spot that a straight walk from the center cannot reach is the center itself. It stays there until dawn, 04:48 in spring, and then wanders out again. Settlers never step onto water or rock. A settler with no walk to the camp stays where it stands through the night.
 
 ## Sub-features
 

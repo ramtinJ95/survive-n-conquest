@@ -1,12 +1,12 @@
 # Building
 
-The settlers build the house the player places. A house needs 12 logs and 6 stone. Supplying a site is more urgent than carrying to a stockpile, so an idle settler first carries a unit the site lacks, taken from the ground or from a stockpile, whichever lies nearer the site, and stacks it on the site's nine tiles. Once every unit has arrived, up to four settlers share 90 seconds of building work at 1×, each on a corner tile. A label over the site shows the logs and the stone that have arrived, of 12 and of 6, and then the work as a bar with a percent. It keeps its size at every zoom, reads by day and by night, and makes way while an order tool is active. A dark frame rises on the site with the work done. When the work is done the materials are used up, the label goes, and a house with cream walls and a slate roof stands on the nine tiles, which settlers walk around.
+The settlers build the house the player places. A house needs 12 logs and 6 stone. Supplying a site is more urgent than carrying to a stockpile, so an idle settler first carries a unit the site lacks, taken from the ground or from a stockpile, whichever lies nearer the site, and stacks it on the site's nine tiles. Once every unit has arrived, up to four settlers share 90 seconds of building work at 1×, each on a corner tile. A label over the site shows the logs and the stone that have arrived, of 12 and of 6, and then the work as a bar with a percent. It keeps its size at every zoom, reads by day and by night, and makes way while an order tool is active. A scaffold stands on the site while the work goes on, and the house rises inside it, walls first and roof last. When the work is done the materials are used up, the label and the scaffold go, and a timber house under a thatch roof stands on the nine tiles, which settlers walk around.
 
 ## Sub-features
 
 - `building-label` shows over each unfinished site the logs and the stone that have arrived, `Logs n/12` and `Stone n/6`, and `Waiting for materials` until all of them have.
 - `building-supply` carries the units a site lacks from the ground and from stockpiles, and stacks them on its tiles.
-- `building-work` shares the building work among the settlers once every unit has arrived, shows it as a bar and a percent in the label, and raises a frame on the site.
+- `building-work` shares the building work among the settlers once every unit has arrived, shows it as a bar and a percent in the label, and raises the house in a scaffold on the site.
 - `building-house` turns the finished site into a house that stands on its nine tiles, with its materials used up and its label gone.
 - `building-around` keeps the settlers off the house's tiles, so they walk around it.
 - `building-label-aside` hides every label while an order tool is active, so labels never cover the marks and the house preview, and shows them again when the tool is put away.
@@ -17,7 +17,7 @@ The settlers build the house the player places. A house needs 12 logs and 6 ston
 - Open the game. Mark trees with C and rock with M near the camp, and a stockpile with P. Press Escape.
 - Press 4 to run at 8× until the Stockpiles panel counts some logs.
 - Press H and click open ground near the camp to place the house. Press Escape.
-- Run the clock at 8× and watch the label over the site, the units stacking on its tiles, the frame rising, and the house appearing.
+- Run the clock at 8× and watch the label over the site, the units stacking on its tiles, the walls rising in the scaffold, and the roof closing.
 
 ## Driving it with verify.mjs
 
@@ -38,9 +38,9 @@ Preconditions:
   - `the site takes logs from the stockpile` needs the Logs total to be lower at the half-supplied or the work stop than at 11:30. Nothing but a site takes units out of a stockpile.
   - `at ... every unit has arrived and the work bar reads above 0 and below 100` reads `Logs 12/12`, `Stone 6/6`, and the percent.
   - `at ... the work bar is shown and filled to the work's share` needs the `Building work` progress bar visible, its `aria-valuenow` equal to the label's percent, and its fill within 5 points of that share.
-  - `at ... the frame has risen on the site` needs more `SITE_FRAME` pixels on the site at the work stop than at the half-supplied stop.
+  - `at ... the walls have risen in their scaffold on the site` needs more `SITE_TIMBER` pixels on the site at the work stop than at the half-supplied stop.
   - `at ... the label is gone and the house stands on the site` needs no label and `HOUSE_ROOF` pixels on the site, few at the work stop and many at the finished stop.
-  - `at ... no log is drawn on the house's tiles any more` needs the log pixels on the site to go. It shows only what the player sees, because walls could hide a stack. `src/sim/building.test.ts` proves that the house uses up its logs and its stone. In the light of 17:00 no stone pixel matches `GOOD_COLORS.stone`, and at 17:55 the cream walls match it in about 30 pixels, so stone has no pixel check here.
+  - `at ... no log is drawn on the house's tiles any more` needs the log pixels on the site to go. It shows only what the player sees, because walls could hide a stack. `src/sim/building.test.ts` proves that the house uses up its logs and its stone. In the light of 17:00 almost no stone pixel matches `GOOD_COLORS.stone`, and at 17:55 the stone that carriers hold as they pass behind the house matches it in about 45 pixels, so stone has no pixel check here.
 - **See the settlers walk around it.** It reaches 08:30, 09:30, and 10:30 on day 2 and takes `building-around-<HHMM>.png` at each.
   - `on the morning of day 2 settlers walk beside the house` counts villager pixels in `BUILD_BOXES.around` outside `BUILD_BOXES.site` at each stop, and needs enough at one of them.
 - **Read the label.** The second page presses H, clicks `BUILD_SPOTS.house`, and presses Escape, with no marks, so the label reads 0 of 12 and 0 of 6 all day. At 12:00 on day 1 and at 00:00 on day 2 it scrolls to the nearest and then the farthest view and takes `building-label-<day|midnight>-<near|far>.png`.
@@ -52,7 +52,7 @@ Preconditions:
 - Supplying is more urgent than carrying to a stockpile. A house placed together with the stockpile takes every unit straight from the ground, so the scenario places it at 11:30, once the stockpile holds logs.
 - The stone is the slowest part. One stone takes a settler 20 seconds of work at 1×, so the site waits for its last stone until mid-afternoon, and the house stands at about 17:50. The stops that read the label are paused when the label shows them, not at fixed times, and every one is a paused frame.
 - After 17:30 the evening light turns the villager yellow outside `UNIT_COLORS`, so the settlers are counted beside the house on the morning of day 2, when they carry stone past it to the stockpile.
-- `HOUSE_ROOF` is the slate of the roof in the late afternoon. A few pixels of the stacked site match it before the house stands, 15 on rj-firebat, against about 3000 once it stands.
+- `HOUSE_ROOF` is the thatch of the roof in the late afternoon. The builders' tunics are a brighter gold with more green, and the timber has more blue, so neither matches. About 50 pixels of the site match it at half the work, when no roof is on, against about 2200 once the house stands.
 - A settler inside the house's tiles would be hidden by its walls, so no pixel check can show that none stands there. `src/sim/building.test.ts` covers it: a finished house blocks its nine tiles and moves its builders off them, and routes go around it.
 - The labels hide while any order tool is active, so a scenario that reads a label presses Escape first.
 - The label is HTML. It changes as soon as the frame arrives from the worker, so a clip can show the label gone one drawn frame before the house appears.
