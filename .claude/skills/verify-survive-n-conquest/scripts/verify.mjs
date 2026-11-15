@@ -1224,6 +1224,7 @@ SCENARIOS.orders = async (session) => {
   const marksIn = async (page, png) => session.orderPixels(png, page.viewportSize().width, await toolbar(page).boundingBox());
   const expectMarks = async (page, name, png, least) => {
     const counted = await marksIn(page, png);
+    counted.preview = counted.fits + counted.blocks;
     const short = Object.entries(least).filter(([kind, fewest]) => counted[kind] < fewest);
     session.check(name, short.length === 0, Object.entries(least).map(([kind, fewest]) => `${kind} ${counted[kind]} of at least ${fewest}`).join(', '));
     return counted;
@@ -1357,7 +1358,8 @@ SCENARIOS.orders = async (session) => {
   await view.mouse.move(hover.x, hover.y, { steps: 3 });
   await expectSaid(view, 'a house over the stockpile edge previews beside the marks', /Cannot build here\. A stockpile stands in the way/);
 
-  const every = { chop: 1, quarry: 1, stockpile: 1, site: 1, blocks: 1 };
+  // The preview follows the tile under the resting pointer as the view zooms, so it is green on some views and red on others.
+  const every = { chop: 1, quarry: 1, stockpile: 1, site: 1, preview: 1 };
   const atLeast = (zoom) => Object.fromEntries(Object.keys(every).map((kind) => [kind, MARKS_AT_LEAST[zoom]]));
   const zooms = async (label) => {
     await session.still(view);
