@@ -1,3 +1,4 @@
+import { type SiteTasks, createSiteTasks, resetSite } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
@@ -64,6 +65,7 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly monsters: Monsters;
   readonly orders: Orders;
+  readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly goods: GoodsState;
   readonly putDownSearch: PutDownSearch;
@@ -88,6 +90,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
+    siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     goods: createGoodsState(map.size),
     putDownSearch: createPutDownSearch(map.size * map.size),
@@ -119,12 +122,16 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
     case 'markArea': {
       const outcome = applyOrder(sim.map, sim.orders, command);
       if (!outcome.ok) return outcome;
-      refreshTasks(sim, command.area);
+      // A site that a cancel touches lies up to two tiles past the area, and its goods turn loose.
+      refreshTasks(sim, command.area, command.order === 'cancel' ? 2 : 0);
       stopFallenTasks(sim);
       return outcome;
     }
-    case 'placeHouse':
-      return applyOrder(sim.map, sim.orders, command);
+    case 'placeHouse': {
+      const outcome = applyOrder(sim.map, sim.orders, command);
+      if (outcome.ok) resetSite(sim, sim.orders.siteOf[command.y * sim.map.size + command.x]!);
+      return outcome;
+    }
   }
 }
 
