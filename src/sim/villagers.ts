@@ -4,7 +4,7 @@ import { type TileMap, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
-import { endTask, takeTask, taskKind } from './tasks';
+import { NO_TASK, endTask, takeTask, taskKind } from './tasks';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -268,6 +268,14 @@ function stopTask(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Waiting;
   villagers.targetX[id] = villagers.x[id]!;
   villagers.targetY[id] = villagers.y[id]!;
+}
+
+/** Ends at once every task that no longer stands, as an order cancelled under it does not. */
+export function stopFallenTasks(sim: Sim): void {
+  const { task } = sim.villagers;
+  for (let id = 0; id < task.length; id++) {
+    if (task[id] !== NO_TASK && !taskKind(sim, id).holds(sim, id)) stopTask(sim, id);
+  }
 }
 
 /** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */

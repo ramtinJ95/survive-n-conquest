@@ -10,7 +10,7 @@ import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOr
 import { type PathSearch, createPathSearch } from './paths';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { type TileChanges, createTileChanges } from './tileChanges';
-import { type Villagers, createVillagers, moveVillagers } from './villagers';
+import { type Villagers, createVillagers, moveVillagers, stopFallenTasks } from './villagers';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -103,7 +103,9 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       return;
     case 'markArea': {
       const outcome = applyOrder(sim.map, sim.orders, command);
-      if (outcome.ok) refreshTasks(sim, command.area);
+      if (!outcome.ok) return outcome;
+      refreshTasks(sim, command.area);
+      stopFallenTasks(sim);
       return outcome;
     }
     case 'placeHouse':
