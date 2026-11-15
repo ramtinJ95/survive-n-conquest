@@ -48,10 +48,14 @@ export interface Villagers {
   readonly draws: Uint32Array;
   /** The task each villager holds: `NO_TASK`, or one more than its kind's index in `TASK_KINDS`. */
   readonly task: Uint8Array;
-  /** The tile of the task, such as the tree or the rock, or -1. */
+  /** The tile of the task, such as the tree, the rock, or the unit to carry, or -1. */
   readonly taskTile: Int32Array;
   /** The tile the villager stands on to work its task, or -1. */
   readonly workTile: Int32Array;
+  /** The tile a carrying task takes its unit to, or -1. */
+  readonly destination: Int32Array;
+  /** The `Good` of the unit each villager carries, or `Good.None`. */
+  readonly carried: Uint8Array;
   /** `MAX_PATH` tiles of route to the work tile for each villager, row by row. The villager walks to the center of each in turn. */
   readonly path: Int32Array;
   readonly pathLength: Uint16Array;
@@ -110,6 +114,8 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     task: new Uint8Array(count),
     taskTile: new Int32Array(count).fill(-1),
     workTile: new Int32Array(count).fill(-1),
+    destination: new Int32Array(count).fill(-1),
+    carried: new Uint8Array(count),
     path: new Int32Array(count * MAX_PATH),
     pathLength: new Uint16Array(count),
     pathCursor: new Uint16Array(count),

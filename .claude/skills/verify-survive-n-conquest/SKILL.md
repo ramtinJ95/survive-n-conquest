@@ -5,7 +5,7 @@ description: Launch the survive-n-conquest browser game from a production build,
 
 # Verify survive-n-conquest
 
-The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The sun, the sky, and the colors of the map follow that clock. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map. The game opens with 8 settlers at the camp near the map center. `swarm=on` opens it with the benchmark load instead: 1500 villagers who work every tree and rock tile on the map, all marked at the start, and 3000 monsters, and `swarm=off` opens it with no units.
+The game is a Three.js scene in a browser page. The world is a full-window canvas with the id `world`. The interface is HTML over that canvas, located by ARIA role and accessible name. The clock panel at the top holds the time of day, the date, and the `Game speed` controls. The sun, the sky, and the colors of the map follow that clock. The Stockpiles panel at the top left shows the logs and stone on stockpile tiles. The camera controls panel sits at the bottom left. The `seed` URL parameter chooses the map. The game opens with 8 settlers at the camp near the map center. `swarm=on` opens it with the benchmark load instead: 1500 villagers who work every tree and rock tile on the map, all marked at the start, and 3000 monsters, and `swarm=off` opens it with no units.
 
 Every command below runs from the root of the checkout under test. `scripts/verify.mjs` is the only harness, and it resolves Playwright from that checkout's `node_modules`.
 
