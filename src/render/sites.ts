@@ -15,8 +15,10 @@ const WALL_HEIGHT = 1.9;
 const WALL_FOOTING = 0.3;
 const ROOF_HEIGHT = 1.4;
 const ROOF_HALF_SIDE = 1.55;
-const POST_WIDTH = 0.24;
-const BEAM_WIDTH = 0.18;
+/** The posts stand on the outer corners of the nine tiles, outside the builders who stand on the corner tiles. */
+const POST_WIDTH = 0.3;
+const BEAM_WIDTH = 0.2;
+const FRAME_REACH = 1.5 - POST_WIDTH / 2;
 const POSTS_PER_SITE = 4;
 
 function partMesh(name: string, geometry: BoxGeometry | ConeGeometry, color: number, perSite: number): InstancedMesh {
@@ -91,21 +93,21 @@ export function createSites(map: TileMap) {
         continue;
       }
       const rise = (Math.min(work, HOUSE_WORK_TICKS) / HOUSE_WORK_TICKS) * (top - base);
-      const reach = side / 2 - POST_WIDTH / 2;
       for (let corner = 0; corner < POSTS_PER_SITE; corner++) {
         const index = frames * POSTS_PER_SITE + corner;
-        put(posts, index, x + (corner & 1 ? reach : -reach), base, z + (corner & 2 ? reach : -reach), POST_WIDTH, rise, POST_WIDTH);
+        put(posts, index, x + (corner & 1 ? FRAME_REACH : -FRAME_REACH), base, z + (corner & 2 ? FRAME_REACH : -FRAME_REACH), POST_WIDTH, rise, POST_WIDTH);
         const along = corner < 2;
-        const offset = corner % 2 === 0 ? -reach : reach;
+        const offset = corner % 2 === 0 ? -FRAME_REACH : FRAME_REACH;
+        const length = 2 * FRAME_REACH + POST_WIDTH;
         put(
           beams,
           index,
           x + (along ? 0 : offset),
           base + Math.max(rise - BEAM_WIDTH, 0),
           z + (along ? offset : 0),
-          along ? side : BEAM_WIDTH,
+          along ? length : BEAM_WIDTH,
           BEAM_WIDTH,
-          along ? BEAM_WIDTH : side,
+          along ? BEAM_WIDTH : length,
         );
       }
       frames++;
