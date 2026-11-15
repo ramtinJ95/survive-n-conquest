@@ -1,0 +1,35 @@
+.stockpiles {
+  position: fixed;
+  top: var(--edge-gap);
+  left: var(--edge-gap);
+  min-width: 96px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 14px/1.5 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stockpiles-title {
+  margin: 0 0 2px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.stockpiles dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 16px;
+  margin: 0;
+}
+
+.stockpiles dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
