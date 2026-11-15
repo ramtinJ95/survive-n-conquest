@@ -1716,6 +1716,8 @@ const BUILD_STOPS = {
 const READ_WHEELS = { near: -3000, far: 3000 };
 /** The slate of the house roof, as it looks in the late afternoon: a dark grey with a cool cast. */
 const HOUSE_ROOF = ([r, g, b]) => Math.abs(r - g) <= 8 && b >= g && b - r <= 24 && Math.max(r, g, b) < 100;
+/** The dark timber of a site's frame, `FRAME_COLOR` in `src/render/sites.ts`, in the afternoon light. */
+const SITE_FRAME = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
 /** The label's text is near white, on a dark panel. */
 const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
 /**
@@ -1724,8 +1726,8 @@ const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
  * Beside the house stood 340, 308, and 37 villager pixels at the three stops of day 2, a carrier or two. Each label
  * held 129 to 136 near-white text pixels.
  */
-const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, roof: 1500, walkers: 150, ink: 60 };
-const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, logsAfter: 10 };
+const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, frame: 40, roof: 1500, walkers: 150, ink: 60 };
+const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, goodsAfter: 10 };
 
 SCENARIOS.building = async (session) => {
   const seen = [];
@@ -1754,10 +1756,12 @@ SCENARIOS.building = async (session) => {
     await page.mouse.down();
     await page.mouse.up();
     const line = await said(page, /House site placed/);
+    await session.settle(page);
+    const asideWithTool = (await site(page).count()) === 1 && (await site(page).isHidden());
     await page.keyboard.press('Escape');
     await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
     await session.still(page);
-    return line;
+    return { line, asideWithTool, shownAfter: await site(page).isVisible() };
   };
   // Runs the clock at 8× until the label shows what `done` waits for, then pauses, so that every check reads a paused frame.
   const runUntil = async (page, what, done) => {
@@ -1772,9 +1776,17 @@ SCENARIOS.building = async (session) => {
     await session.pause(page);
     await session.still(page);
   };
+  const barOf = async (page) => {
+    const bar = site(page).getByRole('progressbar', { name: 'Building work' });
+    if ((await bar.count()) === 0 || !(await bar.isVisible())) return null;
+    const outer = await bar.boundingBox();
+    const fill = await bar.locator(':scope > *').first().boundingBox();
+    return { now: Number(await bar.getAttribute('aria-valuenow')), share: outer && fill ? fill.width / outer.width : NaN };
+  };
   const stop = async (page, label) => ({
     png: await session.screenshot(page, label),
     label: await reads(page),
+    bar: await barOf(page),
     totals: await totals(page),
     at: clockText(await session.gameMinutes(page)),
   });
@@ -1802,7 +1814,12 @@ SCENARIOS.building = async (session) => {
   await session.reach(page, BUILD_STOPS.placed);
   const stocked = await totals(page);
   const placed = await placeHouse(page, BUILD_SPOTS.closerHouse);
-  session.check('a House click places the site', /^House site placed/.test(placed), `the status line reads "${placed}"`);
+  session.check('a House click places the site', /^House site placed/.test(placed.line), `the status line reads "${placed.line}"`);
+  session.check(
+    'the label makes way while the House tool is active and shows once Escape puts it away',
+    placed.asideWithTool && placed.shownAfter,
+    `${placed.asideWithTool ? 'hidden' : 'not hidden'} with the tool, ${placed.shownAfter ? 'shown' : 'not shown'} after Escape`,
+  );
   const from = build.since();
   const empty = await stop(page, 'building-empty');
   await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
@@ -1855,6 +1872,17 @@ SCENARIOS.building = async (session) => {
     work.label?.logs === 12 && work.label.stone === 6 && work.label.percent > 0 && work.label.percent < 100,
     `the label reads "${labelText(work.label)}"`,
   );
+  session.check(
+    `at ${work.at} the work bar is shown and filled to the work's share`,
+    work.bar !== null && work.bar.now === work.label?.percent && Math.abs(work.bar.share - work.bar.now / 100) <= 0.05,
+    work.bar ? `aria-valuenow ${work.bar.now}, the fill spans ${(work.bar.share * 100).toFixed(1)}% of the bar, the label reads ${work.label?.percent}%` : 'no visible bar',
+  );
+  const frame = { half: count(half.png, BUILD_BOXES.site, SITE_FRAME), work: count(work.png, BUILD_BOXES.site, SITE_FRAME) };
+  session.check(
+    `at ${work.at} the frame has risen on the site`,
+    frame.work >= frame.half + BUILD_LEAST.frame,
+    `${frame.half} frame pixels on the site at ${half.at} and ${frame.work} at ${work.at}, needs ${BUILD_LEAST.frame} more`,
+  );
   const roof = { work: count(work.png, BUILD_BOXES.site, HOUSE_ROOF), done: count(done.png, BUILD_BOXES.site, HOUSE_ROOF) };
   session.check(
     `at ${done.at} the label is gone and the house stands on the site`,
@@ -1862,9 +1890,9 @@ SCENARIOS.building = async (session) => {
     `${done.label ? `the label reads "${done.label.text}"` : 'no label'}; ${roof.work} roof pixels on the site at ${work.at} and ${roof.done} at ${done.at}, needs at most ${BUILD_MOST.roofBefore} and then ${BUILD_LEAST.roof}`,
   );
   session.check(
-    `at ${done.at} the house has used up the units on its tiles`,
-    goodsAt.work.logs >= BUILD_LEAST.logs && goodsAt.done.logs <= BUILD_MOST.logsAfter,
-    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logs} and then at most ${BUILD_MOST.logsAfter}`,
+    `at ${done.at} no log is drawn on the house's tiles any more`,
+    goodsAt.work.logs >= BUILD_LEAST.logs && goodsAt.done.logs <= BUILD_MOST.goodsAfter,
+    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logs} and then at most ${BUILD_MOST.goodsAfter}`,
   );
   const walkers = around.map((shot) => ({
     at: shot.at,
