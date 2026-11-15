@@ -154,7 +154,7 @@ function measure(size: number): boolean {
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
     `  work in the measured ticks: ${workBefore.trees - workAfter.trees} trees felled, ${workAfter.stone - workBefore.stone} stone quarried, ` +
-      `${workAfter.bare - workBefore.bare} rock tiles spent, ${workAfter.stockpiled - workBefore.stockpiled} units carried into stockpiles, ` +
+      `${workAfter.bare - workBefore.bare} rock tiles spent, ${workAfter.stockpiled - workBefore.stockpiled} units added to stockpile tiles, ` +
       `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
   );
   const held = heldTask.reduce((count, value) => count + value, 0);

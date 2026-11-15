@@ -128,8 +128,8 @@ function work(sim: Sim, id: number): boolean {
     return true;
   }
   goods.inbound[place]! -= 1;
-  putDown(sim, place, villagers.carried[id]! as Good, 1);
-  villagers.carried[id] = Good.None;
+  refreshStack(sim, place);
+  if (putDown(sim, place, villagers.carried[id]! as Good, 1)) villagers.carried[id] = Good.None;
   villagers.destination[id] = -1;
   return true;
 }
