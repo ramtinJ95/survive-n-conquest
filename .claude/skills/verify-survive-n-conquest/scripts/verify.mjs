@@ -1260,18 +1260,31 @@ function pixelsIn(png, width, box, matches) {
   return { count, row: count > 0 ? rows / count : NaN };
 }
 
-/** Counts the pixels inside `box` where two screenshots of one size differ by more than `SETTLER_THRESHOLD` in some channel. */
-function changedIn(pngA, pngB, width, box) {
+/** Counts the pixels inside `box` where two screenshots of one size differ by more than `threshold` in some channel. */
+function changedIn(pngA, pngB, width, box, threshold = SETTLER_THRESHOLD) {
   const a = ffmpeg(['-i', pngA, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const b = ffmpeg(['-i', pngB, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   let count = 0;
   for (let y = box.y; y < box.y + box.height; y++) {
     for (let x = box.x; x < box.x + box.width; x++) {
       const i = (y * width + x) * 3;
-      if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > SETTLER_THRESHOLD) count += 1;
+      if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > threshold) count += 1;
     }
   }
   return count;
+}
+
+/** Takes one of the `GATHER_VIEWS` on a page at the `CLIP` size, from the opening view. */
+async function takeView(session, page, view) {
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.wheel(0, view.wheel);
+  await session.still(page);
+  const from = { x: middle.x - view.turn.x / 2, y: middle.y - view.turn.y / 2 };
+  await session.drag(page, from, { x: from.x + view.turn.x, y: from.y + view.turn.y }, 'right');
+  await session.still(page);
+  await session.drag(page, { x: middle.x, y: middle.y - view.pan / 2 }, { x: middle.x, y: middle.y + view.pan / 2 });
+  await session.still(page);
 }
 
 SCENARIOS.gathering = async (session) => {
@@ -1281,17 +1294,6 @@ SCENARIOS.gathering = async (session) => {
   const expectSaid = async (page, name, pattern) => {
     const ok = await status(page).filter({ hasText: pattern }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
     session.check(name, ok, `the status line reads "${(await status(page).textContent()) ?? ''}"`);
-  };
-  const frame = async (page, view) => {
-    const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
-    await page.mouse.move(middle.x, middle.y);
-    await page.mouse.wheel(0, view.wheel);
-    await session.still(page);
-    const from = { x: middle.x - view.turn.x / 2, y: middle.y - view.turn.y / 2 };
-    await session.drag(page, from, { x: from.x + view.turn.x, y: from.y + view.turn.y }, 'right');
-    await session.still(page);
-    await session.drag(page, { x: middle.x, y: middle.y - view.pan / 2 }, { x: middle.x, y: middle.y + view.pan / 2 });
-    await session.still(page);
   };
   const mark = async (page, key, [from, to]) => {
     await page.keyboard.press(key);
@@ -1313,7 +1315,7 @@ SCENARIOS.gathering = async (session) => {
   };
 
   const grove = await session.open(CLIP, { record: true, clock: 'paused' });
-  await frame(grove.page, GATHER_VIEWS.grove);
+  await takeView(session, grove.page, GATHER_VIEWS.grove);
   const groveFrom = grove.since();
   await mark(grove.page, 'KeyC', GATHER_VIEWS.grove.area);
   await expectSaid(grove.page, 'a Chop drag marks the grove', /^12 trees marked for felling/);
@@ -1342,7 +1344,7 @@ SCENARIOS.gathering = async (session) => {
   );
 
   const rock = await session.open(CLIP, { record: true, clock: 'paused' });
-  await frame(rock.page, GATHER_VIEWS.rock);
+  await takeView(session, rock.page, GATHER_VIEWS.rock);
   await mark(rock.page, 'KeyM', GATHER_VIEWS.rock.area);
   await expectSaid(rock.page, 'a Quarry drag marks the rock face', /^21 rock tiles marked for quarrying/);
   await rock.page.keyboard.press('Escape');
@@ -1374,7 +1376,7 @@ SCENARIOS.gathering = async (session) => {
   seen.push(...rock.errors);
 
   const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
-  await frame(bare.page, GATHER_VIEWS.rock);
+  await takeView(session, bare.page, GATHER_VIEWS.rock);
   const empty = {};
   for (const [name, when] of GATHER_STOPS) {
     if (!['working', 'night', 'back'].includes(name)) continue;
@@ -1423,6 +1425,247 @@ SCENARIOS.gathering = async (session) => {
     climb >= GATHER_LEAST.climb,
     `the settlers at the rock face moved ${climb.toFixed(1)} pixels up the screen, toward the rock, from ${when.back}; needs ${GATHER_LEAST.climb}`,
   );
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * Every hauling page takes the grove view of `GATHER_VIEWS` on seed 7 and clears the grove before it marks a stockpile,
+ * so that the 24 logs of the 12 felled trees lie in the grove when the carrying starts. The drags are shares of the
+ * viewport: `near` is 20 tiles of grass between the grove and the camp, `small` is 2 tiles there, and `far` is 20
+ * tiles near the lake, a long walk from the grove. The boxes are in clip pixels: the near stockpile with the stacks
+ * that rise above it, the open grass that the carriers cross between the grove and the far stockpile, and the camp
+ * disc. The route box ends 8 pixels short of the felled grove, whose shadows change, and short of the far stockpile.
+ */
+const HAUL_SPOTS = {
+  near: [[0.35, 0.53], [0.39, 0.6]],
+  small: [[0.37, 0.54], [0.371, 0.55]],
+  far: [[0.15, 0.56], [0.19, 0.63]],
+};
+const HAUL_BOXES = {
+  near: { x: 325, y: 250, width: 70, height: 85 },
+  route: { x: 205, y: 190, width: 150, height: 90 },
+  camp: { x: 440, y: 320, width: 75, height: 70 },
+};
+/**
+ * The clip keeps the Stockpiles panel, the time, the grove, and the near stockpile. It runs 25 s of video, half of it
+ * at 1× while `reach` closes in on a stop, and at 560 by 380 pixels in 64 colors it took 6.0 MB. 40 colors and this
+ * crop keep it near 4 MB, and the logs, the carriers, and the totals still read.
+ */
+const HAUL_CLIP = { crop: { x: 0, y: 0, width: 510, height: 345 }, width: 510, colors: 40 };
+/**
+ * On seed 7, with the grove cleared and the near stockpile marked at 13:30, the panel read 6 logs at 14:30, 8 at 15:30,
+ * 16 at 16:30, 22 at 17:30, and 24 at 18:30. The 2-tile stockpile was full by 16:30. With the far stockpile marked at
+ * 15:30 the panel read 0 at 17:00 and 8 at 19:05, all night, and at 07:00 on day 2, and 24 by 11:00 on day 2.
+ * `GOOD_COLORS` matches the logs until 17:30 and no longer at 18:30, so every log count stops in daylight.
+ */
+const HAUL_STOPS = {
+  cleared: { day: 1, time: '13:30' },
+  rising: { day: 1, time: '15:00' },
+  stacked: { day: 1, time: '17:30' },
+  full: { day: 1, time: '17:00' },
+  stillFull: { day: 2, time: '10:00' },
+  farMarked: { day: 1, time: '15:30' },
+  beforeDusk: { day: 1, time: '19:05' },
+  afterDusk: { day: 1, time: '19:30' },
+  night: { day: 1, time: '21:00' },
+  beforeDawn: { day: 2, time: '04:30' },
+  morning: { day: 2, time: '07:00' },
+  carried: { day: 2, time: '11:00' },
+};
+/**
+ * On rj-firebat the grove box held 192 log pixels at 13:30 and 34 at 17:30, and the near stockpile's box 0, 114, and
+ * 280 at 13:30, 15:00, and 17:30. Beside the full stockpile the grove box held 10 log pixels at 17:00 and 9 at 10:00 on
+ * day 2: the carriers take the front logs first, and the 8 left lie under the crowns at the back. A grove with no logs
+ * reads 0. The route held 0 log pixels and differed from the bare map in 0 pixels before the far stockpile, differed in
+ * 317 at 19:05 and in 149 at 21:00, and held 60 log pixels at 07:00 on day 2 and 0 at 11:00. The camp box differed from
+ * the bare map in 377 pixels at 21:00.
+ */
+const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 5, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
+const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, routeBefore: 20, routeCarried: 0.5 };
+/** A log put down at night differs from the bare ground by about 25 in its brightest channel, too little for `SETTLER_THRESHOLD`. */
+const NIGHT_THRESHOLD = 12;
+
+SCENARIOS.hauling = async (session) => {
+  const seen = [];
+  const spot = ([fx, fy]) => ({ x: Math.round(fx * CLIP.width), y: Math.round(fy * CLIP.height) });
+  const status = (page) => page.getByRole('status', { name: 'Order' });
+  const said = async (page, pattern) => {
+    await status(page).filter({ hasText: pattern }).waitFor({ timeout: 15_000 }).catch(() => {});
+    return (await status(page).textContent()) ?? '';
+  };
+  const totals = async (page) => {
+    const text = (await page.getByRole('status', { name: 'Stockpiles' }).textContent()) ?? '';
+    const read = /Logs(\d+)Stone(\d+)/.exec(text);
+    if (!read) fail(`the Stockpiles panel reads "${text}", not a Logs and a Stone total`);
+    return { logs: Number(read[1]), stone: Number(read[2]) };
+  };
+  const mark = async (page, key, [from, to]) => {
+    await page.keyboard.press(key);
+    await session.drag(page, spot(from), spot(to));
+  };
+  const logsIn = (png, box) => pixelsIn(png, CLIP.width, box, GOOD_COLORS.logs).count;
+  const at = async (page, when, label) => {
+    await session.reach(page, when);
+    await session.still(page);
+    return { png: label && (await session.screenshot(page, label)), totals: await totals(page) };
+  };
+  const clearGrove = async (page) => {
+    await takeView(session, page, GATHER_VIEWS.grove);
+    await mark(page, 'KeyC', GATHER_VIEWS.grove.area);
+    const chopped = await said(page, /^12 trees marked for felling/);
+    await page.keyboard.press('Escape');
+    return chopped;
+  };
+  const markStockpile = async (page, area) => {
+    await mark(page, 'KeyP', area);
+    const line = await said(page, /tiles? joins? the stockpile zone/);
+    await page.keyboard.press('Escape');
+    await session.still(page);
+    const read = /^(\d+) tiles? joins? the stockpile zone/.exec(line);
+    return { line, places: read ? Number(read[1]) * 8 : 0 };
+  };
+  const grove = GATHER_VIEWS.grove.box;
+  const when = (stop) => `${HAUL_STOPS[stop].day > 1 ? `day ${HAUL_STOPS[stop].day} ` : ''}${HAUL_STOPS[stop].time}`;
+
+  const fill = await session.open(CLIP, { record: true, clock: 'paused' });
+  const chopped = await clearGrove(fill.page);
+  session.check('a Chop drag marks the grove', chopped.startsWith('12 trees marked for felling'), `the status line reads "${chopped}"`);
+  const cleared = await at(fill.page, HAUL_STOPS.cleared, 'hauling-grove-cleared');
+  const fillFrom = fill.since();
+  const near = await markStockpile(fill.page, HAUL_SPOTS.near);
+  session.check('a Stockpile drag beside the grove makes room for all 24 logs', near.places >= 24, `the status line reads "${near.line}", ${near.places} places`);
+  const rising = await at(fill.page, HAUL_STOPS.rising, 'hauling-grove-rising');
+  const stacked = await at(fill.page, HAUL_STOPS.stacked, 'hauling-grove-stacked');
+  await session.finishClips(fill.context, fill.page, [{ label: 'hauling-grove', from: fillFrom, to: fill.since(), ...HAUL_CLIP }]);
+  seen.push(...fill.errors);
+
+  const lying = logsIn(cleared.png, grove);
+  session.check(
+    `at ${when('cleared')}, with no stockpile, the felled logs lie in the grove and the panel counts none`,
+    cleared.totals.logs === 0 && cleared.totals.stone === 0 && lying >= HAUL_LEAST.lying,
+    `Logs ${cleared.totals.logs}, Stone ${cleared.totals.stone}, needs 0 and 0; ${lying} log pixels in the grove, needs ${HAUL_LEAST.lying}`,
+  );
+  session.check(
+    `the Logs total rises from ${when('cleared')} to ${when('rising')} to ${when('stacked')}`,
+    cleared.totals.logs === 0 && rising.totals.logs > 0 && stacked.totals.logs > rising.totals.logs,
+    `Logs ${cleared.totals.logs}, then ${rising.totals.logs}, then ${stacked.totals.logs}`,
+  );
+  const piled = { before: logsIn(cleared.png, HAUL_BOXES.near), rising: logsIn(rising.png, HAUL_BOXES.near), stacked: logsIn(stacked.png, HAUL_BOXES.near) };
+  session.check(
+    'the logs stack up inside the stockpile',
+    piled.before <= HAUL_MOST.goodsBefore && piled.rising >= HAUL_LEAST.rising && piled.stacked >= HAUL_LEAST.stacked,
+    `${piled.before}, ${piled.rising}, and ${piled.stacked} log pixels in the stockpile, needs at most ${HAUL_MOST.goodsBefore}, then ${HAUL_LEAST.rising}, then ${HAUL_LEAST.stacked}`,
+  );
+  const left = logsIn(stacked.png, grove);
+  session.check(
+    `by ${when('stacked')} the logs have left the grove`,
+    left <= lying * HAUL_MOST.leftInGrove,
+    `${left} log pixels in the grove, from ${lying}; needs at most ${HAUL_MOST.leftInGrove * 100}% of them`,
+  );
+
+  const full = await session.open(CLIP, { clock: 'paused' });
+  await clearGrove(full.page);
+  await session.reach(full.page, HAUL_STOPS.cleared);
+  const small = await markStockpile(full.page, HAUL_SPOTS.small);
+  session.check('a Stockpile drag makes fewer places than the 24 logs', small.places > 0 && small.places < 24, `the status line reads "${small.line}", ${small.places} places`);
+  const filled = await at(full.page, HAUL_STOPS.full, 'hauling-full-filled');
+  const stillFull = await at(full.page, HAUL_STOPS.stillFull, 'hauling-full');
+  await full.context.close();
+  seen.push(...full.errors);
+  session.check(
+    `the full stockpile holds as many logs as it has places at ${when('full')} and at ${when('stillFull')}`,
+    filled.totals.logs === small.places && stillFull.totals.logs === small.places,
+    `Logs ${filled.totals.logs} and then ${stillFull.totals.logs}, needs ${small.places} both times`,
+  );
+  const outside = { filled: logsIn(filled.png, grove), stillFull: logsIn(stillFull.png, grove) };
+  session.check(
+    `at ${when('full')} and at ${when('stillFull')} the logs with no place still lie in the grove`,
+    outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace,
+    `${outside.filled} and then ${outside.stillFull} log pixels in the grove, needs ${HAUL_LEAST.noPlace} both times`,
+  );
+
+  const walk = await session.open(CLIP, { clock: 'paused' });
+  await clearGrove(walk.page);
+  const route = await at(walk.page, HAUL_STOPS.farMarked, 'hauling-route-before');
+  const far = await markStockpile(walk.page, HAUL_SPOTS.far);
+  session.check('a Stockpile drag far from the grove makes room for all 24 logs', far.places >= 24, `the status line reads "${far.line}", ${far.places} places`);
+  const beforeDusk = await at(walk.page, HAUL_STOPS.beforeDusk, 'hauling-dusk-before');
+  const afterDusk = await at(walk.page, HAUL_STOPS.afterDusk);
+  const night = await at(walk.page, HAUL_STOPS.night, 'hauling-dusk-after');
+  const beforeDawn = await at(walk.page, HAUL_STOPS.beforeDawn);
+  const morning = await at(walk.page, HAUL_STOPS.morning, 'hauling-dawn-lying');
+  const carried = await at(walk.page, HAUL_STOPS.carried, 'hauling-dawn-carried');
+  await walk.context.close();
+  seen.push(...walk.errors);
+
+  const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
+  await takeView(session, bare.page, GATHER_VIEWS.grove);
+  const empty = {};
+  for (const stop of ['farMarked', 'beforeDusk', 'night']) empty[stop] = (await at(bare.page, HAUL_STOPS[stop], `hauling-bare-${stop}`)).png;
+  await bare.context.close();
+  seen.push(...bare.errors);
+
+  const onRoute = (stop, png, threshold) => changedIn(empty[stop], png, CLIP.width, HAUL_BOXES.route, threshold);
+  const routeBefore = { logs: logsIn(route.png, HAUL_BOXES.route), changed: onRoute('farMarked', route.png) };
+  session.check(
+    `at ${when('farMarked')}, before the far stockpile, nothing lies on the route`,
+    routeBefore.logs <= HAUL_MOST.goodsBefore && routeBefore.changed <= HAUL_MOST.routeBefore,
+    `${routeBefore.logs} log pixels on the route, needs at most ${HAUL_MOST.goodsBefore}; ${routeBefore.changed} pixels differ from the bare map, needs at most ${HAUL_MOST.routeBefore}`,
+  );
+  const carrying = onRoute('beforeDusk', beforeDusk.png);
+  session.check(
+    `at ${when('beforeDusk')} carriers walk the route`,
+    carrying >= HAUL_LEAST.routeByDusk,
+    `${carrying} pixels on the route differ from the bare map, needs ${HAUL_LEAST.routeByDusk}`,
+  );
+  const dropped = onRoute('night', night.png, NIGHT_THRESHOLD);
+  const camp = changedIn(empty.night, night.png, CLIP.width, HAUL_BOXES.camp);
+  session.check(
+    `at ${when('night')} the units lie on the route where the carriers put them down, and the settlers stand at the camp`,
+    dropped >= HAUL_LEAST.droppedAtNight && camp >= HAUL_LEAST.campAtNight,
+    `${dropped} pixels on the route differ from the bare map by more than ${NIGHT_THRESHOLD}, needs ${HAUL_LEAST.droppedAtNight}; ${camp} pixels at the camp differ, needs ${HAUL_LEAST.campAtNight}`,
+  );
+  const nightTotals = [afterDusk, night, beforeDawn].map((stop) => stop.totals.logs);
+  session.check(
+    `the totals do not change from ${when('afterDusk')} to ${when('beforeDawn')}`,
+    nightTotals.every((logs) => logs === nightTotals[0]) && beforeDusk.totals.logs <= nightTotals[0],
+    `Logs ${beforeDusk.totals.logs} at ${when('beforeDusk')}, then ${nightTotals.join(', ')}`,
+  );
+  const routeLogs = { morning: logsIn(morning.png, HAUL_BOXES.route), carried: logsIn(carried.png, HAUL_BOXES.route) };
+  session.check(
+    `after dawn the settlers carry the dropped units on by ${when('carried')}`,
+    routeLogs.morning >= HAUL_LEAST.droppedAtDawn && routeLogs.carried <= routeLogs.morning * HAUL_MOST.routeCarried && carried.totals.logs > nightTotals[0],
+    `${routeLogs.morning} log pixels on the route at ${when('morning')} and ${routeLogs.carried} at ${when('carried')}, needs ${HAUL_LEAST.droppedAtDawn} and then at most ${HAUL_MOST.routeCarried * 100}% of them; Logs ${nightTotals[0]} at night and ${carried.totals.logs} at ${when('carried')}`,
+  );
+
+  const layout = await session.open(WIDE);
+  for (const size of [WIDE, CLIP]) {
+    await layout.page.setViewportSize(size);
+    await session.settle(layout.page);
+    await layout.page.keyboard.press('KeyP');
+    await said(layout.page, /Drag over open ground/);
+    await session.still(layout.page);
+    const panel = layout.page.getByRole('status', { name: 'Stockpiles' });
+    const boxes = {
+      stockpiles: await panel.boundingBox(),
+      clock: await layout.page.getByRole('region', { name: 'Clock' }).boundingBox(),
+      status: await status(layout.page).boundingBox(),
+      toolbar: await layout.page.getByRole('toolbar', { name: 'Orders' }).boundingBox(),
+      hint: await layout.page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+    };
+    const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height;
+    const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    const others = Object.entries(boxes).filter(([name]) => name !== 'stockpiles');
+    const ok = inside(boxes.stockpiles) && others.every(([, box]) => box && disjoint(boxes.stockpiles, box));
+    const detail = Object.entries(boxes).map(([name, box]) => `${name} ${box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing'}`).join('; ');
+    session.check(`the Stockpiles panel keeps clear of the clock, the status line, the toolbar, and the camera hint at ${size.width}x${size.height}`, ok, detail);
+    const labels = await Promise.all(['Logs', 'Stone'].map((label) => panel.getByText(label, { exact: true }).isVisible()));
+    session.check(`the Stockpiles panel shows Logs and Stone at ${size.width}x${size.height}`, labels.every(Boolean), `Logs ${labels[0] ? 'shown' : 'missing'}, Stone ${labels[1] ? 'shown' : 'missing'}; reads "${await panel.textContent()}"`);
+    await session.screenshot(layout.page, `hauling-${size.width}x${size.height}`);
+    await layout.page.keyboard.press('Escape');
+  }
+  await layout.context.close();
+  seen.push(...layout.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
