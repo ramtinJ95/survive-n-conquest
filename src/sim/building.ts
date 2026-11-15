@@ -25,7 +25,7 @@ export interface SiteTasks {
   readonly inbound: Uint8Array;
   /** Villagers that hold building work at each site. */
   readonly builders: Uint8Array;
-  /** Bit `corner` is set where a builder holds that corner tile. Bit 0 means right of the center and bit 1 below it. */
+  /** Bit `1 << corner` is set where a builder holds that corner tile. Corner 1 is right of the center, 2 below it, and 3 both. */
   readonly corners: Uint8Array;
   /** 1 where a site's building work is set aside as out of reach, until dawn or until land gains walks. */
   readonly setAside: Uint8Array;

@@ -52,7 +52,7 @@ export interface Villagers {
   readonly taskTile: Int32Array;
   /** The tile the villager stands on to work its task, or -1. */
   readonly workTile: Int32Array;
-  /** The tile a carrying task takes its unit to, a stockpile place or a site's center, or -1. */
+  /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's center, or -1. */
   readonly destination: Int32Array;
   /** The `Good` of the unit each villager carries, or `Good.None`. */
   readonly carried: Uint8Array;
@@ -278,7 +278,7 @@ export function stopFallenTasks(sim: Sim): void {
   }
 }
 
-/** The tile nearest `from` in side steps over any tiles that has a walk to the camp, or -1. */
+/** The tile with a walk to the camp nearest `from`, counted in side steps over tiles of any kind, or -1. */
 function nearestReached(sim: Sim, from: number): number {
   const { size } = sim.map;
   const { next } = sim.flow;
@@ -327,7 +327,7 @@ function routeStands(map: TileMap, villagers: Villagers, id: number): boolean {
 
 /**
  * Settles every unit after a finished house closed tiles, in the tick it was
- * finished, before any other unit moves. Tasks on land that lost its walk to
+ * finished, before the next unit moves. Tasks on land that lost its walk to
  * the camp close. A unit that stands where no walk reaches the camp moves to
  * the nearest tile with one, as on the house or on land that reached the camp
  * only across its site. A villager whose task fell, or whose work tile lost its

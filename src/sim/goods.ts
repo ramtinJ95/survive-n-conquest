@@ -30,7 +30,7 @@ export interface GoodsState {
   readonly stocked: readonly TileSet[];
   /** By good, at index `good - 1`: the stockpile tiles that can take one more unit of that good that a walk from the camp reaches, not set aside. */
   readonly room: readonly TileSet[];
-  /** 1 where a tile is set aside as out of reach for carrying, until dawn or until land gains walks. */
+  /** 1 where a tile is set aside as out of reach for carrying and supplying, until dawn or until land gains walks. */
   readonly setAside: Uint8Array;
   /** The first `setAsideCount` are the tiles set aside. */
   readonly setAsideTiles: Int32Array;
@@ -96,7 +96,7 @@ export function refreshStack(sim: Sim, tile: number): void {
   }
 }
 
-/** Sets a tile aside as out of reach for carrying, until dawn or until land gains walks. */
+/** Sets a tile aside as out of reach for carrying and supplying, until dawn or until land gains walks. */
 export function setAsideGoods(sim: Sim, tile: number): void {
   const { goods } = sim;
   if (goods.setAside[tile] === 1) return;
@@ -105,7 +105,7 @@ export function setAsideGoods(sim: Sim, tile: number): void {
   refreshStack(sim, tile);
 }
 
-/** Opens again every tile set aside for carrying. */
+/** Opens again every tile set aside for carrying and supplying. */
 export function reopenGoods(sim: Sim): void {
   const { goods } = sim;
   for (let i = 0; i < goods.setAsideCount; i++) {

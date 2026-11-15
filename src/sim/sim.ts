@@ -44,13 +44,10 @@ export function populationFor(swarm: string | null): Population {
 /** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
 export interface Tally {
   felled: number;
-  /** Stone taken from rock tiles. */
   quarried: number;
   /** Units a villager carried onto a stockpile tile. Stone quarried onto one is not counted. */
   stocked: number;
-  /** Units delivered to sites. */
   delivered: number;
-  /** Houses finished. */
   built: number;
 }
 
