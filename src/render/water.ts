@@ -26,7 +26,9 @@ function waves(clock: IUniform<number>): Motion {
 /**
  * The lakes and rivers of the map and the sea around it, as one mesh, and the
  * bed of the sea as another. Water pales where it is shallow. The waves move
- * with `clock`.
+ * with `clock`. The bed lies around the map and not under it, where the ground
+ * hides it, so nothing lies under the ground: a camera that got under the
+ * ground would see the sky through it, and the `camera` scenario reads that.
  */
 export function createWater(map: TileMap, seasonMix: IUniform<Vector4>, clock: IUniform<number>) {
   const { size, heights } = map;
@@ -112,13 +114,13 @@ export function createWater(map: TileMap, seasonMix: IUniform<Vector4>, clock: I
   water.receiveShadow = true;
 
   const floor = new BufferGeometry();
-  const out = half + SEA.reach;
   const deep = WATER_LEVEL - SEA.depth;
-  floor.setAttribute('position', new BufferAttribute(Float32Array.of(-out, deep, -out, -out, deep, out, out, deep, out, out, deep, -out), 3));
+  const square = (reach: number) => [-reach, deep, -reach, -reach, deep, reach, reach, deep, reach, reach, deep, -reach];
+  floor.setAttribute('position', new BufferAttribute(Float32Array.from([...square(half + SEA.reach), ...square(half)]), 3));
   PALETTES.forEach(({ lakeBed }, season) =>
-    floor.setAttribute(SEASON_COLORS[season]!, new BufferAttribute(Float32Array.from([0, 1, 2, 3].flatMap(() => lakeBed.toArray())), 3)),
+    floor.setAttribute(SEASON_COLORS[season]!, new BufferAttribute(Float32Array.from(Array.from({ length: 8 }, () => lakeBed.toArray()).flat()), 3)),
   );
-  floor.setIndex([0, 1, 2, 0, 2, 3]);
+  floor.setIndex([0, 1, 2, 3].flatMap((at) => [at, (at + 1) % 4, 4 + ((at + 1) % 4), at, 4 + ((at + 1) % 4), 4 + at]));
   const bed = new Mesh(floor, seasonalMaterial(seasonMix));
   bed.name = 'sea bed';
 

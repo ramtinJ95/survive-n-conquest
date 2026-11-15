@@ -57,6 +57,25 @@ describe('createWorld', () => {
     expect([bed.min.x, bed.max.x, bed.min.z, bed.max.z]).toEqual([min.x, max.x, min.z, max.z]);
   });
 
+  it('lays the bed of the sea around the map and leaves nothing under the ground', () => {
+    const bed = scene.getObjectByName('sea bed') as Mesh;
+    const down = new Raycaster();
+    const under = (x: number, z: number) => {
+      down.set(new Vector3(x, 10, z), new Vector3(0, -1, 0));
+      return down.intersectObject(bed).length;
+    };
+    const half = SIZE / 2;
+    for (const inside of [0, half - 0.5, 0.5 - half]) {
+      expect(under(inside, 0), `x ${inside}`).toBe(0);
+      expect(under(0, inside), `z ${inside}`).toBe(0);
+    }
+    for (const outside of [half + 0.5, -half - 0.5, half + 1000]) {
+      expect(under(outside, 0), `x ${outside}`).toBeGreaterThan(0);
+      expect(under(0, outside), `z ${outside}`).toBeGreaterThan(0);
+      expect(under(outside, outside), `corner ${outside}`).toBeGreaterThan(0);
+    }
+  });
+
   it('draws water over every tile that lies under the water level', () => {
     const water = scene.getObjectByName('water') as Mesh;
     const down = new Raycaster();
