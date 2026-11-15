@@ -2,6 +2,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { type TileMap, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
+import { MAX_PATH } from './paths';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -35,6 +36,11 @@ export interface Villagers {
   readonly activity: Uint8Array;
   /** How many random numbers each villager has drawn. Each draw hashes the seed, the id, and this count, so no villager's draws depend on another's. */
   readonly draws: Uint32Array;
+  /** `MAX_PATH` tiles of route for each villager, row by row. The villager walks to the center of each in turn. */
+  readonly path: Int32Array;
+  readonly pathLength: Uint16Array;
+  /** The route tile the villager walks to next. It has walked the whole route when this equals `pathLength`. */
+  readonly pathCursor: Uint16Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -85,6 +91,9 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     spotY: new Float32Array(count),
     activity: new Uint8Array(count),
     draws: new Uint32Array(count),
+    path: new Int32Array(count * MAX_PATH),
+    pathLength: new Uint16Array(count),
+    pathCursor: new Uint16Array(count),
   };
   const campX = (camp.goal % map.size) + 0.5;
   const campY = Math.floor(camp.goal / map.size) + 0.5;

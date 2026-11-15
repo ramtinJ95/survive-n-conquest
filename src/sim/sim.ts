@@ -6,6 +6,7 @@ import { type PutDownSearch, createPutDownSearch } from './goods';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
+import { type PathSearch, createPathSearch } from './paths';
 import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, createVillagers, moveVillagers } from './villagers';
 
@@ -47,6 +48,7 @@ export interface Sim {
   readonly monsters: Monsters;
   readonly orders: Orders;
   readonly putDownSearch: PutDownSearch;
+  readonly pathSearch: PathSearch;
   tick: number;
   speed: Speed;
   paused: boolean;
@@ -67,6 +69,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
     putDownSearch: createPutDownSearch(map.size * map.size),
+    pathSearch: createPathSearch(map.size * map.size),
     tick: 0,
     speed: 1,
     paused: false,
