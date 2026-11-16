@@ -43,7 +43,7 @@ const around = (shape: ShapeName, angle: number, reach: number, turn = -angle, r
  * camp keeps free of orders, as `underCamp` says. No cloth is yellow, orange,
  * or red, the colors of the settlers, the fire, and the monsters.
  */
-const LAYOUT: readonly Placed[] = [
+export const CAMP_LAYOUT: readonly Placed[] = [
   { shape: 'fire', x: 0, z: 0, turn: 0 },
   { shape: 'pot', x: 0, z: 0, turn: 0.6 },
   around('tent', 1.38, 1.9, -1.38, { cloth: 0xf1e6cc }),
@@ -98,7 +98,7 @@ export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   const placed = new Matrix4();
   const camp = new Mesh(
     mergeGeometries(
-      LAYOUT.map(({ shape, x: east, z: south, turn, lift = 0, cloth }) =>
+      CAMP_LAYOUT.map(({ shape, x: east, z: south, turn, lift = 0, cloth }) =>
         (cloth === undefined ? shapes[shape].clone() : dyed(shapes[shape], cloth))
           .applyMatrix4(placed.makeRotationY(turn).setPosition(east, heightAt(map, x + east, y + south) - ground + lift, south)),
       ),
