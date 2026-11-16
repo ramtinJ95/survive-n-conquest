@@ -2982,6 +2982,13 @@ function selectionDriver(session) {
   return { panel, reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart };
 }
 
+/**
+ * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and
+ * Household rows. Before households the title was the word Settler.
+ */
+const settlerPanel = (read) =>
+  Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
+
 SCENARIOS.selecting = async (session) => {
   const seen = [];
   const sites = siteDriver(session);
@@ -3018,7 +3025,7 @@ SCENARIOS.selecting = async (session) => {
   const picked = await clickSettler(page, 'selecting-settler-aim');
   session.check(
     `at ${await at(page)} a click ${SELECT_OFFSET} px beside a settler selects it`,
-    picked.read?.title === 'Settler',
+    settlerPanel(picked.read),
     `${picked.spot ? `tunic at ${picked.spot.x.toFixed(0)},${picked.spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(picked.read)}"`,
   );
   const firstBoxes = await uiBoxes(page);
@@ -3081,7 +3088,7 @@ SCENARIOS.selecting = async (session) => {
 
   await session.reach(page, BUILD_STOPS.placed);
   const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);
-  session.check('a House click places the site and leaves the selection alone', /^House site placed/.test(placed.line) && (await reads(page))?.title === 'Settler', `the status line reads "${placed.line}"; the panel reads "${text(await reads(page))}"`);
+  session.check('a House click places the site and leaves the selection alone', /^House site placed/.test(placed.line) && settlerPanel(await reads(page)), `the status line reads "${placed.line}"; the panel reads "${text(await reads(page))}"`);
   const siteRead = await click(page, BUILD_SPOTS.closerHouse);
   session.check(
     `at ${await at(page)} a click on the site selects it and its panel reads what has arrived`,
@@ -3195,7 +3202,7 @@ SCENARIOS.selecting = async (session) => {
   await session.reach(c, SELECT_STOPS.winterNoon);
   await session.still(c);
   const snowPick = await clickSettler(c, 'selecting-winter-aim');
-  session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
+  session.check('at winter noon a click beside a settler selects it', settlerPanel(snowPick.read), `the panel reads "${text(snowPick.read)}"`);
   await measureMark('at winter noon, over snow,', 'winter-noon');
   const winterCamp = await selectCamp();
   session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `after ${winterCamp.tries} of at most ${CAMP_TRIES} clicks the panel reads "${text(winterCamp.read)}"`);
@@ -3213,7 +3220,7 @@ SCENARIOS.selecting = async (session) => {
   const farRead = firelit ? await click(c, firelit) : null;
   session.check(
     'at the farthest zoom a click on the firelit camp selects one of the settlers ringed there',
-    farRead?.title === 'Settler',
+    settlerPanel(farRead),
     `${firelit ? `firelit ground of ${firelit.count} px at ${firelit.x.toFixed(0)},${firelit.y.toFixed(0)}` : 'no firelit ground found'}; the panel reads "${text(farRead)}"`,
   );
   await camp.context.close();
@@ -3226,7 +3233,7 @@ SCENARIOS.selecting = async (session) => {
     const { spot, read, png } = await clickSettler(v, `selecting-pick-${name.replace(' ', '-')}`);
     session.check(
       `at the ${name} view a click ${SELECT_OFFSET} px beside a settler selects it`,
-      read?.title === 'Settler',
+      settlerPanel(read),
       `${spot ? `tunic of ${spot.count} px at ${spot.x.toFixed(0)},${spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(read)}"`,
     );
     const bare = await bareSpot(v, png);
