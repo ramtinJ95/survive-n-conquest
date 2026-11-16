@@ -3,7 +3,7 @@ import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
 import { BUILDING } from '../src/sim/building';
 import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
 import { CARRYING } from '../src/sim/carrying';
-import { isNight } from '../src/sim/daylight';
+import { isDawn, isNight } from '../src/sim/daylight';
 import { GATHERING } from '../src/sim/gathering';
 import { GOOD_KINDS } from '../src/sim/goods';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
@@ -12,7 +12,9 @@ import { generateMap } from '../src/sim/mapgen';
 import { MAX_SITES } from '../src/sim/orders';
 import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
+import { NO_HOME } from '../src/sim/households';
 import { NO_TASK, TASK_KINDS } from '../src/sim/tasks';
+import { THINK_GROUPS, VillagerState } from '../src/sim/villagers';
 
 const SEED = 7;
 const SIZES = [256, 512];
@@ -47,6 +49,8 @@ const KINDS = [
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built'] as const satisfies readonly (keyof Tally)[];
 const GOOD_NAMES = ['logs', 'stone'] as const;
+/** Every villager makes its dusk or dawn choice within one think cycle, so each turn of the light is measured over this many ticks. */
+const TURN_TICKS = THINK_GROUPS;
 
 const sum = (values: Uint32Array) => values.reduce((total, value) => total + value, 0);
 
@@ -76,6 +80,10 @@ function siteCenters(size: number): [number, number][] {
     Math.floor(((i % SITE_GRID) + 0.5) * cell),
     Math.floor((Math.floor(i / SITE_GRID) + 0.5) * cell),
   ]);
+}
+
+function inside(sim: Sim): number {
+  return sim.villagers.state.reduce((count, state) => count + (state === VillagerState.Inside ? 1 : 0), 0);
 }
 
 function atCamp(sim: Sim): number {
@@ -142,13 +150,27 @@ function measure(size: number): boolean {
   // JavaScriptCore reports its heap size only at a collection, so this sees what the ticks keep, not short-lived garbage.
   atCamp(sim);
   const midnights = new Int32Array(Math.ceil(MEASURED_TICKS / TICKS_PER_DAY) + 1);
+  const insideAtMidnight = new Int32Array(midnights.length);
   let nights = 0;
+  const turns = { dusk: new Float64Array(MEASURED_TICKS / TURN_TICKS), dawn: new Float64Array(MEASURED_TICKS / TURN_TICKS) };
+  const turnCount = { dusk: 0, dawn: 0 };
+  let turn: 'dusk' | 'dawn' | undefined;
+  let turnLeft = 0;
   const heapBefore = fullGC();
   for (let tick = 0; tick < MEASURED_TICKS; tick++) {
+    if (isDawn(sim.tick) || (isNight(sim.tick) && !isNight(sim.tick - 1))) {
+      turn = isDawn(sim.tick) ? 'dawn' : 'dusk';
+      turnCount[turn]++;
+      turnLeft = TURN_TICKS;
+    }
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
-    if (tickOfDay(sim.tick) === 0) midnights[nights++] = atCamp(sim);
+    if (turn && turnLeft-- > 0) turns[turn][turnCount[turn] - 1] = Math.max(turns[turn][turnCount[turn] - 1]!, samples[tick]!);
+    if (tickOfDay(sim.tick) === 0) {
+      insideAtMidnight[nights] = inside(sim);
+      midnights[nights++] = atCamp(sim);
+    }
     const day = !isNight(sim.tick - 1);
     for (let id = 0; id < task.length; id++) {
       const taken = task[id] !== lastTask[id] && taskTile[id]! >= 0;
@@ -186,6 +208,10 @@ function measure(size: number): boolean {
 
   console.log(`\nmap ${size}x${size}`);
   console.log(`  median ${ms(median)}, p99 ${ms(p99)}, max ${ms(samples[samples.length - 1]!)}`);
+  for (const name of ['dusk', 'dawn'] as const) {
+    const largest = Array.from(turns[name].subarray(0, turnCount[name]), ms).join(', ');
+    console.log(`  largest tick in the ${TURN_TICKS} ticks from each ${name}: ${largest || 'no ' + name + ' in the measured ticks'}`);
+  }
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
   console.log(
@@ -224,6 +250,10 @@ function measure(size: number): boolean {
       `and a gathering task open and stockpile room for each good at every daytime tick`,
   );
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
+  console.log(
+    `  villagers inside their house at each measured midnight: ${insideAtMidnight.subarray(0, nights).join(', ')}; ` +
+      `households with a home at the end: ${sim.households.home.reduce((count, home) => count + (home === NO_HOME ? 0 : 1), 0)} of ${sim.households.count}`,
+  );
   console.log(
     `  units off land at the end: ${offLand(sim.map, sim.villagers.x, sim.villagers.y) + offLand(sim.map, sim.monsters.x, sim.monsters.y)}; ` +
       `camp ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,
