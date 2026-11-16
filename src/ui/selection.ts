@@ -260,6 +260,8 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
     refresh();
   };
 
+  // A pointer press must not keep focus, or the next Space would press the button instead of pausing.
+  close.addEventListener('mousedown', (event) => event.preventDefault());
   close.addEventListener('click', () => select(null));
 
   let press: { pointer: number; x: number; y: number; travel: number } | null = null;
