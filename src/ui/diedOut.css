@@ -1,0 +1,37 @@
+.died-out {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100% - 2 * var(--edge-gap)));
+  box-sizing: border-box;
+  padding: 16px 20px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 14px/1.5 var(--ui-font);
+  text-align: center;
+}
+.died-out h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+.died-out p {
+  margin: 0 0 14px;
+  color: var(--ink-soft);
+}
+.died-out button {
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--ink-dark);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.died-out button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
