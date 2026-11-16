@@ -276,7 +276,7 @@ describe("a forager's hut", () => {
     }
     for (const [x, y] of [[20, 15], [23, 15], [21, 14], [22, 17]] as const) expect(walkable(sim.map, at(sim.map, x, y))).toBe(true);
     expect(Array.from(sim.households.home)).toEqual([NO_HOME]);
-    expect([storeKind(sim.orders, slot), foodLimit(sim.orders, sim.stores, slot)]).toEqual([StoreKind.None, 0]);
+    expect([storeKind(sim.orders, slot), foodLimit(sim.orders, sim.stores.campLimit, slot)]).toEqual([StoreKind.None, 0]);
   });
 });
 

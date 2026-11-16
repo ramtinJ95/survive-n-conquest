@@ -1,8 +1,10 @@
+import { storeDoor } from './building';
 import { Job } from './buildings';
 import { GOOD_KINDS, Good, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { Claim } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
+import { Wants, nearestCommonStore } from './stores';
 import type { TaskKind } from './tasks';
 import { nearestOpen } from './tileSet';
 
@@ -13,9 +15,14 @@ function reservePlace(sim: Sim, place: number, good: Good): void {
   refreshStack(sim, place);
 }
 
+/** Whether some place takes one more unit of a good: a stockpile place for logs and stone, a common store for food. */
+function roomFor(sim: Sim, good: Good, px: number, py: number): boolean {
+  return good === Good.Food ? nearestCommonStore(sim, px, py, Wants.Room) >= 0 : sim.goods.room[good - 1]!.count > 0;
+}
+
 /**
  * The loose unit nearest a point in a straight line, among the goods that
- * some stockpile has room for, or -1. Equally near units go to the lowest tile index.
+ * some stockpile or store has room for, or -1. Equally near units go to the lowest tile index.
  */
 function nearestLoose(sim: Sim, px: number, py: number): number {
   const { goods } = sim;
@@ -23,7 +30,7 @@ function nearestLoose(sim: Sim, px: number, py: number): number {
   let best = -1;
   let bestDistance = Infinity;
   for (let index = 0; index < GOOD_KINDS; index++) {
-    if (goods.room[index]!.count === 0) continue;
+    if (!roomFor(sim, (index + 1) as Good, px, py)) continue;
     const tile = nearestOpen(goods.loose[index]!, size, px, py);
     if (tile < 0) continue;
     const dx = (tile % size) + 0.5 - px;
@@ -37,10 +44,37 @@ function nearestLoose(sim: Sim, px: number, py: number): number {
   return best;
 }
 
-/** Sends a villager whose hands are full to the stockpile place nearest it with room for its unit. */
+/**
+ * Reserves a place for a unit of food in the common store nearest a point
+ * with room, and points the villager at the store's door. Returns false when
+ * no store has room or its door has no walk.
+ */
+function reserveStore(sim: Sim, id: number, px: number, py: number): boolean {
+  const { villagers, stores } = sim;
+  const store = nearestCommonStore(sim, px, py, Wants.Room);
+  const door = store < 0 ? -1 : storeDoor(sim, store, px, py);
+  if (door < 0) return false;
+  stores.inbound[store] = stores.inbound[store]! + 1;
+  villagers.toStore[id] = store;
+  villagers.destination[id] = door;
+  return true;
+}
+
+/** Sends a villager whose hands are full to the stockpile place, or the store for food, nearest it with room for its unit. */
 function takeHeld(sim: Sim, id: number): boolean {
   const { villagers, goods } = sim;
   const good = villagers.carried[id]! as Good;
+  if (good === Good.Food) {
+    if (!reserveStore(sim, id, villagers.x[id]!, villagers.y[id]!)) return false;
+    villagers.workTile[id] = villagers.destination[id]!;
+    if (planPath(sim, id, villagers.workTile[id]!)) return true;
+    const store = villagers.toStore[id]!;
+    sim.stores.inbound[store] = sim.stores.inbound[store]! - 1;
+    villagers.toStore[id] = -1;
+    villagers.destination[id] = -1;
+    villagers.workTile[id] = -1;
+    return false;
+  }
   for (;;) {
     const place = nearestOpen(goods.room[good - 1]!, sim.map.size, villagers.x[id]!, villagers.y[id]!);
     if (place < 0) return false;
@@ -56,9 +90,9 @@ function takeHeld(sim: Sim, id: number): boolean {
 }
 
 /**
- * Reserves the loose unit nearest the villager and the stockpile place nearest
- * that unit, and sends the villager to the unit. A villager that already holds
- * a unit only needs a place for it.
+ * Reserves the loose unit nearest the villager and the stockpile place, or for
+ * food the common store, nearest that unit, and sends the villager to the
+ * unit. A villager that already holds a unit only needs a place for it.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, goods, map } = sim;
@@ -74,39 +108,58 @@ function take(sim: Sim, id: number): boolean {
     const good = map.stackGood[source]! as Good;
     const sx = (source % size) + 0.5;
     const sy = (source - (source % size)) / size + 0.5;
-    const place = nearestOpen(goods.room[good - 1]!, size, sx, sy);
+    if (good === Good.Food) {
+      if (!reserveStore(sim, id, sx, sy)) return false;
+    } else {
+      const place = nearestOpen(goods.room[good - 1]!, size, sx, sy);
+      reservePlace(sim, place, good);
+      villagers.destination[id] = place;
+    }
     goods.outbound[source]! += 1;
     refreshStack(sim, source);
-    reservePlace(sim, place, good);
     villagers.taskTile[id] = source;
-    villagers.destination[id] = place;
     villagers.workTile[id] = source;
     return true;
   }
 }
 
-/** The place is still in a stockpile, and a unit not yet picked up still lies off one. */
+/**
+ * The place is still in a stockpile, and a unit not yet picked up still lies
+ * off one. A store never goes, and food lying on a stockpile stays loose, so a
+ * task for food always stands.
+ */
 function holds(sim: Sim, id: number): boolean {
   const { villagers } = sim;
   const { claims } = sim.orders;
+  if (villagers.toStore[id]! >= 0) return true;
   if (claims[villagers.destination[id]!] !== Claim.Stockpile) return false;
   return villagers.carried[id] !== Good.None || claims[villagers.taskTile[id]!] !== Claim.Stockpile;
 }
 
 /**
  * Picks the unit up at its tile and turns the villager toward the place, or
- * stacks the unit at the place. Neither takes work ticks.
+ * stacks the unit at the place, or puts food into the store. None takes work ticks.
  */
 function work(sim: Sim, id: number): boolean {
-  const { villagers, goods } = sim;
+  const { villagers, goods, stores } = sim;
   const place = villagers.destination[id]!;
+  const store = villagers.toStore[id]!;
   if (villagers.carried[id] === Good.None) {
     const source = villagers.taskTile[id]!;
     goods.outbound[source]! -= 1;
     villagers.carried[id] = pickUp(sim, source);
     villagers.workTile[id] = place;
     if (planPath(sim, id, place)) return false;
-    setAsideGoods(sim, place);
+    if (store < 0) setAsideGoods(sim, place);
+    return true;
+  }
+  if (store >= 0) {
+    stores.inbound[store] = stores.inbound[store]! - 1;
+    stores.food[store] = stores.food[store]! + 1;
+    villagers.carried[id] = Good.None;
+    villagers.toStore[id] = -1;
+    villagers.destination[id] = -1;
+    sim.tally.fromGround += 1;
     return true;
   }
   goods.inbound[place]! -= 1;
@@ -125,11 +178,18 @@ function work(sim: Sim, id: number): boolean {
  * down where it stands, and stays in its hands when the land has no room for it.
  */
 function release(sim: Sim, id: number): void {
-  const { villagers, goods } = sim;
+  const { villagers, goods, stores } = sim;
   const place = villagers.destination[id]!;
   if (place < 0) return;
-  goods.inbound[place]! -= 1;
-  refreshStack(sim, place);
+  const store = villagers.toStore[id]!;
+  if (store >= 0) {
+    stores.inbound[store] = stores.inbound[store]! - 1;
+    villagers.toStore[id] = -1;
+  } else {
+    goods.inbound[place]! -= 1;
+    refreshStack(sim, place);
+  }
+  villagers.destination[id] = -1;
   const good = villagers.carried[id]! as Good;
   if (good === Good.None) {
     const source = villagers.taskTile[id]!;
@@ -140,5 +200,5 @@ function release(sim: Sim, id: number): void {
   putDownHeld(sim, id);
 }
 
-/** Carrying one unit from the ground to a stockpile place. */
+/** Carrying one unit from the ground to a stockpile place, or food to the nearest common store with room. */
 export const CARRYING: TaskKind = { job: Job.None, take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };

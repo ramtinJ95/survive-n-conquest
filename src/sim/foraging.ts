@@ -1,11 +1,11 @@
+import { storeDoor } from './building';
 import { Job, kindOf, siteMidX, siteMidY } from './buildings';
 import { SEASONS, TICKS_PER_DAY, TICKS_PER_SECOND, seasonIndexAt } from './calendar';
 import { Good, putDownHeld } from './goods';
-import { jobOf } from './jobs';
 import { TileKind } from './map';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { CAMP_STORE, storeWithRoom } from './stores';
+import { Wants, nearestCommonStore } from './stores';
 import type { TaskKind } from './tasks';
 
 /** Work ticks by one forager that pick a unit of food from a tile. */
@@ -91,30 +91,38 @@ function nearestForage(sim: Sim, slot: number, px: number, py: number): number {
 
 /**
  * Sends a forager with empty hands to the forage nearest it in its
- * workplace's reach, and reserves the tile and a place in the store with room.
- * A forager that kept a unit through the night only reserves the place and
- * walks to the store. Until there are barns, the store with room is the camp,
- * at the camp center.
+ * workplace's reach, and reserves the tile and a place in the common store
+ * nearest that tile with room. A forager that still holds a unit, because the
+ * land had no room to put it down, only reserves the place and walks there.
  */
 function take(sim: Sim, id: number): boolean {
-  const { villagers, stores, flow } = sim;
+  const { villagers, stores } = sim;
+  const { size } = sim.map;
   const workplace = villagers.workplace[id]!;
   const held = villagers.carried[id]!;
   if (workplace < 0 || (held !== Good.None && held !== Good.Food)) return false;
-  const store = storeWithRoom(sim.orders, stores);
-  if (store < 0) return false;
+  let store: number;
+  let door: number;
   if (held === Good.Food) {
-    if (!planPath(sim, id, flow.goal)) return false;
-    villagers.workTile[id] = flow.goal;
+    store = nearestCommonStore(sim, villagers.x[id]!, villagers.y[id]!, Wants.Room);
+    door = store < 0 ? -1 : storeDoor(sim, store, villagers.x[id]!, villagers.y[id]!);
+    if (door < 0 || !planPath(sim, id, door)) return false;
+    villagers.workTile[id] = door;
   } else {
     const tile = nearestForage(sim, workplace, villagers.x[id]!, villagers.y[id]!);
-    if (tile < 0 || !planPath(sim, id, tile)) return false;
+    if (tile < 0) return false;
+    const tx = (tile % size) + 0.5;
+    const ty = (tile - (tile % size)) / size + 0.5;
+    store = nearestCommonStore(sim, tx, ty, Wants.Room);
+    door = store < 0 ? -1 : storeDoor(sim, store, tx, ty);
+    if (door < 0 || !planPath(sim, id, tile)) return false;
     sim.foraging.taker[tile] = id;
     villagers.taskTile[id] = tile;
     villagers.workTile[id] = tile;
   }
   stores.inbound[store] = stores.inbound[store]! + 1;
-  villagers.destination[id] = flow.goal;
+  villagers.toStore[id] = store;
+  villagers.destination[id] = door;
   return true;
 }
 
@@ -133,7 +141,7 @@ function holds(sim: Sim, id: number): boolean {
 
 /**
  * One tick of picking, until the unit is picked and the forager turns toward
- * the camp, or puts the unit into the camp there, which takes no work ticks.
+ * its store, or puts the unit into the store there, which takes no work ticks.
  * The picked tile bears again after `FORAGE_REGROW_TICKS`.
  */
 function work(sim: Sim, id: number): boolean {
@@ -150,28 +158,32 @@ function work(sim: Sim, id: number): boolean {
     villagers.workTile[id] = villagers.destination[id]!;
     return !planPath(sim, id, villagers.workTile[id]!);
   }
-  stores.inbound[CAMP_STORE] = stores.inbound[CAMP_STORE]! - 1;
-  stores.food[CAMP_STORE] = stores.food[CAMP_STORE]! + 1;
+  const store = villagers.toStore[id]!;
+  stores.inbound[store] = stores.inbound[store]! - 1;
+  stores.food[store] = stores.food[store]! + 1;
   villagers.carried[id] = Good.None;
+  villagers.toStore[id] = -1;
   villagers.destination[id] = -1;
   sim.tally.foragedIn += 1;
   return true;
 }
 
 /**
- * Frees the tile and the place in the store that the task still holds. A
- * forager keeps the unit in its hands, as at dusk, and takes it to the camp
- * on its next task. One that has lost its place puts the unit down.
+ * Frees the tile and the place in the store that the task still holds, and
+ * puts down a unit in the forager's hands where it stands, as every carrier
+ * does when its task ends: at dusk, when it loses its place, or when no walk
+ * reaches its store. Settlers without a job carry it from the ground.
  */
 function release(sim: Sim, id: number): void {
   const { villagers, stores } = sim;
   const tile = villagers.taskTile[id]!;
   if (tile >= 0 && sim.foraging.taker[tile] === id) sim.foraging.taker[tile] = -1;
-  if (villagers.destination[id]! >= 0) stores.inbound[CAMP_STORE] = stores.inbound[CAMP_STORE]! - 1;
-  if (villagers.carried[id] !== Good.None && jobOf(sim, id) !== Job.Forager) putDownHeld(sim, id);
+  const store = villagers.toStore[id]!;
+  if (store >= 0) stores.inbound[store] = stores.inbound[store]! - 1;
+  if (villagers.carried[id] !== Good.None) putDownHeld(sim, id);
 }
 
 const nothing = () => {};
 
-/** Picking food in the forest around a forager's hut and carrying it to the camp, the work of a forager. */
+/** Picking food in the forest around a forager's hut and carrying it to the nearest common store with room, the work of a forager. */
 export const FORAGING: TaskKind = { job: Job.Forager, take, holds, work, release, refresh: nothing, reopen: nothing };

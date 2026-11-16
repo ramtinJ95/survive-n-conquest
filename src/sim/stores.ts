@@ -1,5 +1,6 @@
-import { Building } from './buildings';
+import { Building, siteMidX, siteMidY } from './buildings';
 import { MAX_SITES, type Orders, SiteState } from './orders';
+import type { Sim } from './sim';
 
 /** The store id of the camp. Store `slot` below it is the store of the building in that site slot. */
 export const CAMP_STORE = MAX_SITES;
@@ -18,6 +19,8 @@ export const MEALS_PER_DAY = 1;
  * The places under a roof that hold food, by store id. A unit of food is a
  * count in one of them, or on one tile, or in a villager's hands.
  */
+export const BARN_FOOD_LIMIT = 120;
+
 export interface Stores {
   readonly food: Uint16Array;
   /** Units on their way into each store. */
@@ -25,41 +28,102 @@ export interface Stores {
   /** Units in each store that a carrier has spoken for and will take out. */
   readonly outbound: Uint16Array;
   readonly campLimit: number;
+  /** The site slots of the finished barns, the first `barnCount` of them, in the order they were finished. A barn is never torn down. */
+  readonly barns: Int16Array;
+  barnCount: number;
 }
 
 export function createStores(campFood: number): Stores {
   const food = new Uint16Array(STORES);
   food[CAMP_STORE] = campFood;
-  return { food, inbound: new Uint16Array(STORES), outbound: new Uint16Array(STORES), campLimit: Math.max(CAMP_FOOD_LIMIT, campFood) };
+  return {
+    food,
+    inbound: new Uint16Array(STORES),
+    outbound: new Uint16Array(STORES),
+    campLimit: Math.max(CAMP_FOOD_LIMIT, campFood),
+    barns: new Int16Array(MAX_SITES),
+    barnCount: 0,
+  };
 }
 
 /**
- * What a store is to the settlement. A common store is the camp, and a barn
- * later: households without a home eat from the camp, and households stock
- * their homes from it. A home is a household's own. The interface totals each
- * kind apart.
+ * What a store is to the settlement. A common store is the camp or a barn:
+ * carriers bring food to the nearest one with room, households without a home
+ * eat from the camp, and households stock their homes from the nearest one
+ * with food. A home is a household's own. The interface totals each kind apart.
  */
 export const StoreKind = { None: 0, Common: 1, Home: 2 } as const;
 export type StoreKind = (typeof StoreKind)[keyof typeof StoreKind];
 
+/** What each kind of building is as a store once it is finished, and the most food it holds. A site is no store and holds nothing. */
+const BUILDING_STORES: Readonly<Record<Building, { readonly kind: StoreKind; readonly limit: number }>> = {
+  [Building.House]: { kind: StoreKind.Home, limit: HOUSE_FOOD_LIMIT },
+  [Building.Hut]: { kind: StoreKind.None, limit: 0 },
+  [Building.Barn]: { kind: StoreKind.Common, limit: BARN_FOOD_LIMIT },
+};
+
 /** The one place that says which buildings are stores. Anything that is no store holds nothing. */
 export function storeKind(orders: Orders, store: number): StoreKind {
   if (store === CAMP_STORE) return StoreKind.Common;
-  return orders.sites.state[store] === SiteState.Built && orders.sites.kind[store] === Building.House ? StoreKind.Home : StoreKind.None;
+  return orders.sites.state[store] === SiteState.Built ? BUILDING_STORES[orders.sites.kind[store] as Building].kind : StoreKind.None;
 }
 
-/** The most food a store holds. */
-export function foodLimit(orders: Orders, stores: Stores, store: number): number {
-  if (store === CAMP_STORE) return stores.campLimit;
-  return storeKind(orders, store) === StoreKind.Home ? HOUSE_FOOD_LIMIT : 0;
+/** The most food a store holds, where the camp holds `campLimit`. */
+export function foodLimit(orders: Orders, campLimit: number, store: number): number {
+  if (store === CAMP_STORE) return campLimit;
+  return orders.sites.state[store] === SiteState.Built ? BUILDING_STORES[orders.sites.kind[store] as Building].limit : 0;
 }
 
-/** A store that takes one more unit, counting the units on their way into it: the camp, or -1 when it is full. */
-export function storeWithRoom(orders: Orders, stores: Stores): number {
-  return stores.food[CAMP_STORE]! + stores.inbound[CAMP_STORE]! < foodLimit(orders, stores, CAMP_STORE) ? CAMP_STORE : -1;
+/** Counts a finished building among the common stores, when its kind is one. */
+export function openStore(orders: Orders, stores: Stores, slot: number): void {
+  if (storeKind(orders, slot) === StoreKind.Common) stores.barns[stores.barnCount++] = slot;
+}
+
+/** Whether a store takes one more unit, counting the units on their way into it. */
+export function hasRoom(orders: Orders, stores: Stores, store: number): boolean {
+  return stores.food[store]! + stores.inbound[store]! < foodLimit(orders, stores.campLimit, store);
 }
 
 /** Units in a store that no carrier has spoken for. */
 export function freeFood(stores: Stores, store: number): number {
   return stores.food[store]! - stores.outbound[store]!;
+}
+
+/** What a carrier looks for in a common store. */
+export const Wants = { Room: 0, Food: 1 } as const;
+export type Wants = (typeof Wants)[keyof typeof Wants];
+
+function offers(sim: Sim, store: number, wants: Wants): boolean {
+  return wants === Wants.Room ? hasRoom(sim.orders, sim.stores, store) : freeFood(sim.stores, store) > 0;
+}
+
+/**
+ * The common store nearest a point in a straight line that has room for one
+ * more unit, counting the units on their way, or that holds a unit no carrier
+ * spoke for, or -1. The line runs to the camp center or to the middle of a
+ * barn, as hauling measures the line to a stockpile place. Equally near stores
+ * go to the camp, then to the barn finished first. With `barnsOnly` the camp
+ * is left out.
+ */
+export function nearestCommonStore(sim: Sim, px: number, py: number, wants: Wants, barnsOnly = false): number {
+  const { stores } = sim;
+  const { sites } = sim.orders;
+  const { size } = sim.map;
+  let best = -1;
+  let bestDistance = Infinity;
+  if (!barnsOnly && offers(sim, CAMP_STORE, wants)) {
+    best = CAMP_STORE;
+    const camp = sim.flow.goal;
+    bestDistance = ((camp % size) + 0.5 - px) ** 2 + (Math.floor(camp / size) + 0.5 - py) ** 2;
+  }
+  for (let i = 0; i < stores.barnCount; i++) {
+    const slot = stores.barns[i]!;
+    if (!offers(sim, slot, wants)) continue;
+    const distance = (siteMidX(sites, slot) - px) ** 2 + (siteMidY(sites, slot) - py) ** 2;
+    if (distance < bestDistance) {
+      best = slot;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }

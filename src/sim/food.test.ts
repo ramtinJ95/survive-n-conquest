@@ -249,7 +249,7 @@ describe('hunger', () => {
     expect([sim.villagers.task[chopper], sim.villagers.carried[chopper], sim.villagers.state[chopper]]).toEqual([NO_TASK, Good.None, VillagerState.Dead]);
     expect(foodOnGround(sim)).toBe(1);
     const where = [sim.villagers.x[chopper], sim.villagers.y[chopper]];
-    runUntil(sim, () => sim.villagers.task[1 - chopper] === GATHER, 20);
+    runUntil(sim, () => sim.tally.fromGround === 1, 400);
     for (let tick = 0; tick < TICKS_PER_DAY * 2; tick++) step(sim);
     expect([sim.villagers.x[chopper], sim.villagers.y[chopper]]).toEqual(where);
     expect([sim.villagers.state[chopper], sim.villagers.task[chopper]]).toEqual([VillagerState.Dead, NO_TASK]);

@@ -1,7 +1,7 @@
 import { TICKS_PER_SECOND } from './calendar';
 import type { Sites } from './orders';
 
-export const Building = { House: 0, Hut: 1 } as const;
+export const Building = { House: 0, Hut: 1, Barn: 2 } as const;
 export type Building = (typeof Building)[keyof typeof Building];
 
 /** The work a villager does in a place at a workplace. A villager with no place has none. */
@@ -10,7 +10,7 @@ export type Job = (typeof Job)[keyof typeof Job];
 /** Where a rule takes a villager with any job, or with none. */
 export const ANYONE = -1;
 
-export type BuildingName = 'house' | 'hut';
+export type BuildingName = 'house' | 'hut' | 'barn';
 
 export interface BuildingKind {
   /** What a place order and its outcome call it. */
@@ -33,6 +33,7 @@ export interface BuildingKind {
 export const BUILDINGS: Readonly<Record<Building, BuildingKind>> = {
   [Building.House]: { name: 'house', side: 3, needs: [12, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
   [Building.Hut]: { name: 'hut', side: 2, needs: [8, 0, 0], workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20 },
+  [Building.Barn]: { name: 'barn', side: 3, needs: [16, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
 };
 
 /** The longest side of any kind, so `MAX_SIDE * MAX_SIDE` tiles hold any footprint. */

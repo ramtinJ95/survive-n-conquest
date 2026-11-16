@@ -133,7 +133,7 @@ describe("a settler's panel", () => {
         missedMeals: Uint8Array.of(0),
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
-        campFoodInbound: 0,
+        storeInbound: new Uint16Array(STORES),
       },
     });
     const panel = (state: number, taskValue: number, carried: Good) => readPanel({ kind: 'villager', id: 0 }, facts(state, taskValue, carried));
@@ -251,7 +251,7 @@ describe("a forager's hut's panel", () => {
     expect(readPanel(hut, factsOf(sim))).toMatchObject({
       kind: 'hut',
       title: "Forager's hut",
-      note: 'Its foragers pick food in the forest within 20 tiles and carry it to the camp.',
+      note: 'Its foragers pick food in the forest within 20 tiles and carry it to the nearest store with room.',
       rows: [
         { label: 'Foragers', value: `${nameOfId(sim, first!)} and ${nameOfId(sim, second!)}` },
         {
@@ -343,7 +343,7 @@ describe("a forager's panel", () => {
     expect(foragers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, nothing grows until spring', 'Idle, nothing grows until spring']);
   });
 
-  it('says it waits for room while the camp is full, counting the food on its way there', () => {
+  it('says it waits for room while no store has room, counting the food on its way into the camp', () => {
     const { sim, slot } = hutSettlement(39);
     const foragers = workersOf(sim, slot);
     const FORAGE = task(FORAGING);
@@ -351,7 +351,7 @@ describe("a forager's panel", () => {
     for (let tick = 0; tick < 50; tick++) step(sim);
     const idle = foragers.filter((id) => sim.villagers.task[id] !== FORAGE);
     expect([sim.stores.food[CAMP_STORE], idle.length]).toEqual([39, 1]);
-    expect(settler(factsOf(sim), idle[0]!)).toBe('Idle, waiting for room at the camp');
+    expect(settler(factsOf(sim), idle[0]!)).toBe('Idle, waiting for room in a store');
   });
 });
 
@@ -379,7 +379,7 @@ function siteFacts() {
     missedMeals: new Uint8Array(tasks.length),
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
-    campFoodInbound: 0,
+    storeInbound: new Uint16Array(STORES),
   });
   return { map, camp, orders, slot, building, frame };
 }

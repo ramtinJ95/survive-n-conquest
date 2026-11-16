@@ -8,6 +8,7 @@ import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './or
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import type { TaskKind } from './tasks';
+import { CAMP_STORE, openStore } from './stores';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, nearestOpen, setOpen } from './tileSet';
 
@@ -154,6 +155,7 @@ export function finishBuilding(sim: Sim, slot: number): void {
   }
   finishSite(orders, slot);
   if (orders.sites.kind[slot] === Building.House) moveInto(sim.households, slot);
+  openStore(orders, sim.stores, slot);
   closeFlowTiles(map, sim.flow, siteTasks.closing, tiles);
   sim.tally.built += 1;
   refreshSite(sim, slot);
@@ -187,6 +189,15 @@ export function nearestDoor(sim: Sim, slot: number, px: number, py: number): num
     }
   }
   return best;
+}
+
+/**
+ * The tile a carrier stands on to put food into a common store or take it out:
+ * the camp center, or the door of a barn nearest a point, or -1 when no tile
+ * beside the barn has a walk to the camp.
+ */
+export function storeDoor(sim: Sim, store: number, px: number, py: number): number {
+  return store === CAMP_STORE ? sim.flow.goal : nearestDoor(sim, store, px, py);
 }
 
 function cornerTile(orders: Orders, slot: number, corner: number): number {

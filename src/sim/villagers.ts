@@ -54,6 +54,10 @@ export interface Villagers {
   readonly workTile: Int32Array;
   /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's anchor, or -1. */
   readonly destination: Int32Array;
+  /** The store a task takes its unit of food out of, as the camp or a barn for stocking a home, or -1. */
+  readonly fromStore: Int16Array;
+  /** The store a task brings its unit of food into, a common store or a home, or -1. */
+  readonly toStore: Int16Array;
   /** The `Good` of the unit each villager carries, or `Good.None`. */
   readonly carried: Uint8Array;
   /** `MAX_PATH` tiles of route to the work tile for each villager, row by row. The villager walks to the center of each in turn. */
@@ -138,6 +142,8 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     taskTile: new Int32Array(count).fill(-1),
     workTile: new Int32Array(count).fill(-1),
     destination: new Int32Array(count).fill(-1),
+    fromStore: new Int16Array(count).fill(-1),
+    toStore: new Int16Array(count).fill(-1),
     carried: new Uint8Array(count),
     path: new Int32Array(count * MAX_PATH),
     pathLength: new Uint16Array(count),
