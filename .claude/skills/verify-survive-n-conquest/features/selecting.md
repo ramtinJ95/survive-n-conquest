@@ -45,11 +45,13 @@ Preconditions:
 - **Cancel a selected site.** The second page takes `BUILD_VIEW`, places a house at `BUILD_SPOTS.house`, and clicks it. It presses H and clicks the site, then presses Escape once.
   - `with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection` reads the refusal in the status line and the site's panel throughout.
   - It presses Delete and drags over the site. `cancelling the selected site clears the selection` reads `Orders removed` and no panel.
-- **Pick at every view.** The third page selects a settler, then clicks bare ground, at the opening view, at the farthest zoom, and at the nearest zoom turned by a right drag of `SELECT_TURN` pixels. The bare point lies `BARE_CLEARANCE` pixels from every tunic.
+- **The camp, and the mark by night and on snow.** The third page stays at the opening view. At 08:00 it clicks the point of `CAMP_AIM`, the middle of the fire's box, that lies farthest from every tunic pixel, at least `CAMP_CLEARANCE` pixels.
+  - `a click on the camp, clear of the settlers, selects the camp` reads `Camp` and a count of `Settlers here`.
+  - `the camp stays selected until midnight, and its panel then counts all 8 settlers there` reads `Settlers here 8` at spring midnight without another click.
+  - Each mark check takes the frame with the selection, presses Escape, and takes the same paused frame without it. They run at spring midnight on the camp, at winter noon over snow on a settler, and at winter midnight on the camp, which it selects again at winter noon.
+  - It zooms to the farthest view. `at the farthest zoom a click on the firelit camp selects one of the settlers ringed there` clicks the largest patch of `FIRELIT` ground.
+- **Pick at every view.** The fourth page selects a settler and then clicks bare ground, at the opening view and at the nearest zoom turned by a right drag of `SELECT_TURN` pixels. The bare point lies `BARE_CLEARANCE` pixels from every tunic.
   - `a drag that starts on a settler moves the camera and selects nothing` drags 80 pixels from a tunic.
-- **The camp and the mark by night and on snow.** The third page zooms out by `CAMP_WHEEL` to about 46 m. At each of `SELECT_STOPS` it clears the selection and clicks the flame.
-  - `at spring midnight a click on the camp fire selects the camp, where all 8 settlers are` reads `Settlers here 8`.
-  - The mark checks repeat at spring midnight, at winter noon over snow on a settler, and at winter midnight.
 - **Layout.** `the settler panel`, `the site panel`, and `the camp panel covers no other panel` compare the panel's box with the clock, the toolbar, the Stockpiles panel, the camera controls, and the status line when it shows.
 
 ## Gotchas
@@ -57,6 +59,7 @@ Preconditions:
 - Take every reading from a paused frame. Trees, cover, water, and smoke move with the clock, so the mark's pixels are counted as what the selection adds to the same paused frame.
 - The clock's pressed speed button has the accent color, so pixel searches leave out the interface boxes.
 - The `Doing` values the follow sees depend on which settler the click took and on the run. The check asks for kinds of value, not for an order.
-- At the farthest zoom a settler is about 3 pixels tall and a few tunic pixels, so the camp's ring of settlers covers the camp. Zoom in to select the camp at night.
+- At the farthest zoom of 243 m a settler is less than a pixel of tunic by day, so no scenario can aim at one there. At night the 8 settlers stand within a settler's reach of the fire, so a click on the camp selects a settler, and the camp can be selected only from nearer.
+- A settler that stands in front of the fire covers it, so a click on the flame selects that settler. The scenario aims at the camp by day, clear of every tunic.
 - A settler behind a house, hidden by its walls, still wins a click within its reach. The picker does not test what hides a settler.
 - The winter stops run the clock to day 10, which takes several minutes in a browser that draws on the CPU.

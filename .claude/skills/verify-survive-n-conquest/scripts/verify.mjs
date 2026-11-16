@@ -2657,8 +2657,8 @@ const SELECT_STOPS = {
   winterNoon: { day: 10, time: '12:00' },
   winterMidnight: { day: 11, time: '00:00' },
 };
-/** Where a click on the camp may land at the opening view: the middle of `OPENING_FIRE`, inside the camp's 2 m at 120 m. */
-const CAMP_AIM = { x: 466, y: 250, width: 24, height: 16 };
+/** Where a click on the camp may land at the opening view: around the fire at 479, 266, well inside the camp's 2 m, 11 pixels at 120 m. */
+const CAMP_AIM = { x: 471, y: 260, width: 16, height: 12 };
 /** A click on the camp lies this far from every tunic pixel, more than a settler's reach over the camp. */
 const CAMP_CLEARANCE = 10;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
@@ -2667,9 +2667,10 @@ const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 720,
 /**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
- * side, about 300.
+ * side. Tents, settlers, and the house hide part of it. On rj-firebat it added 144 and 164 by day on grass, 100 and
+ * 100 on snow, 65 and 77 at winter midnight, and 49 and 70 around a settler at the fire at spring midnight.
  */
-const MARK_LEAST = { accent: 60, edge: 60 };
+const MARK_LEAST = { accent: 40, edge: 40 };
 /** The mark's center lies this near a tunic: it rings the selected settler. */
 const MARK_ON_SETTLER = 30;
 /** The mark's center moves at least this far while the settler walks to its work. */
@@ -2998,7 +2999,7 @@ SCENARIOS.selecting = async (session) => {
     expectMark(where, markAdded(c, without, withMark, boxes));
   };
   const selectCamp = async () => {
-    const png = await session.screenshot(c, 'selecting-camp-aim');
+    const png = await session.screenshot(c, `selecting-camp-aim-${(await at(c)).replace(/\D/g, '')}`);
     const aim = clearestIn(png, CAMP_AIM, await tunicPixels(c, png));
     return { aim, read: aim ? await click(c, aim) : null };
   };
