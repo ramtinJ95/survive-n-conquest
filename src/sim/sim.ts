@@ -3,6 +3,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
+import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
 import { type Households, createHouseholds } from './households';
@@ -74,6 +75,10 @@ export interface Tally {
   /** Units of food carried from a common store into a home. */
   carriedHome: number;
   died: number;
+  /** Units of food a forager picked. */
+  foraged: number;
+  /** Units of food a forager put into a store. */
+  foragedIn: number;
 }
 
 export interface Sim {
@@ -90,6 +95,7 @@ export interface Sim {
   readonly orders: Orders;
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
+  readonly foraging: Foraging;
   readonly goods: GoodsState;
   readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
@@ -127,12 +133,13 @@ export function createSim(source: TileMap, population: Population): Sim {
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
+    foraging: createForaging(map.size * map.size),
     goods: createGoodsState(map.size),
     stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     workers: new Uint8Array(MAX_SITES),
-    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0 },
+    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0, foraged: 0, foragedIn: 0 },
     tick: 0,
     dawns: 0,
     hires: 0,

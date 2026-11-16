@@ -54,6 +54,11 @@ export function foodLimit(orders: Orders, stores: Stores, store: number): number
   return storeKind(orders, store) === StoreKind.Home ? HOUSE_FOOD_LIMIT : 0;
 }
 
+/** A store that takes one more unit, counting the units on their way into it: the camp, or -1 when it is full. */
+export function storeWithRoom(orders: Orders, stores: Stores): number {
+  return stores.food[CAMP_STORE]! + stores.inbound[CAMP_STORE]! < foodLimit(orders, stores, CAMP_STORE) ? CAMP_STORE : -1;
+}
+
 /** Units in a store that no carrier has spoken for. */
 export function freeFood(stores: Stores, store: number): number {
   return stores.food[store]! - stores.outbound[store]!;

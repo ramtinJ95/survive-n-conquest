@@ -1,6 +1,7 @@
 import { BUILDING } from './building';
 import { ANYONE, type Job } from './buildings';
 import { CARRYING } from './carrying';
+import { FORAGING } from './foraging';
 import { GATHERING } from './gathering';
 import { jobOf } from './jobs';
 import { sideOf } from './map';
@@ -40,9 +41,10 @@ export interface TaskKind {
 
 /**
  * Every kind of task, most urgent first. An idle villager takes a task of the
- * first kind its job allows that has one open.
+ * first kind its job allows that has one open. A kind added later goes last,
+ * so the task column values of the others stay.
  */
-export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING];
+export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING];
 
 export function allows(kind: TaskKind, job: Job): boolean {
   return kind.job === ANYONE || kind.job === job;
