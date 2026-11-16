@@ -29,12 +29,16 @@ import { Claim, type Orders, SiteState } from '../sim/orders';
 export const Preview = { None: 0, Mark: 1, Remove: 2, Fits: 3, Blocks: 4, Refused: 5 } as const;
 export type Preview = (typeof Preview)[keyof typeof Preview];
 
+/** Every kind of site is marked in one color, and the tools that place them share it. */
+const SITE = '#5aa8ff';
+
 /** The color of each order, on the map and on its button. */
 export const ORDER_COLORS = {
   chop: '#ff7a1a',
   quarry: '#c77dff',
   stockpile: '#2fd6c4',
-  house: '#5aa8ff',
+  house: SITE,
+  hut: SITE,
   cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;
@@ -44,7 +48,7 @@ const CLAIM_COLORS: Record<Claim, string> = {
   [Claim.Chop]: ORDER_COLORS.chop,
   [Claim.Quarry]: ORDER_COLORS.quarry,
   [Claim.Stockpile]: ORDER_COLORS.stockpile,
-  [Claim.Site]: ORDER_COLORS.house,
+  [Claim.Site]: SITE,
 };
 
 const PREVIEW_COLORS: Record<Preview, string> = {
