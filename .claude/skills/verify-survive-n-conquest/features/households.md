@@ -6,7 +6,7 @@ The 8 settlers of a new game are 4 households, each one man and one woman, with 
 
 - `households-homes` makes the first two finished houses the homes of households 0 and 1.
 - `households-dusk` walks the members of a household with a home to their house at dusk and the others to the camp.
-- `households-inside` keeps the members inside their house, not drawn, until dawn.
+- `households-inside` keeps the members inside their house, not drawn, until dawn. The scenario proves only that they are not at the camp. That they are not drawn beside the house is in `households-midnight.png` and in the unit test of `src/render/swarm.ts`.
 - `households-dawn` brings them out beside their house at dawn.
 
 ## How to get to it (user POV)
@@ -31,7 +31,7 @@ Preconditions:
 ## Gotchas
 
 - In the pylon the camp box read 882 pixels with homes and 1632 without, a share of 0.54. The land beside the houses read 0 and 0 tunic pixels at 03:30, 97 and 102 to 104 at 03:40, and 0 and 15 to 17 on the plain page.
-- At night a tunic is too dark for any tunic rule, so the night is proven by what the camp holds, not by what stands beside the houses. `households-midnight.png` shows the empty land beside the houses, and `src/render/swarm.test.ts` proves that a villager inside is not drawn.
+- At night a tunic is too dark for any tunic rule, so no check reads what stands beside the houses at night, and a build that drew the housed settlers beside their doors all night would still pass. The night check proves only that they are not at the camp. `households-midnight.png` shows the empty land beside the houses, and `src/render/swarm.test.ts` proves that a villager inside is not drawn. A difference from the bare map beside a house reads 100 to 250 pixels of the house's own edges, too close to two settlers to tell them apart.
 - A settler that comes out at dawn takes work within a think cycle and walks away, so the after-dawn stop must stay a few game minutes after dawn. `reach` stops up to 2 game minutes late.
 - The day 4 stops are in summer because the clip's night ends on day 3. The spring dawn is at 04:48, the summer dawn at 03:36.
 - The camp box leaves the houses out. A box that held a house would read the house against the bare map, and its edges change with the light.
