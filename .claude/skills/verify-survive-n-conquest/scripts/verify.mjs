@@ -2652,13 +2652,15 @@ const BARE_CLEARANCE = 90;
  * the clock reaches the stop, and reads the panel every `FOLLOW_POLL_MS`.
  */
 const FOLLOW = { distinct: 5, until: { day: 1, time: '11:20' }, pollMs: 120 };
-/** The wheel from the nearest view to about 46 m, where the camp's ring of settlers stands apart from its fire. */
-const CAMP_WHEEL = 800;
 const SELECT_STOPS = {
   springMidnight: { day: 2, time: '00:00' },
   winterNoon: { day: 10, time: '12:00' },
   winterMidnight: { day: 11, time: '00:00' },
 };
+/** Where a click on the camp may land at the opening view: the middle of `OPENING_FIRE`, inside the camp's 2 m at 120 m. */
+const CAMP_AIM = { x: 466, y: 250, width: 24, height: 16 };
+/** A click on the camp lies this far from every tunic pixel, more than a settler's reach over the camp. */
+const CAMP_CLEARANCE = 10;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
 const SELECT_TURN = 300;
 const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 720, colors: 64 };
@@ -2720,6 +2722,18 @@ function spotsOf(png, { width, height }, matches, skip = []) {
   return spots.sort((a, b) => b.count - a.count);
 }
 
+/** The point of `box`, in steps of 2 pixels, that lies farthest from every one of `points`, with that distance. */
+function clearestIn(png, box, points) {
+  let best = null;
+  for (let y = box.y; y <= box.y + box.height; y += 2) {
+    for (let x = box.x; x <= box.x + box.width; x += 2) {
+      const clearance = points.reduce((least, point) => Math.min(least, Math.hypot(point.x - x, point.y - y)), Infinity);
+      if (!best || clearance > best.clearance) best = { x, y, clearance };
+    }
+  }
+  return best && best.clearance >= CAMP_CLEARANCE ? best : null;
+}
+
 function selectionDriver(session) {
   const panel = (page) => page.getByRole('region', { name: 'Selection' });
   /** The panel as one round trip, so a frame from the worker cannot change it between two reads. */
@@ -2746,6 +2760,18 @@ function selectionDriver(session) {
   });
   const skipOf = (boxes) => Object.values(boxes).filter(Boolean);
   const tunics = async (page, png) => spotsOf(png, page.viewportSize(), UNIT_COLORS.villagers, skipOf(await uiBoxes(page)));
+  const tunicPixels = async (page, png) => {
+    const { width, height } = page.viewportSize();
+    const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+    const found = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 3;
+        if (UNIT_COLORS.villagers([pixels[i], pixels[i + 1], pixels[i + 2]])) found.push({ x, y });
+      }
+    }
+    return found;
+  };
   const markOf = (page, png, boxes) => {
     const skip = skipOf(boxes);
     const accent = spotsOf(png, page.viewportSize(), MARK_ACCENT, skip);
@@ -2788,13 +2814,13 @@ function selectionDriver(session) {
     const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
     return { ok, detail: [`panel ${describe(selection)}`, ...others.map(([name, box]) => `${name} ${describe(box)}`)].join('; ') };
   };
-  return { panel, reads, text, uiBoxes, skipOf, tunics, markOf, click, clickSettler, bareSpot, apart };
+  return { panel, reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart };
 }
 
 SCENARIOS.selecting = async (session) => {
   const seen = [];
   const sites = siteDriver(session);
-  const { reads, text, uiBoxes, skipOf, tunics, markOf, click, clickSettler, bareSpot, apart } = selectionDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart } = selectionDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const fitsApart = async (page, what) => {
     const { ok, detail } = apart(await uiBoxes(page));
@@ -2960,11 +2986,72 @@ SCENARIOS.selecting = async (session) => {
   await cancel.context.close();
   seen.push(...cancel.errors);
 
-  // Picking at the opening, the farthest, and the nearest turned view, then the camp and the mark by night and on snow.
+  // The camp, chosen by day and kept to midnight, and the mark by day, at night, and on snow, from the opening view.
+  const camp = await session.open(CLIP, { clock: 'paused' });
+  const c = camp.page;
+  const measureMark = async (where, label) => {
+    const withMark = await session.screenshot(c, `selecting-${label}`);
+    const boxes = await uiBoxes(c);
+    await c.keyboard.press('Escape');
+    await session.still(c);
+    const without = await session.screenshot(c, `selecting-${label}-unselected`);
+    expectMark(where, markAdded(c, without, withMark, boxes));
+  };
+  const selectCamp = async () => {
+    const png = await session.screenshot(c, 'selecting-camp-aim');
+    const aim = clearestIn(png, CAMP_AIM, await tunicPixels(c, png));
+    return { aim, read: aim ? await click(c, aim) : null };
+  };
+  const morning = await selectCamp();
+  const morningAt = await at(c);
+  session.check(
+    `at ${morningAt} a click on the camp, clear of the settlers, selects the camp`,
+    morning.read?.title === 'Camp' && /^\d$/.test(morning.read.rows['Settlers here'] ?? ''),
+    `${morning.aim ? `clicked ${morning.aim.x},${morning.aim.y}, ${morning.aim.clearance.toFixed(0)} px from the nearest tunic pixel` : 'no point clear of the settlers'}; the panel reads "${text(morning.read)}"`,
+  );
+  await session.reach(c, SELECT_STOPS.springMidnight);
+  await session.still(c);
+  const springRead = await reads(c);
+  session.check(
+    'the camp stays selected until midnight, and its panel then counts all 8 settlers there',
+    springRead?.title === 'Camp' && springRead.rows['Settlers here'] === '8',
+    `selected at ${morningAt}; at ${await at(c)} the panel reads "${text(springRead)}"`,
+  );
+  await fitsApart(c, 'camp');
+  await measureMark('at spring midnight', 'camp');
+
+  await session.reach(c, SELECT_STOPS.winterNoon);
+  await session.still(c);
+  const snowPick = await clickSettler(c, 'selecting-winter-aim');
+  session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
+  await measureMark('at winter noon, over snow,', 'winter-noon');
+  const winterCamp = await selectCamp();
+  session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `the panel reads "${text(winterCamp.read)}"`);
+  await session.reach(c, SELECT_STOPS.winterMidnight);
+  await session.still(c);
+  const winterRead = await reads(c);
+  session.check('at winter midnight the camp panel counts all 8 settlers there', winterRead?.title === 'Camp' && winterRead.rows['Settlers here'] === '8', `the panel reads "${text(winterRead)}"`);
+  await measureMark('at winter midnight', 'winter-midnight');
+
+  await c.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await c.mouse.wheel(0, READ_WHEELS.far);
+  await session.still(c);
+  const farPng = await session.screenshot(c, 'selecting-pick-farthest');
+  const firelit = spotsOf(farPng, CLIP, FIRELIT, skipOf(await uiBoxes(c)))[0];
+  const farRead = firelit ? await click(c, firelit) : null;
+  session.check(
+    'at the farthest zoom a click on the firelit camp selects one of the settlers ringed there',
+    farRead?.title === 'Settler',
+    `${firelit ? `firelit ground of ${firelit.count} px at ${firelit.x.toFixed(0)},${firelit.y.toFixed(0)}` : 'no firelit ground found'}; the panel reads "${text(farRead)}"`,
+  );
+  await camp.context.close();
+  seen.push(...camp.errors);
+
+  // Picking at the opening view and at the nearest zoom turned, a bare click, and a drag.
   const views = await session.open(CLIP, { clock: 'paused' });
   const v = views.page;
   const pickIn = async (name) => {
-    const { spot, read, png } = await clickSettler(v, `selecting-pick-${name}`);
+    const { spot, read, png } = await clickSettler(v, `selecting-pick-${name.replace(' ', '-')}`);
     session.check(
       `at the ${name} view a click ${SELECT_OFFSET} px beside a settler selects it`,
       read?.title === 'Settler',
@@ -2984,48 +3071,11 @@ SCENARIOS.selecting = async (session) => {
     session.check('a drag that starts on a settler moves the camera and selects nothing', (await reads(v)) === null && difference(before, after) > 2, `the panel reads "${text(await reads(v))}"; mean pixel difference ${difference(before, after).toFixed(2)}`);
   }
   await v.mouse.move(CLIP.width / 2, CLIP.height / 2);
-  await v.mouse.wheel(0, READ_WHEELS.far);
-  await session.still(v);
-  await pickIn('farthest');
   await v.mouse.wheel(0, READ_WHEELS.near);
   await session.still(v);
   await session.drag(v, { x: CLIP.width / 2 - SELECT_TURN / 2, y: CLIP.height / 2 }, { x: CLIP.width / 2 + SELECT_TURN / 2, y: CLIP.height / 2 }, 'right');
   await session.still(v);
   await pickIn('nearest turned');
-  await v.mouse.move(CLIP.width / 2, CLIP.height / 2);
-  await v.mouse.wheel(0, CAMP_WHEEL);
-  await session.still(v);
-
-  const selectCamp = async (when) => {
-    await session.reach(v, when);
-    await v.keyboard.press('Escape');
-    await session.still(v);
-    const before = await session.screenshot(v, `selecting-camp-aim-${when.day}`);
-    const fire = spotsOf(before, CLIP, FLAME, skipOf(await uiBoxes(v)))[0];
-    const read = fire ? await click(v, fire) : null;
-    const after = await session.screenshot(v, `selecting-camp-day${when.day}`);
-    return { fire, read, mark: markAdded(v, before, after, await uiBoxes(v)) };
-  };
-  const spring = await selectCamp(SELECT_STOPS.springMidnight);
-  session.check(
-    'at spring midnight a click on the camp fire selects the camp, where all 8 settlers are',
-    spring.read?.title === 'Camp' && spring.read.rows['Settlers here'] === '8',
-    `${spring.fire ? `flame at ${spring.fire.x.toFixed(0)},${spring.fire.y.toFixed(0)}` : 'no flame found'}; the panel reads "${text(spring.read)}"`,
-  );
-  expectMark('at spring midnight', spring.mark);
-  await fitsApart(v, 'camp');
-
-  await session.reach(v, SELECT_STOPS.winterNoon);
-  await v.keyboard.press('Escape');
-  await session.still(v);
-  const snowBefore = await session.screenshot(v, 'selecting-winter-before');
-  const snowPick = await clickSettler(v, 'selecting-winter-aim');
-  const snowAfter = await session.screenshot(v, 'selecting-winter-noon');
-  session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
-  expectMark('at winter noon, over snow,', markAdded(v, snowBefore, snowAfter, await uiBoxes(v)));
-  const winter = await selectCamp(SELECT_STOPS.winterMidnight);
-  session.check('at winter midnight a click on the camp fire selects the camp', winter.read?.title === 'Camp', `the panel reads "${text(winter.read)}"`);
-  expectMark('at winter midnight', winter.mark);
   await views.context.close();
   seen.push(...views.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
