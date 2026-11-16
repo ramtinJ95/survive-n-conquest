@@ -84,7 +84,7 @@ describe("a settler's panel", () => {
     const { Walking, Working } = VillagerState;
     const expected: Record<string, Partial<Seen>> = {
       Idle: { task: NO_TASK },
-      'Walking to the camp': { state: VillagerState.GoingHome },
+      'Walking to the camp': { state: VillagerState.GoingToCamp },
       'Resting at the camp': { state: VillagerState.Settling },
       'Walking to a tree': { state: Walking, task: task(GATHERING), kind: TileKind.Forest },
       'Chopping a tree': { state: Working, task: task(GATHERING), kind: TileKind.Forest },

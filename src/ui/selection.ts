@@ -102,7 +102,7 @@ function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, 
 /** What a villager is doing, in words. */
 function doing(facts: Facts, id: number): string {
   const state = facts.frame.states[id]!;
-  if (state === VillagerState.GoingHome) return 'Walking to the camp';
+  if (state === VillagerState.GoingToCamp) return 'Walking to the camp';
   if (state === VillagerState.Settling) return 'Resting at the camp';
   const words = TASK_WORDS[facts.frame.tasks[id]!];
   if (!words || (state !== VillagerState.Walking && state !== VillagerState.Working)) return 'Idle';
