@@ -40,7 +40,7 @@ Preconditions:
 - **Select the site, then see it become a house.** It reaches 11:30, places the house of `building` at `BUILD_SPOTS.closerHouse`, presses Escape, and clicks the same point.
   - `a House click places the site and leaves the selection alone` keeps the settler's panel. `a click on the site selects it` reads `Logs 0/12`, `Stone 0/6`, `Waiting for materials`, and `Builders 0`.
   - It runs at 8× until the label reads 50%. `the site panel agrees with the site's label and counts the builders` reads `12/12`, `6/6`, the label's percent, and 1 to 4 builders.
-  - It runs on until the label is gone. `the selected site has become a house in the panel` reads `House` and `A finished house.` without another click. `the mark rings the house` finds the accent centered within 40 pixels of the click. A second click selects the house, and Escape clears it.
+  - It runs on until the label is gone. `the selected site has become a house in the panel` reads `House` and `A finished house.` without another click. `the mark rings the house` finds the accent centered within 40 pixels of the click. Escape clears the selection, and a click on the house then selects it.
   - The page cuts `selecting-settler.gif` from the selection to the end of the follow, and `selecting-site-to-house.gif` from the 50% stop to the house.
 - **Cancel a selected site.** The second page takes `BUILD_VIEW`, places a house at `BUILD_SPOTS.house`, and clicks it. It presses H and clicks the site, then presses Escape once.
   - `with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection` reads the refusal in the status line and the site's panel throughout.

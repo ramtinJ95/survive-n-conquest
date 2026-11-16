@@ -2949,11 +2949,12 @@ SCENARIOS.selecting = async (session) => {
     houseMark.accent >= MARK_LEAST.accent && houseMark.center && Math.hypot(houseMark.center.x - BUILD_SPOTS.closerHouse.x, houseMark.center.y - BUILD_SPOTS.closerHouse.y) <= 40,
     `${houseMark.accent} accent pixels centered at ${houseMark.center ? `${houseMark.center.x.toFixed(0)},${houseMark.center.y.toFixed(0)}` : 'nowhere'}, the house at ${BUILD_SPOTS.closerHouse.x},${BUILD_SPOTS.closerHouse.y}`,
   );
-  const reclicked = await click(page, BUILD_SPOTS.closerHouse);
-  session.check('a click on the finished house selects the house', reclicked?.title === 'House', `the panel reads "${text(reclicked)}"`);
   await page.keyboard.press('Escape');
   await session.still(page);
-  session.check('Escape clears the selection', (await reads(page)) === null, `the panel reads "${text(await reads(page))}"`);
+  const cleared = await reads(page);
+  session.check('Escape clears the selection', cleared === null, `the panel reads "${text(cleared)}"`);
+  const reclicked = await click(page, BUILD_SPOTS.closerHouse);
+  session.check('a click on the finished house selects the house', cleared === null && reclicked?.title === 'House', `after Escape the panel reads "${text(cleared)}", after the click "${text(reclicked)}"`);
   const siteTo = work.since() + 1;
   await page.waitForTimeout(1000);
   await session.finishClips(work.context, page, [
