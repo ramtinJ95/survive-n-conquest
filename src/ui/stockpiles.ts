@@ -2,7 +2,7 @@ import { Good } from '../sim/goods';
 import type { TileMap } from '../sim/map';
 import { Claim, type Orders } from '../sim/orders';
 import { StoreKind, storeKind } from '../sim/stores';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import './stockpiles.css';
 
 const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [

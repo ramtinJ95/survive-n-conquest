@@ -16,7 +16,7 @@ import { CAMP_STORE, HOUSE_FOOD_LIMIT } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import { siteProgress } from './sites';
 import './selection.css';
 

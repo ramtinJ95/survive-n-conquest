@@ -4,7 +4,7 @@ import { BUILDINGS, Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import './sites.css';
 
 /** The label hangs this far above the highest of a site's nine tiles, clear of the frame at its full height. */

@@ -18,7 +18,8 @@ import { mountSelection } from './ui/selection';
 import { mountSiteLabels } from './ui/sites';
 import { mountStockpiles } from './ui/stockpiles';
 import './ui/style.css';
-import type { SimFrame, ToSim } from './worker';
+import type { SimFrame } from './frame';
+import type { ToSim } from './worker';
 
 const renderer = new WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

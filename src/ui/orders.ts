@@ -14,7 +14,7 @@ import {
   siteRefusal,
   siteTileProblem,
 } from '../sim/orders';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import './orders.css';
 
 type ToolId = AreaOrder | 'house';

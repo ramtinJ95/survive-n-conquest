@@ -1,7 +1,7 @@
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
 import { type Sex, nameOf } from '../sim/names';
 import { VillagerState } from '../sim/villagerState';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import { formatTime } from './clock';
 import './news.css';
 
