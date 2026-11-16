@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { finishHouse } from './building';
+import { HOUSE_WORK_TICKS, finishHouse } from './building';
 import { isDawn, isNight } from './daylight';
 import { Good } from './goods';
 import { MAX_HOUSEHOLDS, NO_HOME, createHouseholds } from './households';
 import { tileAt } from './map';
 import { generateMap } from './mapgen';
 import { NAMES, Sex, nameOf } from './names';
-import { type OrderCommand, SiteState } from './orders';
+import { type OrderCommand, SiteState, setSiteWork } from './orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { at, mapFrom } from './testMaps';
 import { THINK_GROUPS, VillagerState } from './villagers';
@@ -239,18 +239,27 @@ describe('a night with homes', () => {
     runUntil(sim, () => ids(sim).slice(2).every((id) => atCamp(sim, id)), 600);
   });
 
-  it('sends a household whose house was finished on the last tick of the day into it at that dusk, by internals for the house', () => {
-    const sim = createSim(mapFrom(open(40)), SETTLERS);
+  it('sends a household whose builders finish its house on the last day tick into it at that dusk, with the site work set so it ends on that tick', () => {
+    const sim = housesWithGoods(8);
     expect(applyCommand(sim, house(17, 8))).toMatchObject({ ok: true });
-    runUntil(sim, () => isNight(sim.tick), 2000);
-    finishHouse(sim, 0);
+    runUntil(sim, () => sim.orders.sites.work[0]! > 0 && !isNight(sim.tick), 3000);
+    runUntil(sim, () => isNight(sim.tick + 1), 3000, () => setSiteWork(sim.orders, 0, 1));
+    expect(sim.orders.sites.work[0]).toBeGreaterThan(0);
+    setSiteWork(sim.orders, 0, HOUSE_WORK_TICKS - 1);
+    const built = sim.tally.built;
+    const finishedAtNight = isNight(sim.tick);
     step(sim);
-    expect([sim.villagers.state[0], sim.villagers.state[1], sim.villagers.state[2]]).toEqual([
-      VillagerState.GoingIn,
-      VillagerState.GoingIn,
-      VillagerState.GoingToCamp,
-    ]);
-    runUntil(sim, () => sim.villagers.state[0] === VillagerState.Inside && sim.villagers.state[1] === VillagerState.Inside, 600);
+    expect(sim.tally.built).toBe(built + 1);
+    expect(finishedAtNight).toBe(false);
+    expect(sim.orders.sites.state[0]).toBe(SiteState.House);
+    const members = ids(sim).filter((id) => homeOf(sim, id) === 0);
+    const others = ids(sim).filter((id) => homeOf(sim, id) !== 0);
+    expect(members).toHaveLength(2);
+    runUntil(sim, () => members.every((id) => sim.villagers.state[id] === VillagerState.GoingIn), THINK_GROUPS);
+    runUntil(sim, () => members.every((id) => sim.villagers.state[id] === VillagerState.Inside), 600, () => {
+      for (const id of others) expect(sim.villagers.state[id], `villager ${id}`).not.toBe(VillagerState.Inside);
+    });
+    runUntil(sim, () => others.every((id) => atCamp(sim, id)), 600);
   });
 });
 
