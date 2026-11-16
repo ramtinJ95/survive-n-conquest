@@ -1,4 +1,4 @@
-import { Building, siteMidX, siteMidY } from './buildings';
+import { Building, nearestDoor, siteMidX, siteMidY } from './buildings';
 import { MAX_SITES, type Orders, SiteState } from './orders';
 import type { Sim } from './sim';
 
@@ -107,9 +107,10 @@ function offers(sim: Sim, store: number, wants: Wants): boolean {
  * The common store nearest a point in a straight line that has room for one
  * more unit, counting the units on their way, or that holds a unit no carrier
  * spoke for, or -1. The line runs to the camp center or to the middle of a
- * barn, as hauling measures the line to a stockpile place. Equally near stores
- * go to the camp, then to the barn finished first. With `barnsOnly` the camp
- * is left out.
+ * barn, as hauling measures the line to a stockpile place. A barn with no tile
+ * beside it that a walk from the camp reaches is passed over. Equally near
+ * stores go to the camp, then to the barn finished first. With `barnsOnly` the
+ * camp is left out.
  */
 export function nearestCommonStore(sim: Sim, px: number, py: number, wants: Wants, barnsOnly = false): number {
   const { stores } = sim;
@@ -124,12 +125,22 @@ export function nearestCommonStore(sim: Sim, px: number, py: number, wants: Want
   }
   for (let i = 0; i < stores.barnCount; i++) {
     const slot = stores.barns[i]!;
-    if (!offers(sim, slot, wants)) continue;
-    const distance = (siteMidX(sites, slot) - px) ** 2 + (siteMidY(sites, slot) - py) ** 2;
-    if (distance < bestDistance) {
+    const mx = siteMidX(sites, slot);
+    const my = siteMidY(sites, slot);
+    const distance = (mx - px) ** 2 + (my - py) ** 2;
+    if (distance < bestDistance && offers(sim, slot, wants) && nearestDoor(sim, slot, mx, my) >= 0) {
       best = slot;
       bestDistance = distance;
     }
   }
   return best;
+}
+
+/**
+ * The tile a carrier stands on to put food into a common store or take it out:
+ * the camp center, or the door of a barn nearest a point, or -1 when no tile
+ * beside the barn has a walk to the camp.
+ */
+export function storeDoor(sim: Sim, store: number, px: number, py: number): number {
+  return store === CAMP_STORE ? sim.flow.goal : nearestDoor(sim, store, px, py);
 }

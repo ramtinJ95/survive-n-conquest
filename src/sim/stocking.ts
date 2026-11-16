@@ -1,11 +1,10 @@
-import { nearestDoor, storeDoor } from './building';
-import { ANYONE, Job, siteMidX, siteMidY } from './buildings';
+import { ANYONE, Job, nearestDoor, siteMidX, siteMidY } from './buildings';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, foodLimit, nearestCommonStore } from './stores';
+import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, foodLimit, nearestCommonStore, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 
 /**
@@ -70,10 +69,13 @@ function take(sim: Sim, id: number): boolean {
   return true;
 }
 
-/** The store the unit goes to is still the camp, or the home of the villager's household. */
+/**
+ * The unit still goes to the home of the villager's household, or to the camp
+ * while the villager has no job, as one hired on its way does.
+ */
 function holds(sim: Sim, id: number): boolean {
   const to = sim.villagers.toStore[id]!;
-  return to === CAMP_STORE || to === homeOf(sim, id);
+  return to === CAMP_STORE ? jobOf(sim, id) === Job.None : to === homeOf(sim, id);
 }
 
 /**

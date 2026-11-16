@@ -1,11 +1,10 @@
-import { storeDoor } from './building';
 import { Job, kindOf, siteMidX, siteMidY } from './buildings';
 import { SEASONS, TICKS_PER_DAY, TICKS_PER_SECOND, seasonIndexAt } from './calendar';
 import { Good, putDownHeld } from './goods';
 import { TileKind } from './map';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { Wants, nearestCommonStore } from './stores';
+import { Wants, nearestCommonStore, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 
 /** Work ticks by one forager that pick a unit of food from a tile. */

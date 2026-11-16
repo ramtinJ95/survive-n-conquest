@@ -176,4 +176,30 @@ describe('a household that fetches its food', () => {
     runUntil(sim, () => isDawn(sim.tick), TICKS_PER_DAY);
     expect(sim.tally.missed).toBe(2);
   });
+
+  it('passes over a barn that no walk reaches and stocks its home from the camp', () => {
+    const rows = Array.from({ length: 64 }, () => '.'.repeat(64).split(''));
+    for (let i = 5; i <= 11; i++) for (const [x, y] of [[i, 5], [i, 11], [5, i], [11, i]] as const) rows[y]![x] = '#';
+    const sim = createSim(mapFrom(rows.map((row) => row.join(''))), { villagers: 2, monsters: 0 });
+    const barn = finished(sim, Building.Barn, 8, 8);
+    sim.stores.food[barn] = 20;
+    const house = finished(sim, Building.House, 14, 8);
+    runUntil(sim, () => food(sim, house) === 6, TICKS_PER_DAY);
+    expect([food(sim, barn), food(sim, CAMP_STORE)]).toEqual([20, 18]);
+  });
+
+  it('gives up carrying food from a barn to the camp when the carrier is hired on its way', () => {
+    const sim = createSim(mapWith(64), { villagers: 2, monsters: 0, campFood: 0 });
+    const barn = finished(sim, Building.Barn, 8, 8);
+    sim.stores.food[barn] = BARN_FOOD_LIMIT;
+    runUntil(sim, () => sim.villagers.task[0] === STOCK && sim.villagers.toStore[0] === CAMP_STORE, 100);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x: 50, y: 50 })).toMatchObject({ ok: true });
+    const hut = sim.orders.siteOf[at(sim.map, 50, 50)]!;
+    finishBuilding(sim, hut);
+    expect([sim.villagers.workplace[0], sim.villagers.workplace[1]]).toEqual([hut, hut]);
+    step(sim);
+    expect([sim.villagers.task[0], sim.stores.outbound[barn], sim.stores.inbound[CAMP_STORE]]).toEqual([0, 0, 0]);
+    runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY);
+    expect(sim.tally.toCamp).toBe(0);
+  });
 });

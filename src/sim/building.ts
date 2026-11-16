@@ -8,7 +8,7 @@ import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './or
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import type { TaskKind } from './tasks';
-import { CAMP_STORE, openStore } from './stores';
+import { openStore } from './stores';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, nearestOpen, setOpen } from './tileSet';
 
@@ -160,44 +160,6 @@ export function finishBuilding(sim: Sim, slot: number): void {
   sim.tally.built += 1;
   refreshSite(sim, slot);
   if (kindOf(orders.sites, slot).places > 0) openWorkplace(sim, slot);
-}
-
-/**
- * The tile beside one of the building's tiles, sharing a side with it, that
- * has a walk to the camp and lies nearest a point in a straight line, or -1.
- * Equally near tiles go to the lowest.
- */
-export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
-  const { size } = sim.map;
-  const { sites } = sim.orders;
-  const { side } = kindOf(sites, slot);
-  const x0 = siteX0(sites, slot);
-  const y0 = siteY0(sites, slot);
-  let best = -1;
-  let bestDistance = Infinity;
-  for (let dy = -1; dy <= side; dy++) {
-    for (let dx = -1; dx <= side; dx++) {
-      if ((dx === -1 || dx === side) === (dy === -1 || dy === side)) continue;
-      const x = x0 + dx;
-      const y = y0 + dy;
-      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
-      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
-      if (distance < bestDistance) {
-        best = y * size + x;
-        bestDistance = distance;
-      }
-    }
-  }
-  return best;
-}
-
-/**
- * The tile a carrier stands on to put food into a common store or take it out:
- * the camp center, or the door of a barn nearest a point, or -1 when no tile
- * beside the barn has a walk to the camp.
- */
-export function storeDoor(sim: Sim, store: number, px: number, py: number): number {
-  return store === CAMP_STORE ? sim.flow.goal : nearestDoor(sim, store, px, py);
 }
 
 function cornerTile(orders: Orders, slot: number, corner: number): number {

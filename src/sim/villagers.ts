@@ -1,4 +1,4 @@
-import { nearestDoor } from './building';
+import { nearestDoor } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';

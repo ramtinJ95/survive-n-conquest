@@ -1,10 +1,9 @@
-import { storeDoor } from './building';
 import { Job } from './buildings';
 import { GOOD_KINDS, Good, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { Claim } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { Wants, nearestCommonStore } from './stores';
+import { Wants, nearestCommonStore, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 import { nearestOpen } from './tileSet';
 
