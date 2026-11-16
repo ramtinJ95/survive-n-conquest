@@ -8,11 +8,13 @@ import { NO_HOME } from './households';
 import { generateMap } from './mapgen';
 import { type Sex, nameOf } from './names';
 import { SETTLERS, type Sim, applyCommand, createSim, populationFor, step, ticksPerSecond } from './sim';
+import { STOCKING } from './stocking';
 import { CAMP_FOOD, CAMP_STORE } from './stores';
 import { NO_TASK, TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { VillagerState, die } from './villagers';
 
+const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const GATHER = TASK_KINDS.indexOf(GATHERING) + 1;
 const BUILD = TASK_KINDS.indexOf(BUILDING) + 1;
 
@@ -118,6 +120,19 @@ describe('meals', () => {
     expect(missed(sim)).toEqual([1, 2]);
   });
 
+  it('of a household with a home come from its house, not the camp', () => {
+    const sim = createSim(mapFrom(open(32)), { villagers: 4, monsters: 0 });
+    const slot = finishedHouse(sim, 6, 6);
+    dusk(sim);
+    const houseAtDusk = sim.stores.food[slot]!;
+    const campAtDusk = campFood(sim);
+    lateNight(sim);
+    expect(states(sim)).toEqual([VillagerState.Inside, VillagerState.Inside, VillagerState.Settling, VillagerState.Settling]);
+    expect(sim.stores.food[slot]).toBe(houseAtDusk - 2);
+    expect(campFood(sim)).toBe(campAtDusk - 2);
+    expect(missed(sim)).toEqual([0, 0, 0, 0]);
+  });
+
   it('are missed by a settler with no walk to the camp, counted at dawn though the camp has food', () => {
     const rows = open(24);
     for (let y = 1; y <= 5; y++) rows[y] = '.~~~~~' + '.'.repeat(18);
@@ -207,6 +222,73 @@ describe('hunger', () => {
     for (let tick = 0; tick < TICKS_PER_DAY * 2; tick++) step(sim);
     expect([sim.villagers.x[chopper], sim.villagers.y[chopper]]).toEqual(where);
     expect([sim.villagers.state[chopper], sim.villagers.task[chopper]]).toEqual([VillagerState.Dead, NO_TASK]);
+  });
+});
+
+describe('stocking a home', () => {
+  /** Two households on an open map, the first with a house far enough from the camp that a trip takes a while. */
+  function housed(campFood?: number) {
+    const sim = createSim(mapFrom(open(40)), { villagers: 4, monsters: 0, ...(campFood === undefined ? {} : { campFood }) });
+    const slot = finishedHouse(sim, 4, 4);
+    return { sim, slot };
+  }
+
+  it('comes before every other kind of work', () => {
+    const { sim } = housed();
+    for (let y = 30; y < 34; y++) for (let x = 30; x < 34; x++) sim.map.trees[at(sim.map, x, y)] = 1;
+    applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: 30, y0: 30, x1: 33, y1: 33 } });
+    runUntil(sim, () => sim.villagers.task[0] !== NO_TASK && sim.villagers.task[1] !== NO_TASK, 20);
+    expect([sim.villagers.task[0], sim.villagers.task[1]]).toEqual([STOCK, STOCK]);
+  });
+
+  it('fills the house to three days for its members, counting units on their way, so no more set out than it lacks', () => {
+    const { sim, slot } = housed(100);
+    sim.stores.food[slot] = 5;
+    let mostOut = 0;
+    runUntil(
+      sim,
+      () => sim.stores.food[slot] === 6 && sim.stores.inbound[slot] === 0,
+      1300,
+      () => {
+        const out = [0, 1].filter((id) => sim.villagers.task[id] === STOCK).length;
+        mostOut = Math.max(mostOut, out);
+        expect(sim.stores.food[slot]! + sim.stores.inbound[slot]!).toBeLessThanOrEqual(6);
+      },
+    );
+    expect(mostOut).toBe(1);
+    expect(campFood(sim)).toBe(99);
+    for (let tick = 0; tick < 300; tick++) step(sim);
+    expect(sim.stores.food[slot]).toBe(6);
+    expect(sim.tally.carriedHome).toBe(1);
+  });
+
+  it('keeps three days for the living members only', () => {
+    const { sim, slot } = housed(100);
+    die(sim, 1);
+    runUntil(sim, () => sim.stores.food[slot] === 3, 1300);
+    for (let tick = 0; tick < 300; tick++) step(sim);
+    expect([sim.stores.food[slot], sim.stores.inbound[slot], sim.stores.outbound[CAMP_STORE]]).toEqual([3, 0, 0]);
+    expect(campFood(sim)).toBe(97);
+  });
+
+  it('drops the unit in hands at dusk, where it lies on open ground until the second dawn', () => {
+    const { sim, slot } = housed();
+    for (let tick = 0; tick < 1300; tick++) step(sim);
+    expect([sim.stores.food[slot], sim.stores.inbound[slot]]).toEqual([6, 0]);
+    sim.stores.food[slot] = 5;
+    runUntil(sim, () => sim.villagers.carried[0] === Good.Food || sim.villagers.carried[1] === Good.Food, 100);
+    const carrier = sim.villagers.carried[0] === Good.Food ? 0 : 1;
+    const before = sim.stores.food[slot]!;
+    runUntil(sim, () => isNight(sim.tick - 1) || sim.villagers.carried[carrier] === Good.None, TICKS_PER_DAY);
+    expect(isNight(sim.tick - 1)).toBe(true);
+    expect(foodOnGround(sim)).toBe(1);
+    expect(sim.villagers.carried[carrier]).toBe(Good.None);
+    expect([sim.stores.inbound[slot], sim.stores.outbound[CAMP_STORE]]).toEqual([0, 0]);
+    expect(sim.stores.food[slot]).toBeLessThanOrEqual(before);
+    dawn(sim);
+    expect(foodOnGround(sim)).toBe(1);
+    dawn(sim);
+    expect(foodOnGround(sim)).toBe(0);
   });
 });
 
@@ -310,6 +392,7 @@ describe('seed 7 with no orders', () => {
     const first = play();
     const second = play();
     expect(first.sim.tally.built).toBeGreaterThan(0);
+    expect(first.sim.tally.carriedHome).toBeGreaterThan(0);
     expect(first.dawns.length).toBeGreaterThanOrEqual(5);
     expect(second.dawns).toEqual(first.dawns);
     expect(second.sim.tick).toBe(first.sim.tick);

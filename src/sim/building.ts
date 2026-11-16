@@ -248,5 +248,5 @@ function refresh(sim: Sim, tile: number): void {
   else setOpen(sim.siteTasks.building, sim.orders.size, tile, false);
 }
 
-/** Building work at a site that has all its materials, the most urgent kind of task. */
+/** Building work at a site that has all its materials, the most urgent kind of task after stocking a home. */
 export const BUILDING: TaskKind = { take, holds, work, release, refresh, reopen };

@@ -4,6 +4,7 @@ import { GATHERING } from './gathering';
 import { sideOf } from './map';
 import { type TileArea, clip } from './orders';
 import type { Sim } from './sim';
+import { STOCKING } from './stocking';
 import { SUPPLYING } from './supplying';
 
 /** A villager column value for no task. Any other value is one more than the kind's index in `TASK_KINDS`. */
@@ -38,7 +39,7 @@ export interface TaskKind {
  * Every kind of task, most urgent first. An idle villager takes a task of the
  * first kind that has one open.
  */
-export const TASK_KINDS: readonly TaskKind[] = [BUILDING, SUPPLYING, CARRYING, GATHERING];
+export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING];
 
 /** Gives the villager a task of the most urgent kind that has one open. Returns false when no kind has one. */
 export function takeTask(sim: Sim, id: number): boolean {
