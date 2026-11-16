@@ -3672,9 +3672,16 @@ const STORE_STOPS = {
   morning: { day: 4, time: '07:00' },
   evening: { day: 4, time: '18:30' },
 };
-/** The clip runs across the dawn of day 4 at 2×, so a carrier moves under a tile between two drawn frames. */
+/**
+ * The clip runs across the dawn of day 4 at 2×, so a carrier moves under a tile between two drawn frames. Just after
+ * the dawn at 03:36 the household of the house stands at its door, so a click on a tunic in `HOUSE_DOORS` selects one of
+ * its members, and the clip follows it to the barn and back. The crop keeps the clock, the Stockpiles panel, the
+ * followed settler's panel, the house, the barn, the forest's edge, and the camp.
+ */
+const STORE_SELECT_AT = { day: 4, time: '03:42' };
 const STORE_CLIP_UNTIL = { day: 4, time: '06:30' };
-const STORE_CLIP = { crop: { x: 230, y: 0, width: 520, height: 360 }, width: 480, colors: 48 };
+const HOUSE_DOORS = { x: 370, y: 80, width: 170, height: 140 };
+const STORE_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, colors: 32 };
 const STORE_RISE = 3;
 /**
  * The ground page: `?food=8` and four forager's huts, on (136, 127), (135, 123), (135, 131), and (133, 119), whose
@@ -3698,7 +3705,7 @@ const GROUND_SACKS = { lying: 40, gone: 10 };
 SCENARIOS.storing = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
-  const { reads, text, click } = selectionDriver(session);
+  const { reads, text, click, tunicPixels } = selectionDriver(session);
   const { food } = hungerDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
@@ -3824,10 +3831,32 @@ SCENARIOS.storing = async (session) => {
   await session.reach(page, STORE_STOPS.beforeDawn);
   await session.still(page);
   const from = play.since();
-  await page.keyboard.press('2');
-  while ((await session.gameMinutes(page)) < clockMinutes(STORE_CLIP_UNTIL)) await page.waitForTimeout(50);
-  await session.pause(page);
-  await session.still(page);
+  const runTo = async (target) => {
+    await page.keyboard.press('2');
+    while ((await session.gameMinutes(page)) < clockMinutes(target)) await page.waitForTimeout(50);
+    await session.pause(page);
+    await session.still(page);
+  };
+  await runTo(STORE_SELECT_AT);
+  const doors = await tunicPixels(page, await session.screenshot(page, 'storing-doors'));
+  const cells = new Map();
+  for (const { x, y } of doors) {
+    if (x < HOUSE_DOORS.x || x >= HOUSE_DOORS.x + HOUSE_DOORS.width || y < HOUSE_DOORS.y || y >= HOUSE_DOORS.y + HOUSE_DOORS.height) continue;
+    const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+    const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+    cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+  }
+  let follow = null;
+  for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, 8)) {
+    follow = await click(page, { x: cell.x / cell.count, y: cell.y / cell.count });
+    if (follow?.rows?.Home === 'A house') break;
+  }
+  session.check(
+    `at ${await at(page)} a click beside the house selects a member of the household that lives there`,
+    follow?.rows?.Home === 'A house',
+    `the panel reads "${text(follow)}"`,
+  );
+  await runTo(STORE_CLIP_UNTIL);
   const to = play.since();
   await session.reach(page, STORE_STOPS.morning);
   await session.still(page);
