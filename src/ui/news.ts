@@ -15,7 +15,7 @@ type EventKind = (typeof EVENTS)[number]['kind'];
 
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
 export const LINE_MS = 30_000;
-/** At most this many lines show. The oldest go first. */
+/** At most this many lines show. A later line waits until one of them has shown for `LINE_MS`. */
 export const MOST_LINES = 5;
 /** Events of a kind within this many ticks of a line's first join that line, as the settlers who reach the camp over a dusk. */
 const JOIN_TICKS = TICKS_PER_DAY / 24;
@@ -30,8 +30,10 @@ export interface NewsLine {
   readonly tick: number;
   readonly ids: number[];
   text: string;
-  /** When the line last changed, in milliseconds of wall time. */
+  /** When the line last changed while it showed, or when it first showed, in milliseconds of wall time. */
   changedAt: number;
+  /** Whether the line has shown yet. A line waits while `MOST_LINES` older ones show. */
+  shown: boolean;
 }
 
 /** What befell a settler between the frame before and this one, or null when nothing did. */
@@ -80,25 +82,33 @@ export function createNews() {
         for (let id = 0; id < frame.states.length; id++) if (eventOf(before, frame, id) === kind) ids.push(id);
         if (ids.length === 0) continue;
         const joined = lines.findLast((line) => line.kind === kind && tick - line.tick < JOIN_TICKS);
-        const line = joined ?? { kind, tick, ids: [], text: '', changedAt: now };
+        const line = joined ?? { kind, tick, ids: [], text: '', changedAt: now, shown: lines.length < MOST_LINES };
         line.ids.push(...ids);
         line.ids.sort((a, b) => a - b);
         line.text = lineText(frame, line);
-        line.changedAt = now;
+        if (line.shown) {
+          line.changedAt = now;
+          changed = true;
+        }
         if (!joined) lines.push(line);
+      }
+      return changed;
+    },
+    /** Drops the lines that have shown long enough, shows the waiting lines that now have room, and returns whether the shown lines changed. */
+    prune(now: number): boolean {
+      const kept = lines.filter((line) => !line.shown || now - line.changedAt < LINE_MS);
+      let changed = kept.length !== lines.length;
+      lines = kept;
+      for (const line of lines.slice(0, MOST_LINES)) {
+        if (line.shown) continue;
+        line.shown = true;
+        line.changedAt = now;
         changed = true;
       }
-      if (lines.length > MOST_LINES) lines = lines.slice(-MOST_LINES);
       return changed;
     },
-    /** Drops the lines that have shown long enough, and returns whether any went. */
-    prune(now: number): boolean {
-      const kept = lines.filter((line) => now - line.changedAt < LINE_MS);
-      const changed = kept.length !== lines.length;
-      lines = kept;
-      return changed;
-    },
-    lines: (): readonly NewsLine[] => lines,
+    /** The lines that show, oldest first. */
+    lines: (): readonly NewsLine[] => lines.filter((line) => line.shown),
   };
 }
 

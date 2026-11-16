@@ -60,7 +60,7 @@ describe('the settlement news', () => {
     expect(said[1]).toBe(`Day 2, 04:48. ${first} ate again.`);
   });
 
-  it('shows at most five lines, and drops each once it has shown long enough', () => {
+  it('shows at most five lines, keeps a sixth waiting until one has shown long enough, and then shows it for as long', () => {
     const news = createNews();
     const frame = (tick: number, missedMeals: number[]) => ({
       tick,
@@ -71,10 +71,14 @@ describe('the settlement news', () => {
     });
     news.hear(frame(0, [0, 0, 0, 0, 0, 0]), 0);
     for (let id = 0; id < 6; id++) news.hear(frame(1000 * (id + 1), [0, 1, 2, 3, 4, 5].map((other) => (other <= id ? 1 : 0))), id * 1000);
+    expect(news.lines().map(({ ids }) => ids)).toEqual([[0], [1], [2], [3], [4]]);
+    expect(news.prune(LINE_MS - 1)).toBe(false);
+    expect(news.prune(LINE_MS + 500)).toBe(true);
     expect(news.lines().map(({ ids }) => ids)).toEqual([[1], [2], [3], [4], [5]]);
-    expect(news.prune(LINE_MS + 1000)).toBe(true);
-    expect(news.lines().map(({ ids }) => ids)).toEqual([[2], [3], [4], [5]]);
-    expect(news.prune(LINE_MS + 5000)).toBe(true);
+    expect(news.prune(LINE_MS + 4500)).toBe(true);
+    expect(news.lines().map(({ ids }) => ids)).toEqual([[5]]);
+    expect(news.prune(2 * LINE_MS + 400)).toBe(false);
+    expect(news.prune(2 * LINE_MS + 600)).toBe(true);
     expect(news.lines()).toHaveLength(0);
   });
 });
