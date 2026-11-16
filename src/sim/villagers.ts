@@ -2,6 +2,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
+import { NAMES, Sex } from './names';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { NO_TASK, endTask, loseTasks, takeTask, taskKind } from './tasks';
@@ -28,6 +29,7 @@ export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingHome: 3, Se
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
+const NAME_SALT = 0x2a3e_5b07;
 
 /**
  * The villager table. Row `i` of every column belongs to villager `i`, and rows
@@ -61,6 +63,12 @@ export interface Villagers {
   readonly pathLength: Uint16Array;
   /** The route tile the villager walks to next. It has walked the whole kept route when this equals `pathLength`. */
   readonly pathCursor: Uint16Array;
+  /** An index into `NAMES[sex]`. */
+  readonly name: Uint16Array;
+  /** One `Sex` for each villager. */
+  readonly sex: Uint8Array;
+  /** Villagers `2h` and `2h + 1` form household `h`, a man and a woman. */
+  readonly household: Int16Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -96,10 +104,21 @@ function clearLine(map: TileMap, fromX: number, fromY: number, toX: number, toY:
   return true;
 }
 
+/** The indices of a sex's names in an order the seed shuffles. */
+function shuffledNames(seed: number, sex: Sex): Uint16Array {
+  const order = Uint16Array.from(NAMES[sex], (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(hashUnit(seed ^ NAME_SALT, i, sex) * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  return order;
+}
+
 /**
  * Gives every villager a spot around the camp center and stands it there. A
  * spot that a straight walk from the camp center cannot reach moves to the
- * camp center.
+ * camp center. Villagers pair off into households, and the seed names them,
+ * with no two of a sex named alike while the names last.
  */
 export function createVillagers(map: TileMap, camp: FlowField, count: number): Villagers {
   const villagers: Villagers = {
@@ -119,7 +138,11 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     path: new Int32Array(count * MAX_PATH),
     pathLength: new Uint16Array(count),
     pathCursor: new Uint16Array(count),
+    name: new Uint16Array(count),
+    sex: new Uint8Array(count),
+    household: new Int16Array(count),
   };
+  const names = [shuffledNames(map.seed, Sex.Woman), shuffledNames(map.seed, Sex.Man)] as const;
   const campX = (camp.goal % map.size) + 0.5;
   const campY = Math.floor(camp.goal / map.size) + 0.5;
   for (let id = 0; id < count; id++) {
@@ -131,6 +154,11 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     villagers.spotY[id] = reachable ? sy : campY;
     villagers.x[id] = villagers.targetX[id] = villagers.spotX[id]!;
     villagers.y[id] = villagers.targetY[id] = villagers.spotY[id]!;
+    const household = id >> 1;
+    const sex = id % 2 === 0 ? Sex.Man : Sex.Woman;
+    villagers.household[id] = household;
+    villagers.sex[id] = sex;
+    villagers.name[id] = names[sex][household % names[sex].length]!;
   }
   return villagers;
 }

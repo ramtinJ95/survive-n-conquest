@@ -5,6 +5,7 @@ import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack } from './goods';
+import { type Households, createHouseholds } from './households';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
@@ -60,6 +61,7 @@ export interface Sim {
   readonly flow: FlowField;
   readonly tileChanges: TileChanges;
   readonly villagers: Villagers;
+  readonly households: Households;
   readonly monsters: Monsters;
   readonly orders: Orders;
   readonly siteTasks: SiteTasks;
@@ -85,6 +87,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     flow,
     tileChanges: createTileChanges(map.size * map.size),
     villagers: createVillagers(map, flow, population.villagers),
+    households: createHouseholds(Math.ceil(population.villagers / 2)),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
