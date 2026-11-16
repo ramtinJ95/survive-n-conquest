@@ -169,6 +169,19 @@ describe('a forager', () => {
     expect(sim.tally.foraged).toBe(2);
   });
 
+  it('gives up a tile out of reach of the hut a change of places moves it to', () => {
+    const sim = createSim(mapWith(64, [[10, 12], [52, 52]]), { villagers: 2, monsters: 0 });
+    const first = finishedHut(sim, 10, 10);
+    finishedHut(sim, 50, 50);
+    const far = at(sim.map, 10, 12);
+    runUntil(sim, () => sim.foraging.progress[far]! > 0, TICKS_PER_DAY);
+    applyCommand(sim, { kind: 'setPlaces', slot: first, places: 0 });
+    expect(Array.from(sim.villagers.workplace)).toEqual([sim.orders.siteOf[at(sim.map, 50, 50)], sim.orders.siteOf[at(sim.map, 50, 50)]]);
+    untilDusk(sim);
+    expect([sim.foraging.ripeAt[far], sim.foraging.taker[far]]).toEqual([0, -1]);
+    expect(sim.foraging.ripeAt[at(sim.map, 52, 52)]).toBeGreaterThan(0);
+  });
+
   it('keeps a unit picked before dusk through the night and carries it into the camp in the morning', () => {
     const sim = createSim(mapWith(64, [[5, 9]]), { villagers: 1, monsters: 0 });
     finishedHut(sim, 4, 6);

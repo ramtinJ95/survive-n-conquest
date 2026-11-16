@@ -44,6 +44,16 @@ export function bears(sim: Sim, tile: number): boolean {
   );
 }
 
+/** Whether a tile's center lies within the reach of the workplace in `slot`, measured from the workplace's middle. */
+function inReach(sim: Sim, slot: number, tile: number): boolean {
+  const { sites } = sim.orders;
+  const { size } = sim.map;
+  const { reach } = kindOf(sites, slot);
+  const dx = (tile % size) + 0.5 - siteMidX(sites, slot);
+  const dy = (tile - (tile % size)) / size + 0.5 - siteMidY(sites, slot);
+  return dx * dx + dy * dy <= reach * reach;
+}
+
 /**
  * The tile nearest a point in a straight line among those within the reach of
  * the workplace in `slot`, measured from its middle to each tile's center,
@@ -64,13 +74,10 @@ function nearestForage(sim: Sim, slot: number, px: number, py: number): number {
   let best = -1;
   let bestDistance = Infinity;
   for (let y = y0; y <= y1; y++) {
-    const fromMid = y + 0.5 - cy;
     const dy = y + 0.5 - py;
     for (let x = x0; x <= x1; x++) {
-      const across = x + 0.5 - cx;
-      if (across * across + fromMid * fromMid > reach * reach) continue;
       const tile = y * size + x;
-      if (foraging.taker[tile] !== -1 || flow.next[tile] === -1 || !bears(sim, tile)) continue;
+      if (!inReach(sim, slot, tile) || foraging.taker[tile] !== -1 || flow.next[tile] === -1 || !bears(sim, tile)) continue;
       const dx = x + 0.5 - px;
       const distance = dx * dx + dy * dy;
       if (distance < bestDistance) {
@@ -111,12 +118,17 @@ function take(sim: Sim, id: number): boolean {
   return true;
 }
 
-/** The forager carries its unit, or still works its tile and the tree there stands. */
+/**
+ * The forager carries its unit, or still works its tile, the tree there
+ * stands, and the tile lies in the reach of the hut it works at now, which a
+ * forager moved to another hut by a change of places does not.
+ */
 function holds(sim: Sim, id: number): boolean {
   const { villagers } = sim;
   if (villagers.carried[id] === Good.Food) return true;
   const tile = villagers.taskTile[id]!;
-  return tile >= 0 && sim.foraging.taker[tile] === id && sim.map.trees[tile] === 1;
+  const workplace = villagers.workplace[id]!;
+  return tile >= 0 && workplace >= 0 && sim.foraging.taker[tile] === id && sim.map.trees[tile] === 1 && inReach(sim, workplace, tile);
 }
 
 /**
