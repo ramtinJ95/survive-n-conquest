@@ -251,7 +251,7 @@ export function mountOrders(
       line = refusal ? `Cannot build here. ${REFUSALS[refusal]}` : 'Click to place the house site here.';
       refused = refusal !== null;
       marks.showArea(null, color);
-      marks.showGhost(hovered, refusal === null);
+      marks.showGhost({ x0: hovered.x - 1, y0: hovered.y - 1, side: 3 }, refusal === null);
     } else {
       marks.showArea(null, color);
     }

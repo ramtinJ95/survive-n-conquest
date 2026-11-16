@@ -24,7 +24,7 @@ import { Claim, type Orders, SiteState } from '../sim/orders';
 
 /**
  * What the pointer would do to a tile, drawn over the marks it has. `Mark` and
- * `Remove` preview a drag, the other three preview a house site.
+ * `Remove` preview a drag, the other three preview a building site.
  */
 export const Preview = { None: 0, Mark: 1, Remove: 2, Fits: 3, Blocks: 4, Refused: 5 } as const;
 export type Preview = (typeof Preview)[keyof typeof Preview];
@@ -134,18 +134,19 @@ function patchTerrain(shader: WebGLProgramParametersWithUniforms, uniforms: Reco
   shader.fragmentShader = fragment;
 }
 
-/** The ghost of a house the pointer would place: three tiles square and this tall, in meters. */
+/** The ghost of a building the pointer would place: as wide as its footprint, three tiles at its widest, and this tall, in meters. */
+const GHOST_SIDE = 3;
 const GHOST_HEIGHT = 2.6;
 const GHOST_OPACITY = 0.55;
 /** A dark copy of the edges, a little larger, keeps the ghost apart from snow and pale marks. */
 const GHOST_SHADOW = { scale: 1.06, color: '#1a0d0d' };
 
 /**
- * A see-through house volume over the site under the pointer, drawn over the
- * trees and boulders, so that a site over rock or forest still reads.
+ * A see-through building volume over the site under the pointer, drawn over
+ * the trees and boulders, so that a site over rock or forest still reads.
  */
 function createGhost() {
-  const box = new BoxGeometry(3, GHOST_HEIGHT, 3);
+  const box = new BoxGeometry(GHOST_SIDE, GHOST_HEIGHT, GHOST_SIDE);
   const faces = new MeshBasicMaterial({ transparent: true, opacity: GHOST_OPACITY, depthTest: false, depthWrite: false, fog: false, toneMapped: false });
   const edges = new LineBasicMaterial({ depthTest: false, fog: false, toneMapped: false });
   const outline = new EdgesGeometry(box);
@@ -242,24 +243,26 @@ export function createOrderMarks(
   return {
     meshes: [outlines, pins, ghost],
 
-    /** Stands the ghost of a house on the nine tiles around a center tile, in green when it fits and red when not, or hides it. */
-    showGhost(center: { x: number; y: number } | null, fits: boolean) {
-      ghost.visible = center !== null;
-      if (!center) return;
+    /** Stands the ghost of a building on a square of tiles from its top left, in green when it fits and red when not, or hides it. */
+    showGhost(footprint: { x0: number; y0: number; side: number } | null, fits: boolean) {
+      ghost.visible = footprint !== null;
+      if (!footprint) return;
+      const { x0, y0, side } = footprint;
       let highest = -Infinity;
-      for (let y = center.y - 1; y <= center.y + 1; y++) {
-        for (let x = center.x - 1; x <= center.x + 1; x++) {
+      for (let y = y0; y < y0 + side; y++) {
+        for (let x = x0; x < x0 + side; x++) {
           const tile = Math.min(Math.max(y, 0), size - 1) * size + Math.min(Math.max(x, 0), size - 1);
           highest = Math.max(highest, map.heights[tile]!, 0);
         }
       }
-      ghost.position.set(center.x + 0.5 - size / 2, highest + GHOST_HEIGHT / 2, center.y + 0.5 - size / 2);
+      ghost.scale.set(side / GHOST_SIDE, 1, side / GHOST_SIDE);
+      ghost.position.set(x0 + side / 2 - size / 2, highest + GHOST_HEIGHT / 2, y0 + side / 2 - size / 2);
       const color = fits ? ORDER_COLORS.fits : ORDER_COLORS.cancel;
       faces.color.set(color);
       edges.color.set(color);
     },
 
-    /** Copies the claims of every tile into the marks, but none under a finished house, and puts a pin on each tree marked for felling. */
+    /** Copies the claims of every tile into the marks, but none under a finished building, and puts a pin on each tree marked for felling. */
     showOrders(orders: Orders) {
       let count = 0;
       for (let tile = 0; tile < size * size; tile++) {

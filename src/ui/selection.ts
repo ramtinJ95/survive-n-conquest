@@ -2,7 +2,7 @@ import type { PerspectiveCamera } from 'three';
 import { type Selection, pickSelection } from '../render/pickSelection';
 import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
 import { BUILDING } from '../sim/building';
-import { BUILDINGS, Building } from '../sim/buildings';
+import { BUILDINGS, Building, kindOf, siteMidX, siteMidY } from '../sim/buildings';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { GATHERING } from '../sim/gathering';
@@ -136,10 +136,10 @@ function missedMeals({ frame }: Facts, id: number): string {
 
 const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone', [Good.Food]: '1 food' };
 
-const builders = ({ frame }: Facts, center: number) => {
+const builders = ({ frame }: Facts, anchor: number) => {
   let count = 0;
   for (let id = 0; id < frame.tasks.length; id++) {
-    if (frame.tasks[id] === BUILD && frame.taskTiles[id] === center) count++;
+    if (frame.tasks[id] === BUILD && frame.taskTiles[id] === anchor) count++;
   }
   return count;
 };
@@ -207,7 +207,7 @@ const PANELS: Panels = {
           return percent === null ? 'Waiting for materials' : `${percent}%`;
         },
       },
-      { label: 'Builders', read: (facts, { center }) => String(builders(facts, center)) },
+      { label: 'Builders', read: (facts, { anchor }) => String(builders(facts, anchor)) },
     ],
   },
   house: {
@@ -246,7 +246,7 @@ export function keepSelection(selection: Selection | null, orders: Orders): Sele
   if (selection?.kind !== 'building') return selection;
   const { state, x, y } = orders.sites;
   const standing = state[selection.slot] !== SiteState.Free;
-  return standing && y[selection.slot]! * orders.size + x[selection.slot]! === selection.center ? selection : null;
+  return standing && y[selection.slot]! * orders.size + x[selection.slot]! === selection.anchor ? selection : null;
 }
 
 /** What the panel of a standing selection says. */
@@ -261,14 +261,19 @@ export function readPanel(selection: Selection, facts: Facts, panels: Panels = P
   }
 }
 
+/** The ring around a building clears the corners of its footprint by this much, in tiles. */
+const MARK_CLEARANCE = 0.18;
+
 /** Where the mark of a standing selection goes on the map, or null while a selected settler is inside its house or once it died. */
 export function markPlace(selection: Selection, { map, orders, camp, frame }: Facts): MarkPlace | null {
   switch (selection.kind) {
     case 'villager':
       if (frame.states[selection.id] === VillagerState.Inside || frame.states[selection.id] === VillagerState.Dead) return null;
       return { x: frame.villagers[selection.id * 2]!, y: frame.villagers[selection.id * 2 + 1]!, radius: 0.55 };
-    case 'building':
-      return { x: orders.sites.x[selection.slot]! + 0.5, y: orders.sites.y[selection.slot]! + 0.5, radius: 2.3 };
+    case 'building': {
+      const { sites } = orders;
+      return { x: siteMidX(sites, selection.slot), y: siteMidY(sites, selection.slot), radius: kindOf(sites, selection.slot).side / Math.SQRT2 + MARK_CLEARANCE };
+    }
     case 'camp':
       return { x: (camp % map.size) + 0.5, y: Math.floor(camp / map.size) + 0.5, radius: CAMP_RADIUS + 0.3 };
   }

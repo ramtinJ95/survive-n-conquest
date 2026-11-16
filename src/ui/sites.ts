@@ -1,22 +1,17 @@
 import { type PerspectiveCamera, Vector3 } from 'three';
 import { arrived } from '../sim/building';
-import { BUILDINGS, Building } from '../sim/buildings';
-import { Good } from '../sim/goods';
+import { type Building, kindOf, siteMidX, siteMidY, siteX0, siteY0 } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
 import type { SimFrame } from '../frame';
+import { BUILDING_WORDS, neededGoods } from './buildings';
 import './sites.css';
 
-/** The label hangs this far above the highest of a site's nine tiles, clear of the frame at its full height. */
+/** The label hangs this far above the highest tile of a site, clear of the frame at its full height. */
 const ANCHOR_HEIGHT = 2.8;
 
-const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
-  { good: Good.Log, label: 'Logs' },
-  { good: Good.Stone, label: 'Stone' },
-];
-
 export interface SiteProgress {
-  /** Units arrived of each good in `SHOWN` order. */
+  /** Units arrived of each good the site needs, in `neededGoods` order. */
   readonly arrived: readonly number[];
   /** Whole percent of the building work done, or null while the site still waits for a unit. */
   readonly percent: number | null;
@@ -24,9 +19,11 @@ export interface SiteProgress {
 
 /** What has arrived at a site and how far its building work is, from the main thread's copy of the map and the orders. */
 export function siteProgress(map: TileMap, orders: Orders, slot: number): SiteProgress {
-  const units = SHOWN.map(({ good }) => arrived(map, orders, slot, good));
-  const supplied = SHOWN.every(({ good }, index) => units[index]! >= BUILDINGS[Building.House].needs[good - 1]!);
-  const percent = supplied ? Math.floor((orders.sites.work[slot]! * 100) / BUILDINGS[Building.House].workTicks) : null;
+  const kind = kindOf(orders.sites, slot);
+  const goods = neededGoods(kind);
+  const units = goods.map(({ good }) => arrived(map, orders, slot, good));
+  const supplied = goods.every(({ needs }, index) => units[index]! >= needs);
+  const percent = supplied ? Math.floor((orders.sites.work[slot]! * 100) / kind.workTicks) : null;
   return { arrived: units, percent };
 }
 
@@ -41,16 +38,17 @@ interface Label {
 }
 
 function createLabel(map: TileMap, orders: Orders, slot: number): Label {
+  const { size, sites } = orders;
   const node = document.createElement('section');
   node.className = 'site-label';
   node.setAttribute('role', 'status');
-  node.setAttribute('aria-label', 'House site');
+  node.setAttribute('aria-label', `${BUILDING_WORDS[sites.kind[slot] as Building].title} site`);
   const list = document.createElement('dl');
-  const values = SHOWN.map(({ good, label }) => {
+  const values = neededGoods(kindOf(sites, slot)).map(({ label, needs }) => {
     const name = document.createElement('dt');
     name.textContent = label;
     const value = document.createElement('dd');
-    value.dataset.needs = String(BUILDINGS[Building.House].needs[good - 1]);
+    value.dataset.needs = String(needs);
     list.append(name, value);
     return value;
   });
@@ -71,14 +69,14 @@ function createLabel(map: TileMap, orders: Orders, slot: number): Label {
   work.append(bar, percent, waiting);
   node.append(list, work);
 
-  const { size, sites } = orders;
-  const cx = sites.x[slot]!;
-  const cy = sites.y[slot]!;
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
+  const { side } = kindOf(sites, slot);
   let highest = -Infinity;
-  for (let y = cy - 1; y <= cy + 1; y++) {
-    for (let x = cx - 1; x <= cx + 1; x++) highest = Math.max(highest, map.heights[y * size + x]!);
+  for (let y = y0; y < y0 + side; y++) {
+    for (let x = x0; x < x0 + side; x++) highest = Math.max(highest, map.heights[y * size + x]!);
   }
-  const anchor = new Vector3(cx + 0.5 - size / 2, highest + ANCHOR_HEIGHT, cy + 0.5 - size / 2);
+  const anchor = new Vector3(siteMidX(sites, slot) - size / 2, highest + ANCHOR_HEIGHT, siteMidY(sites, slot) - size / 2);
   return { node, anchor, values, bar, fill, percent, waiting };
 }
 
@@ -99,9 +97,9 @@ function showProgress(label: Label, { arrived: units, percent }: SiteProgress): 
 }
 
 /**
- * A label over each unfinished house site: the logs and the stone that have
- * arrived of what the house needs, and the building work as a bar, or that the
- * site waits for materials. Each label keeps its pixel size at every zoom and
+ * A label over each unfinished site, named by its kind: the units of each good
+ * that have arrived of what the building needs, and the building work as a
+ * bar, or that the site waits for materials. Each label keeps its pixel size at every zoom and
  * follows its site across the screen.
  */
 export function mountSiteLabels(root: HTMLElement, map: TileMap, orders: Orders, camera: PerspectiveCamera) {

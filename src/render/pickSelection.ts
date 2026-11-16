@@ -1,14 +1,15 @@
 import { Box3, type PerspectiveCamera, Ray, Raycaster, Vector2, Vector3 } from 'three';
 import manifest from '../../assets/models.json';
 import { CAMP_LAYOUT } from './camp';
+import { kindOf, siteX0, siteY0 } from '../sim/buildings';
 import { type TileMap, heightAt } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
 import { VillagerState } from '../sim/villagerState';
 
-/** What the player can select. A building is a site or a house, by its slot in the sites table and its center tile. */
+/** What the player can select. A building is a site or a finished building, by its slot in the sites table and its anchor tile. */
 export type Selection =
   | { readonly kind: 'villager'; readonly id: number }
-  | { readonly kind: 'building'; readonly slot: number; readonly center: number }
+  | { readonly kind: 'building'; readonly slot: number; readonly anchor: number }
   | { readonly kind: 'camp' };
 
 export interface PickScene {
@@ -128,17 +129,19 @@ function nearestBuilding(scene: PickScene): { distance: number; selection: Selec
   let best = Infinity;
   let selection: Selection | null = null;
   for (let slot = 0; slot < MAX_SITES; slot++) {
-    if (orders.sites.state[slot] === SiteState.Free) continue;
-    const cx = orders.sites.x[slot]!;
-    const cy = orders.sites.y[slot]!;
-    const { lowest, highest } = heightRange(map, cx - 1, cy - 1, cx + 1, cy + 1);
-    box.min.set(cx - 1 - half, lowest, cy - 1 - half);
-    box.max.set(cx + 2 - half, highest + BUILDING_HEIGHT, cy + 2 - half);
+    const { sites } = orders;
+    if (sites.state[slot] === SiteState.Free) continue;
+    const x0 = siteX0(sites, slot);
+    const y0 = siteY0(sites, slot);
+    const { side } = kindOf(sites, slot);
+    const { lowest, highest } = heightRange(map, x0, y0, x0 + side - 1, y0 + side - 1);
+    box.min.set(x0 - half, lowest, y0 - half);
+    box.max.set(x0 + side - half, highest + BUILDING_HEIGHT, y0 + side - half);
     const distance = rayDistance();
     if (distance < best) {
       best = distance;
       under.copy(box);
-      selection = { kind: 'building', slot, center: cy * size + cx };
+      selection = { kind: 'building', slot, anchor: sites.y[slot]! * size + sites.x[slot]! };
     }
   }
   const tileX = camp % size;
