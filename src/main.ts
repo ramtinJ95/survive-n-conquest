@@ -11,6 +11,8 @@ import { parseSeed } from './sim/seed';
 import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
+import { mountDiedOut } from './ui/diedOut';
+import { mountNews } from './ui/news';
 import { mountOrders } from './ui/orders';
 import { mountSelection } from './ui/selection';
 import { mountSiteLabels } from './ui/sites';
@@ -27,7 +29,7 @@ document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
-const population = populationFor(params.get('swarm'));
+const population = populationFor(params.get('swarm'), params.get('food'));
 const look = await loadShapes();
 const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
@@ -81,8 +83,10 @@ const selection = mountSelection(document.body, {
   mark,
   mainButtonPans: toolbar.mainButtonPans,
 });
-const stockpiles = mountStockpiles(document.body, map, orders.claims);
+const stockpiles = mountStockpiles(document.body, map, orders);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);
+const news = mountNews(document.body);
+const diedOut = mountDiedOut(document.body);
 bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   if (data.tick !== tick) lastTickAt = performance.now();
@@ -95,5 +99,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   stockpiles.heard(data);
   siteLabels.heard(data);
   swarm.show(data);
+  news.heard(data);
+  diedOut.heard(data);
 });
 sim.postMessage({ kind: 'start', map, population } satisfies ToSim);

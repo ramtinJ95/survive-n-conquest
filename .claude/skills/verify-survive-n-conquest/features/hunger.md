@@ -1,0 +1,35 @@
+# Hunger
+
+Each settler eats once a day, at dusk, when it comes home: 1 unit of food from its household's store, the house when its household has one and the camp when it has none. A new game opens with 24 food at the camp, three days for 8 settlers, and nothing in this stage produces food. A settler that finds no food at dusk has missed a meal and is hungry, and it eats at dawn instead if its store has food by then. At its third missed meal in a row it dies and leaves the map. A household with a house carries food home from the camp until the house holds 3 days of meals for its living members. The Stockpiles panel shows the food at the camp and the food in homes. The `Settlement news` log at the bottom right names who went hungry, who ate again, and who starved, and each line stays at least 30 s of wall time. A settler's panel reads its missed meals, and the house and camp panels read the food they store. When the last settler dies, a dialog says that the settlement has died out and offers a new map, and the clock stops. This scenario proves a settlement that does nothing, from the last meal to the end. `src/sim/food.test.ts` proves the rules, the death time of each settler on seed 7, and the determinism of the run.
+
+## Sub-features
+
+- `hunger-store` shows the camp's food fall by 8 at each of the first three dusks.
+- `hunger-news` names all 8 settlers in the news as they go hungry and as they starve.
+- `hunger-panel` reads 1 and then 2 missed meals in a settler's panel.
+- `hunger-over` shows the died-out dialog at the dusk of day 6, stops the clock, and opens a new map with 24 food from its `New map` button.
+
+## How to get to it (user POV)
+
+- Open the game at `?seed=7` and give no orders.
+- Run at 8×. The camp's food reads 16, 8, and 0 after the first three dusks.
+- The news names the hungry settlers at the dusk of day 4 and the dead at the dusk of day 6, when the dialog shows.
+
+## Driving it with verify.mjs
+
+Preconditions:
+
+- `$V doctor` passes, or you use `$V run hunger`, which runs doctor itself.
+
+- **Watch the store empty.** The first page opens at 960 by 540 on `?seed=7`, recorded, with `clock: 'paused'`. The check `the camp opens with 24 food and the homes with none` reads the Stockpiles panel. `reach` stops at 22:00 on days 1 and 2 and at 18:55 on day 3, and the checks read 16, 8, and 8.
+- **Run to the end.** From 18:55 on day 3 the page runs at 8× until the `The settlement has died out` dialog shows, reading the news log and the camp's food every 250 ms. The checks `the news names all 8 settlers as they go hungry`, `... as they starve`, and `the camp is empty from the last meal on` read what it heard. `the clock stops when the settlement has died out` reads the clock twice, 3 s apart, and `the settlement dies out at the dusk of day 6` reads when the dialog showed. It takes `hunger-died-out.png`.
+- **Start again.** `New map opens a new map with 24 food at the camp` clicks `New map` and reads the new page's seed and food. `hunger-last-meal-to-death.gif` runs from 18:55 on day 3 to 3 s after the dialog showed, zoomed in to about 49 m on the camp, without the camera controls, and played at 3 times the speed it was recorded at, so the 8× run takes about 40 s.
+- **Read a hungry settler.** A second page on `?seed=7` runs to noon on day 5 and clicks the tunics it finds, the largest first, until a settler's panel opens. `a settler that missed its first meal reads hungry` needs `Missed meals` to read `1, hungry`, and it takes `hunger-settler-panel.png`. At noon on day 6 the same settler reads `2, hungry`.
+- **Proof.** Run `$V run hunger`. The evidence folder holds the clip, the screenshots, and `result.json` with every check, including `no page errors`.
+
+## Gotchas
+
+- The scenarios that run settlers past the dusk of day 6, `look` and `selecting`, open with `?food=200`, the `FED` setting in `verify.mjs`, or their settlers starve and the clock stops before winter. Scenarios that stop earlier open as a player does, so their settlers can go hungry from the dusk of day 3 or 4 on, and the news log can show at the bottom right.
+- The settlers die on arrival at the camp, over about half a game hour after dusk, so the starved settlers come in more than one news line.
+- A line of the news log joins the events of one kind within one game hour, so the scenario collects every text a line takes while the clock runs.
+- A settler that does not get home by dawn, such as one working far from the camp, misses that meal at dawn and cannot eat again until the next dusk.

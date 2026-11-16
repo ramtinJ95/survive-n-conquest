@@ -100,8 +100,8 @@ describe('the households', () => {
   });
 
   it(`hold at most ${MAX_HOUSEHOLDS}`, () => {
-    expect(createHouseholds(MAX_HOUSEHOLDS).home.length).toBe(MAX_HOUSEHOLDS);
-    expect(() => createHouseholds(MAX_HOUSEHOLDS + 1)).toThrow();
+    expect(createHouseholds(MAX_HOUSEHOLDS * 2).home.length).toBe(MAX_HOUSEHOLDS);
+    expect(() => createHouseholds(MAX_HOUSEHOLDS * 2 + 1)).toThrow();
   });
 });
 
@@ -283,7 +283,8 @@ describe('the simulation with homes', () => {
     };
     const first = play();
     const second = play();
-    expect(first.insideAtNight).toEqual([8, 8]);
+    // Each household stocks its home before it builds again, so the fourth house is finished on the second day.
+    expect(first.insideAtNight).toEqual([6, 8]);
     expect(second.sim.villagers).toEqual(first.sim.villagers);
     expect(second.sim.households).toEqual(first.sim.households);
     expect(second.sim).toEqual(first.sim);

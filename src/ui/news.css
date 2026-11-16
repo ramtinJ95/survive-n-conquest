@@ -1,0 +1,25 @@
+/* Bottom right, above the height of the camera-controls hint, clear of the clock, the stockpiles, and the selection panel. */
+.news {
+  position: fixed;
+  right: var(--edge-gap);
+  bottom: calc(var(--edge-gap) + 44px);
+  width: max-content;
+  max-width: min(300px, calc(100% - 2 * var(--edge-gap)));
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 12px/1.5 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+.news[hidden] {
+  display: none;
+}
+.news p {
+  margin: 0;
+}

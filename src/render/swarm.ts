@@ -16,7 +16,7 @@ import { heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
 import { VillagerState } from '../sim/villagers';
-import { type Shapes, colored, shapeMaterial } from './shapes';
+import { type Shapes, colored, foodShape, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */
 export const VILLAGER_COLOR = 0xf2c12e;
@@ -101,8 +101,8 @@ export interface UnitFrame {
  * so villagers that are not drawn leave no gap. It turns the way it walks,
  * steps and swings its arms against its legs as it goes, swings both arms over
  * its head and down as it works, and holds what it carries up on both hands.
- * At its spot for the night it faces the camp `camp`, and inside its house it
- * is not drawn. The motion follows the tick, so the units hold still while the
+ * At its spot for the night it faces the camp `camp`. Inside its house, and
+ * once dead, it is not drawn. The motion follows the tick, so the units hold still while the
  * clock is paused. They take the light of the scene, and they cast and take
  * its shadows.
  */
@@ -121,9 +121,15 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   );
   const carriedLogs = group('carried logs', shapes.log, shapeMaterial(), population.villagers);
   const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), population.villagers);
-  const carriedMeshes = [carriedLogs, carriedStone];
+  const carriedFood = group('carried food', foodShape(), shapeMaterial(), population.villagers);
+  const carriedMeshes = [carriedLogs, carriedStone, carriedFood];
   const posed = [villagers, arms, legs, ...carriedMeshes];
-  const held: Readonly<Record<Good, InstancedMesh | null>> = { [Good.None]: null, [Good.Log]: carriedLogs, [Good.Stone]: carriedStone };
+  const held: Readonly<Record<Good, InstancedMesh | null>> = {
+    [Good.None]: null,
+    [Good.Log]: carriedLogs,
+    [Good.Stone]: carriedStone,
+    [Good.Food]: carriedFood,
+  };
 
   const sizes = Float32Array.from({ length: population.villagers }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));
   const facing = new Float32Array(population.villagers);
@@ -172,7 +178,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
         last[id * 2] = mapX;
         last[id * 2 + 1] = mapY;
       }
-      if (states[id] === VillagerState.Inside) continue;
+      if (states[id] === VillagerState.Inside || states[id] === VillagerState.Dead) continue;
 
       const walks = walking[id] === 1;
       const works = states[id] === VillagerState.Working;

@@ -5,13 +5,14 @@ import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar'
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
 import { GATHERING } from '../src/sim/gathering';
-import { GOOD_KINDS } from '../src/sim/goods';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
+import { STOCKING } from '../src/sim/stocking';
+import { CAMP_STORE } from '../src/sim/stores';
 import { NO_TASK, TASK_KINDS } from '../src/sim/tasks';
 import { THINK_GROUPS, VillagerState } from '../src/sim/villagers';
 
@@ -44,12 +45,15 @@ const SITE_GRID = 16;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const KINDS = [
+  ['stocking', TASK_KINDS.indexOf(STOCKING) + 1],
   ['building', TASK_KINDS.indexOf(BUILDING) + 1],
   ['supplying', SUPPLY],
   ['carrying', CARRY],
   ['gathering', TASK_KINDS.indexOf(GATHERING) + 1],
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built'] as const satisfies readonly (keyof Tally)[];
+const FED = ['meals', 'missed', 'carriedHome', 'died'] as const satisfies readonly (keyof Tally)[];
+/** The goods a stockpile takes, at index `good - 1`. */
 const GOOD_NAMES = ['logs', 'stone'] as const;
 /** Every villager makes its dusk or dawn choice within one think cycle, so each turn of the light is measured over this many ticks. */
 const TURN_TICKS = THINK_GROUPS;
@@ -86,6 +90,13 @@ function siteCenters(size: number): [number, number][] {
 
 function inside(sim: Sim): number {
   return sim.villagers.state.reduce((count, state) => count + (state === VillagerState.Inside ? 1 : 0), 0);
+}
+
+function hungry(sim: Sim): number {
+  const { missedMeals, state } = sim.villagers;
+  let count = 0;
+  for (let id = 0; id < state.length; id++) if (missedMeals[id]! > 0 && state[id] !== VillagerState.Dead) count++;
+  return count;
 }
 
 function atCamp(sim: Sim): number {
@@ -147,7 +158,7 @@ function measure(size: number): boolean {
   let dayTaskTicks = 0;
   const dayKindTicks = new Float64Array(TASK_KINDS.length + 1);
   let fewestOpen = Infinity;
-  const fewestRoom = new Float64Array(GOOD_KINDS).fill(Infinity);
+  const fewestRoom = new Float64Array(GOOD_NAMES.length).fill(Infinity);
 
   // JavaScriptCore reports its heap size only at a collection, so this sees what the ticks keep, not short-lived garbage.
   atCamp(sim);
@@ -190,10 +201,11 @@ function measure(size: number): boolean {
     if (!day) continue;
     dayVillagerTicks += task.length;
     fewestOpen = Math.min(fewestOpen, sim.gathering.count);
-    for (let good = 0; good < GOOD_KINDS; good++) fewestRoom[good] = Math.min(fewestRoom[good]!, sim.goods.room[good]!.count);
+    for (let good = 0; good < GOOD_NAMES.length; good++) fewestRoom[good] = Math.min(fewestRoom[good]!, sim.goods.room[good]!.count);
   }
   const heapGrowth = fullGC() - heapBefore;
   const work = Object.fromEntries(TALLIED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof TALLIED)[number], number>;
+  const fed = Object.fromEntries(FED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof FED)[number], number>;
   const allWork = TALLIED.every((name) => work[name] > 0);
   const villagers = task.length;
   const percent = (part: number, whole: number) => `${((part / whole) * 100).toFixed(1)}%`;
@@ -223,6 +235,11 @@ function measure(size: number): boolean {
   );
   console.log(
     `  every kind of work done in the measured ticks: ${allWork ? 'PASS' : 'FAIL'}, needs trees felled, stone quarried, units stocked, units delivered, and houses built`,
+  );
+  console.log(
+    `  food in the measured ticks: ${fed.meals} meals eaten, ${fed.missed} meals missed, ${fed.carriedHome} units carried home, ` +
+      `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
+      `${sim.stores.food[CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start`,
   );
   console.log(
     `  house sites: ${sites} placed on a grid of ${SITE_GRID} by ${SITE_GRID}, ${tallyBefore.built} built in the warm-up ticks, ` +

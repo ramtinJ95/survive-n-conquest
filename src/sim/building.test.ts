@@ -10,12 +10,14 @@ import { DEFAULT_MAP_SIZE, TileKind, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { type AreaOrder, type OrderCommand, SiteState, siteRefusal, takeOrderChanges } from './orders';
 import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { STOCKING } from './stocking';
 import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
 import { VillagerState } from './villagers';
 
+const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const BUILD = TASK_KINDS.indexOf(BUILDING) + 1;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
@@ -122,7 +124,7 @@ describe('supplying a site', () => {
 });
 
 describe('the kinds of task', () => {
-  it('go to a settler in the order building, supplying, carrying, gathering, while every kind after the one it takes is open', () => {
+  it('go to a settler in the order stocking, building, supplying, carrying, gathering, while every kind after the one it takes is open', () => {
     const rows = open(32);
     rows[4] = '.'.repeat(28) + 'T...';
     const sim = simWith(rows, 1, [
@@ -160,7 +162,7 @@ describe('the kinds of task', () => {
       },
     );
     const order = takes.map(({ kind }) => kind).filter((kind, i, all) => i === 0 || all[i - 1] !== kind);
-    expect(order).toEqual([SUPPLY, BUILD, SUPPLY, CARRY, GATHER]);
+    expect(order).toEqual([SUPPLY, BUILD, STOCK, SUPPLY, CARRY, GATHER]);
     const firstBuild = takes.find(({ kind }) => kind === BUILD)!;
     expect(firstBuild).toEqual({ kind: BUILD, spareLies: true, secondLacks: true, treeStands: true });
     expect(takes[0]).toMatchObject({ kind: SUPPLY, spareLies: true, treeStands: true });

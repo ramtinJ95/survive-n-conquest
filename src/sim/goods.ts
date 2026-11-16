@@ -4,10 +4,12 @@ import type { Sim } from './sim';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, setOpen } from './tileSet';
 
-export const Good = { None: 0, Log: 1, Stone: 2 } as const;
+export const Good = { None: 0, Log: 1, Stone: 2, Food: 3 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
 /** How many goods there are, `Good.None` aside. */
-export const GOOD_KINDS = 2;
+export const GOOD_KINDS = 3;
+/** Food put down on open ground is gone at this dawn after it was put down: the second. */
+export const FOOD_KEEPS_DAWNS = 2;
 
 /** A tile holds up to this many units of one good. */
 export const STACK_LIMIT = 8;
@@ -35,6 +37,12 @@ export interface GoodsState {
   /** The first `setAsideCount` are the tiles set aside. */
   readonly setAsideTiles: Int32Array;
   setAsideCount: number;
+  /** The value of `Sim.dawns` at which the food stack on each tile is gone, where a stack of food lies. */
+  readonly foodGoneAt: Uint16Array;
+  /** 1 where a tile is among the first `foodCount` of `foodTiles`, the tiles that held food when it was put down. */
+  readonly foodListed: Uint8Array;
+  readonly foodTiles: Int32Array;
+  foodCount: number;
 }
 
 export function createGoodsState(size: number): GoodsState {
@@ -49,6 +57,10 @@ export function createGoodsState(size: number): GoodsState {
     setAside: new Uint8Array(tiles),
     setAsideTiles: new Int32Array(tiles),
     setAsideCount: 0,
+    foodGoneAt: new Uint16Array(tiles),
+    foodListed: new Uint8Array(tiles),
+    foodTiles: new Int32Array(tiles),
+    foodCount: 0,
   };
 }
 
@@ -69,11 +81,15 @@ export function createPutDownSearch(tiles: number): PutDownSearch {
  * How many units of `good` a tile can still take: walkable, no site or house,
  * and a stack that is empty or holds that good. A place reserved for a unit on
  * its way is taken, and an empty stack with units on their way holds their good.
+ * A stockpile takes no food, and food joins only a stack put down since the
+ * same dawn, so each unit is gone on the day its own night set.
  */
 function room(sim: Sim, tile: number, good: Good): number {
   const { map, goods } = sim;
-  if (!walkable(map, tile) || sim.orders.claims[tile] === Claim.Site) return 0;
+  const claim = sim.orders.claims[tile];
+  if (!walkable(map, tile) || claim === Claim.Site) return 0;
   const size = map.stackSize[tile]!;
+  if (good === Good.Food && (claim === Claim.Stockpile || (size > 0 && goods.foodGoneAt[tile] !== sim.dawns + FOOD_KEEPS_DAWNS))) return 0;
   const inbound = goods.inbound[tile]!;
   const held = size > 0 ? map.stackGood[tile] : inbound > 0 ? goods.inboundGood[tile] : Good.None;
   return held === Good.None || held === good ? STACK_LIMIT - size - inbound : 0;
@@ -86,8 +102,9 @@ export function refreshStack(sim: Sim, tile: number): void {
   const claim = sim.orders.claims[tile];
   const stockpile = claim === Claim.Stockpile;
   const unreserved = reached && map.stackSize[tile]! > goods.outbound[tile]! ? map.stackGood[tile] : Good.None;
-  const loose = stockpile || claim === Claim.Site ? Good.None : unreserved;
-  const stocked = stockpile ? unreserved : Good.None;
+  // Food is never stocked, so food lying on a stockpile tile is loose.
+  const stocked = stockpile && unreserved !== Good.Food ? unreserved : Good.None;
+  const loose = claim === Claim.Site || stocked !== Good.None ? Good.None : unreserved;
   for (let index = 0; index < GOOD_KINDS; index++) {
     const good = (index + 1) as Good;
     setOpen(goods.loose[index]!, map.size, tile, loose === good);
@@ -163,6 +180,7 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     const tile = queue[i]!;
     const placed = Math.min(room(sim, tile, good), left);
     if (placed === 0) continue;
+    if (good === Good.Food && stackSize[tile] === 0) listFood(sim, tile);
     stackGood[tile] = good;
     stackSize[tile] = stackSize[tile]! + placed;
     left -= placed;
@@ -170,6 +188,40 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     refreshStack(sim, tile);
   }
   return true;
+}
+
+/** Starts a stack of food on a tile: it is gone at the second dawn from now. */
+function listFood(sim: Sim, tile: number): void {
+  const { goods } = sim;
+  goods.foodGoneAt[tile] = sim.dawns + FOOD_KEEPS_DAWNS;
+  if (goods.foodListed[tile] === 1) return;
+  goods.foodListed[tile] = 1;
+  goods.foodTiles[goods.foodCount++] = tile;
+}
+
+/**
+ * Takes away the food on open ground whose day has come, at a dawn after
+ * `Sim.dawns` counted it. Tiles whose food is not yet due stay listed, and
+ * tiles that no longer hold food leave the list.
+ */
+export function spoilFood(sim: Sim): void {
+  const { map, goods } = sim;
+  let kept = 0;
+  for (let i = 0; i < goods.foodCount; i++) {
+    const tile = goods.foodTiles[i]!;
+    const food = map.stackGood[tile] === Good.Food && map.stackSize[tile]! > 0;
+    if (food && goods.foodGoneAt[tile]! > sim.dawns) {
+      goods.foodTiles[kept++] = tile;
+      continue;
+    }
+    goods.foodListed[tile] = 0;
+    if (!food) continue;
+    map.stackGood[tile] = Good.None;
+    map.stackSize[tile] = 0;
+    noteTileChange(sim, tile);
+    refreshStack(sim, tile);
+  }
+  goods.foodCount = kept;
 }
 
 /** Puts the unit in the villager's hands down where it stands. It stays in its hands when the land has no room for it. */

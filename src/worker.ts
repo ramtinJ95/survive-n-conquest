@@ -9,6 +9,8 @@ export interface ClockSnapshot {
   readonly tick: number;
   readonly speed: Speed;
   readonly paused: boolean;
+  /** True once the settlement has died out. The clock never moves again. */
+  readonly over: boolean;
 }
 
 /** What the worker posts after the clock moves. Positions are pairs of map x and y in tiles, one pair per unit in id order. */
@@ -31,6 +33,12 @@ export interface SimFrame extends ClockSnapshot {
   readonly households: Int16Array;
   /** Per household: the site slot of its house, or `NO_HOME`. */
   readonly homes: Int16Array;
+  /** The meals each villager missed in a row, in id order. */
+  readonly missedMeals: Uint8Array;
+  /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
+  readonly storeFood: Uint16Array;
+  /** The most food the camp holds. */
+  readonly campFoodLimit: number;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -63,6 +71,8 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
   const sexes = sim.villagers.sex.slice();
   const households = sim.villagers.household.slice();
   const homes = sim.households.home.slice();
+  const missedMeals = sim.villagers.missedMeals.slice();
+  const storeFood = sim.stores.food.slice();
   const tiles = takeTileChanges(sim);
   const orders = takeOrderChanges(sim.orders);
   self.postMessage(
@@ -70,6 +80,7 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
       tick: sim.tick,
       speed: sim.speed,
       paused: sim.paused,
+      over: sim.over,
       villagers,
       monsters,
       carried,
@@ -80,6 +91,9 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
       sexes,
       households,
       homes,
+      missedMeals,
+      storeFood,
+      campFoodLimit: sim.stores.campLimit,
       tiles,
       orders,
       outcome,
@@ -96,6 +110,8 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
         sexes.buffer,
         households.buffer,
         homes.buffer,
+        missedMeals.buffer,
+        storeFood.buffer,
         tiles.buffer,
         orders.claims.buffer,
         orders.sites.buffer,

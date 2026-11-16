@@ -10,6 +10,8 @@ import { NO_HOME } from '../sim/households';
 import { TileKind, type TileMap, tileAt } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
+import { STOCKING } from '../sim/stocking';
+import { CAMP_STORE, HOUSE_FOOD_LIMIT } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagers';
@@ -24,7 +26,10 @@ export interface Facts {
   readonly map: TileMap;
   readonly orders: Orders;
   readonly camp: number;
-  readonly frame: Pick<SimFrame, 'villagers' | 'carried' | 'states' | 'tasks' | 'taskTiles' | 'names' | 'sexes' | 'households' | 'homes'>;
+  readonly frame: Pick<
+    SimFrame,
+    'villagers' | 'carried' | 'states' | 'tasks' | 'taskTiles' | 'names' | 'sexes' | 'households' | 'homes' | 'missedMeals' | 'storeFood' | 'campFoodLimit'
+  >;
 }
 
 type VillagerSelection = Extract<Selection, { kind: 'villager' }>;
@@ -80,8 +85,9 @@ const GATHER = task(GATHERING);
 const CARRY = task(CARRYING);
 const SUPPLY = task(SUPPLYING);
 const BUILD = task(BUILDING);
+const STOCK = task(STOCKING);
 
-const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone' };
+const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food' };
 
 /** What a villager holding a task does, by the task's column value, while it walks to its work or works it. */
 const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: boolean) => string>> = {
@@ -93,6 +99,7 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   [CARRY]: (facts, id) => fetching(facts, id, 'to the stockpile', 'to pick up'),
   [SUPPLY]: (facts, id) => fetching(facts, id, 'to a house site', 'to fetch', ' for a house site'),
   [BUILD]: (_, __, working) => (working ? 'Building a house' : 'Walking to a house site'),
+  [STOCK]: ({ frame }, id) => (frame.carried[id] === Good.Food ? 'Carrying food home' : 'Walking to the camp for food'),
 };
 
 function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, purpose = ''): string {
@@ -101,25 +108,32 @@ function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, 
   return `Walking ${fetch} ${GOOD_NAMES[map.stackGood[frame.taskTiles[id]!] as Good]}${purpose}`;
 }
 
-/** What a villager does by night, by its state, whatever task it holds. */
-const NIGHT_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
+/** What a villager does by night, or once dead, by its state, whatever task it holds. */
+const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
   [VillagerState.GoingToCamp]: 'Walking to the camp',
   [VillagerState.Settling]: 'Resting at the camp',
   [VillagerState.GoingIn]: 'Walking home',
   [VillagerState.Inside]: 'At home',
+  [VillagerState.Dead]: 'Died of hunger',
 };
 
 /** What a villager is doing, in words. */
 function doing(facts: Facts, id: number): string {
   const state = facts.frame.states[id]! as VillagerState;
-  const night = NIGHT_WORDS[state];
-  if (night) return night;
-  const words = TASK_WORDS[facts.frame.tasks[id]!];
-  if (!words || (state !== VillagerState.Walking && state !== VillagerState.Working)) return 'Idle';
-  return words(facts, id, state === VillagerState.Working);
+  const words = STATE_WORDS[state];
+  if (words) return words;
+  const task = TASK_WORDS[facts.frame.tasks[id]!];
+  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return 'Idle';
+  return task(facts, id, state === VillagerState.Working);
 }
 
-const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone' };
+function missedMeals({ frame }: Facts, id: number): string {
+  const missed = frame.missedMeals[id]!;
+  if (missed === 0) return 'None';
+  return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
+}
+
+const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone', [Good.Food]: '1 food' };
 
 const builders = ({ frame }: Facts, center: number) => {
   let count = 0;
@@ -132,7 +146,8 @@ const builders = ({ frame }: Facts, center: number) => {
 const settlersAtCamp = ({ map, camp, frame }: Facts) => {
   let count = 0;
   for (let id = 0; id * 2 < frame.villagers.length; id++) {
-    if (frame.states[id] !== VillagerState.Inside && underCamp(map, camp, tileAt(map, frame.villagers[id * 2]!, frame.villagers[id * 2 + 1]!))) count++;
+    const away = frame.states[id] === VillagerState.Inside || frame.states[id] === VillagerState.Dead;
+    if (!away && underCamp(map, camp, tileAt(map, frame.villagers[id * 2]!, frame.villagers[id * 2 + 1]!))) count++;
   }
   return count;
 };
@@ -141,11 +156,13 @@ const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Ma
 
 const nameOfSettler = ({ frame }: Facts, id: number) => nameOf(frame.sexes[id] as Sex, frame.names[id]!);
 
-/** The names of a household's members in id order, leaving out villager `except`. */
+/** The names of a household's members in id order, leaving out villager `except`. A dead member is named as one. */
 function members(facts: Facts, household: number, except = -1): string {
   const names: string[] = [];
   facts.frame.households.forEach((of, id) => {
-    if (of === household && id !== except) names.push(nameOfSettler(facts, id));
+    if (of !== household || id === except) return;
+    const died = facts.frame.states[id] === VillagerState.Dead;
+    names.push(died ? `${nameOfSettler(facts, id)} (died)` : nameOfSettler(facts, id));
   });
   return names.join(' and ');
 }
@@ -174,6 +191,7 @@ const PANELS: Panels = {
         label: 'Home',
         read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
       },
+      { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
     ],
   },
   site: {
@@ -191,8 +209,21 @@ const PANELS: Panels = {
       { label: 'Builders', read: (facts, { center }) => String(builders(facts, center)) },
     ],
   },
-  house: { title: 'House', note: 'A finished house.', rows: [{ label: 'Household', read: (facts, { slot }) => livingIn(facts, slot) }] },
-  camp: { title: 'Camp', rows: [{ label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) }] },
+  house: {
+    title: 'House',
+    note: 'A finished house.',
+    rows: [
+      { label: 'Household', read: (facts, { slot }) => livingIn(facts, slot) },
+      { label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${HOUSE_FOOD_LIMIT}` },
+    ],
+  },
+  camp: {
+    title: 'Camp',
+    rows: [
+      { label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) },
+      { label: 'Food', read: ({ frame }) => `${frame.storeFood[CAMP_STORE]} of ${frame.campFoodLimit}` },
+    ],
+  },
 };
 
 function show<K extends PanelKind>(panels: Panels, kind: K, selection: PanelSelections[K], facts: Facts): PanelText {
@@ -229,11 +260,11 @@ export function readPanel(selection: Selection, facts: Facts, panels: Panels = P
   }
 }
 
-/** Where the mark of a standing selection goes on the map, or null while a selected settler is inside its house. */
+/** Where the mark of a standing selection goes on the map, or null while a selected settler is inside its house or once it died. */
 export function markPlace(selection: Selection, { map, orders, camp, frame }: Facts): MarkPlace | null {
   switch (selection.kind) {
     case 'villager':
-      if (frame.states[selection.id] === VillagerState.Inside) return null;
+      if (frame.states[selection.id] === VillagerState.Inside || frame.states[selection.id] === VillagerState.Dead) return null;
       return { x: frame.villagers[selection.id * 2]!, y: frame.villagers[selection.id * 2 + 1]!, radius: 0.55 };
     case 'building':
       return { x: orders.sites.x[selection.slot]! + 0.5, y: orders.sites.y[selection.slot]! + 0.5, radius: 2.3 };

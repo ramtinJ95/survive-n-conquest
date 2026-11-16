@@ -1,11 +1,14 @@
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
-import { NO_HOME } from './households';
+import { Good, putDownHeld } from './goods';
+import { NO_HOME, loseMember } from './households';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
+import { dine, eat, missMeal, storeOf, wanting } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
+import { CAMP_STORE } from './stores';
 import { NO_TASK, endTask, loseTasks, takeTask, taskKind } from './tasks';
 
 /** Tiles a villager walks in one tick. */
@@ -27,9 +30,9 @@ const SPOT_CHECKS = 16;
  * going in: it stands until its think tick, plans its route to a door of the
  * house, walks it, and is inside until dawn, standing on the door tile. One
  * whose household has none walks the flow field to the camp center, then out
- * to its spot, where it stays until dawn.
+ * to its spot, where it stays until dawn. A dead villager is on the map no more.
  */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7 } as const;
+export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7, Dead: 8 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
@@ -74,6 +77,8 @@ export interface Villagers {
   readonly sex: Uint8Array;
   /** Villagers `2h`, a man, and `2h + 1`, a woman, form household `h`. With an odd count the last household is one man. */
   readonly household: Int16Array;
+  /** The meals each villager missed in a row. */
+  readonly missedMeals: Uint8Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -145,6 +150,7 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     name: new Uint16Array(count),
     sex: new Uint8Array(count),
     household: new Int16Array(count),
+    missedMeals: new Uint8Array(count),
   };
   const names = [shuffledNames(map.seed, Sex.Woman), shuffledNames(map.seed, Sex.Man)] as const;
   const campX = (camp.goal % map.size) + 0.5;
@@ -221,8 +227,8 @@ function idle(sim: Sim, id: number): void {
 
 /**
  * By night, walks the villager along the camp's flow field to the camp center,
- * then straight out to its spot, where it stays. A villager with no walk to
- * the camp stays where it stands.
+ * where it takes its meal, then straight out to its spot, where it stays. A
+ * villager with no walk to the camp stays where it stands.
  */
 function goToCamp(sim: Sim, id: number): void {
   const { map, flow, villagers } = sim;
@@ -236,7 +242,8 @@ function goToCamp(sim: Sim, id: number): void {
   const centerY = Math.floor(flow.goal / map.size) + 0.5;
   if (tile === flow.goal && x[id] === centerX && y[id] === centerY) {
     state[id] = VillagerState.Settling;
-    stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
+    dine(sim, id, CAMP_STORE);
+    if (state[id] === VillagerState.Settling) stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
     return;
   }
   stepHome(sim, id);
@@ -251,7 +258,7 @@ function atNight(state: number): boolean {
  * has a walk to the camp and lies nearest a point in a straight line, or -1.
  * Equally near tiles go to the lowest.
  */
-function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
+export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
   const { size } = sim.map;
   const { sites } = sim.orders;
   let best = -1;
@@ -293,7 +300,7 @@ function nightfall(sim: Sim, id: number): void {
   villagers.pathCursor[id] = 0;
 }
 
-/** Walks a villager going in toward its door, once it has planned its route on a think tick, and takes it inside there. */
+/** Walks a villager going in toward its door, once it has planned its route on a think tick, and takes it inside there to its meal. */
 function goIn(sim: Sim, id: number, thinks: boolean): void {
   const { villagers } = sim;
   const door = villagers.workTile[id]!;
@@ -306,11 +313,24 @@ function goIn(sim: Sim, id: number, thinks: boolean): void {
     }
   }
   if (!walkRoute(sim, id)) villagers.workTile[id] = -1;
-  else if (atWork(villagers, id)) villagers.state[id] = VillagerState.Inside;
+  else if (atWork(villagers, id)) {
+    villagers.state[id] = VillagerState.Inside;
+    dine(sim, id, storeOf(sim, id));
+  }
 }
 
+/**
+ * Starts the villager's day where it stands. One that never came home missed
+ * its meal. One that came home hungry eats now if the store it came home to
+ * has food: the camp for one that slept there, even when its household gained
+ * a house in the night, and its house for one inside.
+ */
 function daybreak(sim: Sim, id: number): void {
   const { villagers } = sim;
+  const came = villagers.state[id] === VillagerState.Settling || villagers.state[id] === VillagerState.Inside;
+  if (!came) missMeal(sim, id);
+  else if (villagers.missedMeals[id]! > 0) eat(sim, id, villagers.state[id] === VillagerState.Inside ? storeOf(sim, id) : CAMP_STORE);
+  if (villagers.state[id] === VillagerState.Dead) return;
   villagers.state[id] = VillagerState.Idle;
   villagers.targetX[id] = villagers.x[id]!;
   villagers.targetY[id] = villagers.y[id]!;
@@ -447,6 +467,7 @@ function leaveClosedLand(sim: Sim): void {
   const { map, flow, villagers, monsters } = sim;
   loseTasks(sim);
   for (let id = 0; id < villagers.task.length; id++) {
+    if (villagers.state[id] === VillagerState.Dead) continue;
     const moved = standOnReach(sim, villagers.x, villagers.y, id);
     if (moved) {
       villagers.targetX[id] = villagers.x[id]!;
@@ -477,6 +498,8 @@ function doTask(sim: Sim, id: number): void {
     if (!atWork(villagers, id)) return;
   }
   villagers.state[id] = VillagerState.Working;
+  // A wanting villager works at half the rate: on even ticks only.
+  if (wanting(villagers, id) && (sim.tick & 1) === 1) return;
   if (!kind.work(sim, id)) return;
   stopTask(sim, id);
   if (sim.flow.lostCount > 0) leaveClosedLand(sim);
@@ -491,20 +514,40 @@ function doTask(sim: Sim, id: number): void {
  * is first used the next night. At dawn every villager is idle again where it
  * stands, so one that was inside comes out on the tile it went in on.
  */
-export function moveVillagers(sim: Sim, night: boolean): void {
+export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
   const { state } = sim.villagers;
   const group = sim.tick % THINK_GROUPS;
+  // Every villager's dawn meal comes before any villager takes the day's first task, so stocking cannot take it.
+  if (dawn) for (let id = 0; id < state.length; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
   for (let id = 0; id < state.length; id++) {
+    if (state[id] === VillagerState.Dead) continue;
     if (night) {
       if (!atNight(state[id]!)) nightfall(sim, id);
       if (state[id] === VillagerState.GoingIn) goIn(sim, id, id % THINK_GROUPS === group);
       else if (state[id] !== VillagerState.Inside) goToCamp(sim, id);
       continue;
     }
-    if (atNight(state[id]!)) daybreak(sim, id);
     const free = state[id] === VillagerState.Idle || state[id] === VillagerState.Waiting;
     if (free && id % THINK_GROUPS === group) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
     if (state[id] === VillagerState.Idle) idle(sim, id);
     else if (state[id] !== VillagerState.Waiting) doTask(sim, id);
   }
+}
+
+/**
+ * Removes the villager from the map for good. It gives its task up, as a
+ * cancelled one, and puts down what it carries. Its row stays, so ids and
+ * households hold. When it was its household's last member, the house goes to
+ * the next household without one. When it was the last villager, the
+ * settlement has died out.
+ */
+export function die(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  endTask(sim, id);
+  if (villagers.carried[id] !== Good.None) putDownHeld(sim, id);
+  villagers.state[id] = VillagerState.Dead;
+  sim.tally.died += 1;
+  sim.living -= 1;
+  loseMember(sim.households, villagers.household[id]!);
+  if (sim.living === 0) sim.over = true;
 }

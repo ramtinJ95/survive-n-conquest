@@ -6,15 +6,38 @@ export interface Households {
   readonly count: number;
   /** Site slot of each household's house, or NO_HOME. */
   readonly home: Int16Array;
+  /** The members of each household still alive. */
+  readonly living: Uint8Array;
 }
 
-export function createHouseholds(count: number): Households {
+/** Households of two members each, the last of one when `villagers` is odd. */
+export function createHouseholds(villagers: number): Households {
+  const count = Math.ceil(villagers / 2);
   if (count > MAX_HOUSEHOLDS) throw new Error(`${count} households is more than ${MAX_HOUSEHOLDS}`);
-  return { count, home: new Int16Array(count).fill(NO_HOME) };
+  const living = new Uint8Array(count).fill(2);
+  if (villagers % 2 === 1) living[count - 1] = 1;
+  return { count, home: new Int16Array(count).fill(NO_HOME), living };
 }
 
-/** Gives the finished house in `slot` to the household with the lowest number that has no home. A house with no such household stays empty. */
+/**
+ * Gives the house in `slot` to the household with the lowest number that has
+ * no home and a living member. A house with no such household stays empty.
+ */
 export function moveInto(households: Households, slot: number): void {
-  const homeless = households.home.indexOf(NO_HOME);
-  if (homeless >= 0) households.home[homeless] = slot;
+  const { home, living } = households;
+  for (let h = 0; h < households.count; h++) {
+    if (home[h] !== NO_HOME || living[h] === 0) continue;
+    home[h] = slot;
+    return;
+  }
+}
+
+/** Counts a member of household `h` dead. When it was the last, its house, with the food in it, goes to the next household that needs one. */
+export function loseMember(households: Households, h: number): void {
+  const { home, living } = households;
+  living[h] = living[h]! - 1;
+  if (living[h] !== 0 || home[h] === NO_HOME) return;
+  const slot = home[h]!;
+  home[h] = NO_HOME;
+  moveInto(households, slot);
 }

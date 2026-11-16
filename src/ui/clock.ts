@@ -19,7 +19,7 @@ function setText(node: HTMLElement, text: string) {
   if (node.textContent !== text) node.textContent = text;
 }
 
-function formatTime(minuteOfDay: number): string {
+export function formatTime(minuteOfDay: number): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${pad(Math.floor(minuteOfDay / 60))}:${pad(minuteOfDay % 60)}`;
 }

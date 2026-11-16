@@ -468,7 +468,7 @@ function unitPixels(png) {
 }
 
 /** Where two screenshots of one size differ by more than `threshold` in some channel: how many pixels, their centroid, and their spread around it, in pixels. */
-function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
+function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = null) {
   const a = ffmpeg(['-i', pngA, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const b = ffmpeg(['-i', pngB, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const xs = [];
@@ -476,8 +476,11 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
   for (let i = 0; i < a.length; i += 3) {
     const delta = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
     if (delta <= threshold) continue;
-    xs.push((i / 3) % width);
-    ys.push(Math.floor(i / 3 / width));
+    const px = (i / 3) % width;
+    const py = Math.floor(i / 3 / width);
+    if (skip && px >= skip.x && px < skip.x + skip.width && py >= skip.y && py < skip.y + skip.height) continue;
+    xs.push(px);
+    ys.push(py);
   }
   const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
   const x = mean(xs);
@@ -491,9 +494,9 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
  * it is under the limit. `crop`, a box in video pixels, keeps only that part of the picture, and `colors` caps the
  * palette of every step.
  */
-function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256 } = {}) {
+function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1 } = {}) {
   const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
-  const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
+  const cut = (crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '') + (speed === 1 ? '' : `setpts=PTS/${speed},`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
     const palette = `${cut}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg(['-ss', from.toFixed(2), ...span, '-i', video, '-vf', palette, gif]);
@@ -741,6 +744,12 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 const WIDE = { width: 1280, height: 720 };
 const CENTER = { x: WIDE.width / 2, y: WIDE.height / 2 };
 const CLIP = { width: 960, height: 540 };
+/**
+ * The URL setting that opens the camp with enough food for the settlers to live to winter, for the scenarios that
+ * run past the dusk of day 6, when the 24 food of a new game have run out and every settler has starved. A player
+ * opens the game without it.
+ */
+const FED = '?food=200';
 const SEEDS = ['7', '2026'];
 /** The game opens with 8 settlers. This opens it with the benchmark load of 1500 villagers and 3000 monsters instead. */
 const SWARM = '?swarm=on';
@@ -1276,9 +1285,11 @@ SCENARIOS.settlers = async (session) => {
     'before-dawn': { day: 2, time: '04:30' },
     morning: { day: 2, time: '07:00' },
   });
+  let panel = null;
   const visit = async (search, label) => {
     const opened = await session.open(CLIP, { search, clock: 'paused' });
     await zoomToCamp(opened.page);
+    panel ??= await opened.page.getByRole('status', { name: 'Stockpiles' }).boundingBox();
     const shots = {};
     for (const [name, when] of stops) {
       await session.reach(opened.page, when);
@@ -1290,7 +1301,8 @@ SCENARIOS.settlers = async (session) => {
   };
   const settled = await visit('', 'settlers');
   const bare = await visit('?swarm=off', 'bare');
-  const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width)]));
+  // The Stockpiles panel is left out: the food at the camp falls as the settlers eat and stays at 24 on the bare map.
+  const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width, SETTLER_THRESHOLD, panel)]));
   const describe = (name) => `${name} ${at[name].count} pixels around (${at[name].x.toFixed(0)}, ${at[name].y.toFixed(0)}) with a spread of ${at[name].spread.toFixed(1)}`;
 
   const lit = session.unitPixels(settled.shots.afternoon);
@@ -2209,7 +2221,7 @@ SCENARIOS.look = async (session) => {
     await session.still(page);
   };
 
-  const town = await session.open(CLIP, { record: true, clock: 'paused' });
+  const town = await session.open(CLIP, { record: true, search: FED, clock: 'paused' });
   const { page } = town;
   const notice = await page.locator('.models-notice').allTextContents();
   session.check('the game draws the models, not stand-in shapes', notice.length === 0, notice.join(' ') || 'no notice on the page');
@@ -2523,6 +2535,124 @@ SCENARIOS.households = async (session) => {
         `${HOME_LIMITS.tunicsBefore}, at least ${HOME_LIMITS.tunicsAfter}, and at most ${HOME_LIMITS.tunicsWithoutHomes}`,
     );
   }
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The hunger scenario's stops on seed 7 with no orders. The camp's 24 food last the dusks of days 1 to 3, so the clip
+ * runs from just before the last meal, at the spring dusk of day 3 at 19:12, at 8× until the settlement has died out
+ * at the summer dusk of day 6 at 20:24. The settler's panel is read by day, when a settler is easy to click, on the
+ * days between its first and its third missed meal.
+ */
+const HUNGER_STOPS = {
+  firstDusk: { day: 1, time: '22:00' },
+  secondDusk: { day: 2, time: '22:00' },
+  lastMeal: { day: 3, time: '18:55' },
+  oneMissed: { day: 5, time: '12:00' },
+  twoMissed: { day: 6, time: '12:00' },
+};
+const HUNGER_SEARCH = '?seed=7';
+const HUNGER_NAMES = ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella'];
+/** The clip leaves out the camera controls at the bottom and plays 3 times as fast as it was recorded, so three game days at 8× take about 40 s. */
+const HUNGER_CLIP = { crop: { x: 0, y: 0, width: 960, height: 496 }, width: 640, colors: 48, speed: 3 };
+/** Wheel pixels from the opening view of about 120 m in to about 49 m, so the settlers at the camp show in the clip. */
+const HUNGER_WHEEL = -600;
+/** Wall seconds the clip may take at 8× from the last meal to the end: three days and a bit at 38 s a day, with room for a slow pylon. */
+const HUNGER_RUN_MS = 420_000;
+
+function hungerDriver(session) {
+  const stockpiles = (page) => page.getByRole('status', { name: 'Stockpiles' });
+  const news = (page) => page.getByRole('log', { name: 'Settlement news' });
+  const diedOut = (page) => page.getByRole('alertdialog', { name: 'The settlement has died out' });
+  const food = async (page) =>
+    stockpiles(page).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { camp: Number(rows['Food at the camp']), homes: Number(rows['Food in homes']) };
+    });
+  const lines = async (page) => (await news(page).count()) > 0 ? news(page).locator('p').allTextContents() : [];
+  return { stockpiles, news, diedOut, food, lines };
+}
+
+SCENARIOS.hunger = async (session) => {
+  const seen = [];
+  const { diedOut, food, lines } = hungerDriver(session);
+  const { reads, text, tunics, click } = selectionDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+
+  const town = await session.open(CLIP, { record: true, search: HUNGER_SEARCH, clock: 'paused' });
+  const { page } = town;
+  const opening = await food(page);
+  session.check('the camp opens with 24 food and the homes with none', opening.camp === 24 && opening.homes === 0, `at ${await at(page)} the Stockpiles panel reads ${opening.camp} food at the camp and ${opening.homes} in homes`);
+  for (const [stop, left] of [['firstDusk', 16], ['secondDusk', 8]]) {
+    await session.reach(page, HUNGER_STOPS[stop]);
+    const read = await food(page);
+    session.check(`after the dusk of day ${HUNGER_STOPS[stop].day} the camp holds ${left} food`, read.camp === left, `at ${await at(page)} the panel reads ${read.camp} food at the camp`);
+  }
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, HUNGER_WHEEL);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await session.reach(page, HUNGER_STOPS.lastMeal);
+  const beforeLast = await food(page);
+  session.check('before the last meal the camp holds 8 food', beforeLast.camp === 8, `at ${await at(page)} the panel reads ${beforeLast.camp}`);
+
+  const from = town.since();
+  const heard = new Map();
+  const camps = [];
+  await page.keyboard.press('4');
+  const deadline = Date.now() + HUNGER_RUN_MS;
+  while ((await diedOut(page).count()) === 0 || !(await diedOut(page).isVisible())) {
+    if (Date.now() > deadline) fail(`the settlement had not died out ${HUNGER_RUN_MS / 1000} s after the last meal at 8×`);
+    for (const line of await lines(page)) if (!heard.has(line)) heard.set(line, await at(page));
+    camps.push((await food(page)).camp);
+    await page.waitForTimeout(250);
+  }
+  for (const line of await lines(page)) if (!heard.has(line)) heard.set(line, await at(page));
+  const to = town.since() + 3;
+  const ended = await session.gameMinutes(page);
+  await page.waitForTimeout(3000);
+  const later = await session.gameMinutes(page);
+  session.check('the clock stops when the settlement has died out', later === ended, `the clock read ${clockText(ended)} when the message showed and ${clockText(later)} 3 s later`);
+  session.check('the settlement dies out at the dusk of day 6', clockText(ended).startsWith('day 6 2'), `the message showed at ${clockText(ended)}`);
+  await session.screenshot(page, 'hunger-died-out');
+  const message = (await diedOut(page).textContent()).trim();
+  session.check('the message says that the settlement has died out and offers a new map', /died out/.test(message) && (await diedOut(page).getByRole('button', { name: 'New map' }).count()) === 1, `the dialog reads "${message}"`);
+
+  const said = [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`);
+  const named = (pattern) => HUNGER_NAMES.filter((name) => [...heard.keys()].some((line) => pattern.test(line) && line.includes(name)));
+  const hungry = named(/went hungry/);
+  const starved = named(/starved/);
+  session.check('the news names all 8 settlers as they go hungry', hungry.length === 8, `named ${hungry.join(', ') || 'nobody'}; heard ${said.join('; ')}`);
+  session.check('the news names all 8 settlers as they starve', starved.length === 8, `named ${starved.join(', ') || 'nobody'}`);
+  session.check('the camp is empty from the last meal on', camps.slice(-1)[0] === 0 && camps.every((left, i) => i === 0 || left <= camps[i - 1]), `the camp read ${[...new Set(camps)].join(', ')} food while the clock ran`);
+
+  await diedOut(page).getByRole('button', { name: 'New map' }).click();
+  await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day 1/ }).waitFor();
+  await session.settle(page);
+  const fresh = await food(page);
+  const seed = new URL(page.url()).searchParams.get('seed');
+  session.check('New map opens a new map with 24 food at the camp', fresh.camp === 24 && seed !== '7' && (await diedOut(page).count()) === 0, `the page opened seed ${seed} with ${fresh.camp} food at the camp`);
+  await session.finishClips(town.context, page, [{ label: 'hunger-last-meal-to-death', from, to, ...HUNGER_CLIP }]);
+  seen.push(...town.errors);
+
+  const panel = await session.open(CLIP, { search: HUNGER_SEARCH, clock: 'paused' });
+  await session.reach(panel.page, HUNGER_STOPS.oneMissed);
+  await session.still(panel.page);
+  const aim = await session.screenshot(panel.page, 'hunger-settler-aim');
+  let picked = { read: null };
+  for (const spot of (await tunics(panel.page, aim)).slice(0, 8)) {
+    const read = await click(panel.page, { x: spot.x, y: spot.y });
+    picked = { spot, read };
+    if (settlerPanel(read)) break;
+  }
+  session.check(`at ${await at(panel.page)} a settler that missed its first meal reads hungry`, picked.read?.rows['Missed meals'] === '1, hungry', `the panel reads "${text(picked.read)}"`);
+  await session.screenshot(panel.page, 'hunger-settler-panel');
+  await session.reach(panel.page, HUNGER_STOPS.twoMissed);
+  const second = await reads(panel.page);
+  session.check(`at ${await at(panel.page)} the same settler has missed two meals`, second?.title === picked.read?.title && second?.rows['Missed meals'] === '2, hungry', `the panel reads "${text(second)}"`);
+  await panel.context.close();
+  seen.push(...panel.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
@@ -2922,6 +3052,7 @@ function selectionDriver(session) {
     hints: await boxOf(page.getByRole('complementary', { name: 'Camera controls' })),
     status: await boxOf(page.getByRole('status', { name: 'Order' })),
     selection: await boxOf(panel(page)),
+    news: await boxOf(page.getByRole('log', { name: 'Settlement news' })),
   });
   const skipOf = (boxes) => Object.values(boxes).filter(Boolean);
   const tunics = async (page, png) => spotsOf(png, page.viewportSize(), UNIT_COLORS.villagers, skipOf(await uiBoxes(page)));
@@ -3160,7 +3291,7 @@ SCENARIOS.selecting = async (session) => {
   seen.push(...cancel.errors);
 
   // The camp, chosen at noon, when the settlers have wandered off it, and kept to midnight, and the mark by day, at night, and on snow, from the opening view.
-  const camp = await session.open(CLIP);
+  const camp = await session.open(CLIP, { search: FED });
   const c = camp.page;
   const measureMark = async (where, label) => {
     const withMark = await session.screenshot(c, `selecting-${label}`);
