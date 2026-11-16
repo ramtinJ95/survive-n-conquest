@@ -8,7 +8,7 @@ export type Claim = (typeof Claim)[keyof typeof Claim];
 export const SiteState = { Free: 0, Site: 1, House: 2 } as const;
 export type SiteState = (typeof SiteState)[keyof typeof SiteState];
 
-export const MAX_SITES = 256;
+export const MAX_SITES = 1024;
 /** The most that the highest of a site's nine tiles may stand above the lowest, in meters. */
 export const MAX_SITE_RISE = 1.5;
 
