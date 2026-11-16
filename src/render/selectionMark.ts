@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, type PerspectiveCamera, Vector3 } from 'three';
+import { BufferAttribute, BufferGeometry, DoubleSide, Mesh, MeshBasicMaterial, type PerspectiveCamera, Vector3 } from 'three';
 import { type TileMap, heightAt } from '../sim/map';
 
 /** Where the mark goes: a ring of this radius in meters around a map position in tiles. */
@@ -26,6 +26,7 @@ function ring(color: string, renderOrder: number): Mesh<BufferGeometry, MeshBasi
   geometry.setIndex(index);
   const material = new MeshBasicMaterial({
     color,
+    side: DoubleSide,
     toneMapped: false,
     fog: false,
     depthWrite: false,
