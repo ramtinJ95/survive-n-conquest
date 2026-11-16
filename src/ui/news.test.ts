@@ -30,11 +30,13 @@ function listen(sim: Sim, ticks: number, each: () => void = () => {}) {
 }
 
 describe('listNames', () => {
-  it('names up to four settlers and counts the rest', () => {
+  it('names up to eight settlers, the whole of a new game, and counts the rest', () => {
     expect(listNames(['Merek'])).toBe('Merek');
     expect(listNames(['Merek', 'Elsi'])).toBe('Merek and Elsi');
     expect(listNames(['Merek', 'Elsi', 'Ulvar', 'Ysa'])).toBe('Merek, Elsi, Ulvar and Ysa');
-    expect(listNames(['Merek', 'Elsi', 'Ulvar', ...Array(1497).fill('Ysa')])).toBe('Merek, Elsi, Ulvar and 1,497 others');
+    const eight = ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella'];
+    expect(listNames(eight)).toBe('Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella');
+    expect(listNames([...eight, ...Array(1492).fill('Ysa')])).toBe('Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and 1,493 others');
   });
 });
 
@@ -42,8 +44,8 @@ describe('the settlement news', () => {
   it('says on seed 7 with no orders who went hungry on day 4 and who starved on day 6, one line for each dusk', () => {
     const { said } = listen(createSim(generateMap(7), SETTLERS), 3000 * 7);
     expect(said).toEqual([
-      'Day 4, 20:29. Merek, Elsi, Ulvar and 5 others went hungry.',
-      'Day 6, 20:24. Merek, Elsi, Ulvar and 5 others starved.',
+      'Day 4, 20:29. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella went hungry.',
+      'Day 6, 20:24. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella starved.',
     ]);
   });
 

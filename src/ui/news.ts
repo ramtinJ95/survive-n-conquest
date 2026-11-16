@@ -20,7 +20,7 @@ export const MOST_LINES = 5;
 /** Events of a kind within this many ticks of a line's first join that line, as the settlers who reach the camp over a dusk. */
 const JOIN_TICKS = TICKS_PER_DAY / 24;
 /** A line names this many settlers at most and counts the rest. */
-const NAMED = 4;
+const NAMED = 8;
 
 type Seen = Pick<SimFrame, 'tick' | 'states' | 'missedMeals' | 'names' | 'sexes'>;
 
@@ -43,7 +43,7 @@ function eventOf(before: Seen, after: Seen, id: number): EventKind | null {
   return null;
 }
 
-/** "Merek", "Merek and Elsi", "Merek, Elsi, Ulvar and Ysa", or "Merek, Elsi, Ulvar and 1,497 others". */
+/** "Merek", "Merek and Elsi", up to eight names, or "Merek, Elsi, ... Dorran and 1,493 others". */
 export function listNames(names: readonly string[]): string {
   if (names.length === 1) return names[0]!;
   const shown = names.length > NAMED ? names.slice(0, NAMED - 1) : names.slice(0, -1);
