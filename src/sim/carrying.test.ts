@@ -258,7 +258,7 @@ describe('a carrier', () => {
     expect([sim.villagers.task[id], sim.villagers.carried[id], sim.villagers.state[id]]).toEqual([
       NO_TASK,
       Good.None,
-      VillagerState.GoingHome,
+      VillagerState.GoingToCamp,
     ]);
     expect(stack(sim, standing)).toEqual([Good.Log, 1]);
     expect(stack(sim, place)).toEqual([Good.Log, 7]);

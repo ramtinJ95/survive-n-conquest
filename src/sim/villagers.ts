@@ -25,7 +25,7 @@ const SPOT_CHECKS = 16;
  * tasks at the same place. By night it walks the flow field to the camp center,
  * then out to its spot, where it stays until dawn.
  */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingHome: 3, Settling: 4, Waiting: 5 } as const;
+export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
@@ -413,14 +413,14 @@ export function moveVillagers(sim: Sim, night: boolean): void {
   const group = sim.tick % THINK_GROUPS;
   for (let id = 0; id < state.length; id++) {
     if (night) {
-      if (state[id] !== VillagerState.GoingHome && state[id] !== VillagerState.Settling) {
+      if (state[id] !== VillagerState.GoingToCamp && state[id] !== VillagerState.Settling) {
         endTask(sim, id);
-        state[id] = VillagerState.GoingHome;
+        state[id] = VillagerState.GoingToCamp;
       }
       goToCamp(sim, id);
       continue;
     }
-    if (state[id] === VillagerState.GoingHome || state[id] === VillagerState.Settling) {
+    if (state[id] === VillagerState.GoingToCamp || state[id] === VillagerState.Settling) {
       state[id] = VillagerState.Idle;
       villagers.targetX[id] = villagers.x[id]!;
       villagers.targetY[id] = villagers.y[id]!;

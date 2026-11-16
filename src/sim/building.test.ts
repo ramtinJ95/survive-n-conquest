@@ -377,7 +377,7 @@ describe('a site at dusk', () => {
     expect(holding(sim, SUPPLY).some((id) => sim.villagers.carried[id] !== Good.None)).toBe(true);
     step(sim);
     expect(ids(sim).map((id) => [sim.villagers.task[id], sim.villagers.carried[id], sim.villagers.state[id]])).toEqual(
-      ids(sim).map(() => [0, Good.None, VillagerState.GoingHome]),
+      ids(sim).map(() => [0, Good.None, VillagerState.GoingToCamp]),
     );
     expect([everywhere(sim, Good.Log), everywhere(sim, Good.Stone)]).toEqual([12, 6]);
     let takenAtNight = 0;
