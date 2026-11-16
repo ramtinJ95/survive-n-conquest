@@ -1,4 +1,4 @@
-import { Building, Job, MAX_SIDE, kindOf, siteX0, siteY0 } from './buildings';
+import { Building, Job, MAX_SIDE, footprintStart, kindOf, siteX0, siteY0 } from './buildings';
 import { closeFlowTiles } from './flowField';
 import { GOOD_KINDS, Good, STACK_LIMIT } from './goods';
 import { moveInto } from './households';
@@ -65,11 +65,13 @@ export function siteAnchor(orders: Orders, slot: number): number {
 
 /** Units of `good` that have arrived at a site: the stacks of that good on its tiles. */
 export function arrived(map: TileMap, orders: Orders, slot: number, good: Good): number {
+  const { size, sites } = orders;
+  const { side } = kindOf(sites, slot);
+  const x0 = footprintStart(sites.x[slot]!, side);
+  const y0 = footprintStart(sites.y[slot]!, side);
   let units = 0;
-  const tiles = siteTiles(orders, slot);
-  for (let index = 0; index < tiles; index++) {
-    const tile = siteTile(orders, slot, index);
-    if (map.stackGood[tile] === good) units += map.stackSize[tile]!;
+  for (let row = y0 * size + x0, end = row + side * size; row < end; row += size) {
+    for (let tile = row; tile < row + side; tile++) if (map.stackGood[tile] === good) units += map.stackSize[tile]!;
   }
   return units;
 }
