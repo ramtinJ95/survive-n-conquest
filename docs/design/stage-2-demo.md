@@ -171,6 +171,6 @@ No decision in `docs/design.md` changed. These choices filled gaps the brief lef
 - No pixel check covers carrying stone in the browser, or that no settler stands inside a finished house. Unit tests cover both. (#18, #19)
 - The look's checks stop in spring and winter. Autumn and summer have no capture of the marks, the logs, or the stone. (#16, #17, #20)
 - The browser scenarios run on seed 7 only. (#20)
-- Motion at 8× was seen only in stills and in the dusk clip at 1×. (#20)
+- Motion at 8× was not verified. #20 looked at the wind, the waves, and the smoke only in stills and in the dusk clip at 1×. (#20)
 - How several site labels read when sites stand close together was not checked. (#19)
 - The `frames` scenario counts more triangles for the swarm than `look` does on the same view, on every build, and #20 did not find why. (#20)
