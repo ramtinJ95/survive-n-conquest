@@ -3037,7 +3037,8 @@ function selectionDriver(session) {
       const node = nodes.find((candidate) => !candidate.hidden);
       if (!node) return null;
       const rows = {};
-      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      // A control's buttons sit beside its value, so a row reads only the value before them.
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.firstChild?.textContent.trim() ?? '';
       return { title: node.querySelector('h2')?.textContent.trim() ?? '', note: node.querySelector('p')?.textContent.trim() ?? null, rows };
     });
     return found;
@@ -3388,6 +3389,251 @@ SCENARIOS.selecting = async (session) => {
   await pickIn('nearest turned');
   await views.context.close();
   seen.push(...views.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `foraging` scenario plays the first year's hut of `src/sim/firstYear.ts` through the page, on seed 7 with the
+ * camp's own 24 food: the forager's hut anchored on (136, 127), east of the camp at the forest's edge, and a Chop on
+ * each of the four trees whose 8 logs build it. The view looks east from 23 m over the camp to the hut and the forest's
+ * edge the foragers work on day 2, so a settler stands about 28 pixels tall and no tree stands between the camp and the
+ * hut. `scripts/aim.ts` found the spots, each tile's center at that view, where the game's picker takes that tile:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-1100,"turn":{"x":424,"y":20},"target":[132.5,126.5]}'
+ * '[[136,127],[137,129],[138,130],[134,131],[135,134],[136.5,127.5,1.2]]'`. The roof spot is 1.2 m over the hut's middle.
+ */
+const FORAGE_VIEW = { wheel: -1100, turn: { x: 424, y: 20 }, pan: { x: 42, y: 90 } };
+const FORAGE_SPOTS = {
+  hut: { x: 505, y: 189 },
+  roof: { x: 519, y: 154 },
+  trees: [{ x: 555, y: 170 }, { x: 578, y: 152 }, { x: 615, y: 221 }, { x: 688, y: 211 }],
+};
+const FORAGE_SEARCH = '?seed=7';
+/**
+ * The orders land at the paused tick a few minutes after 08:00. With them given at 08:00, the hut stood at 12:18 in
+ * `scripts/first-year.ts`, and Ysa and Jorrin took its places. The camp gains a unit for each one picked, 8 on day 2.
+ */
+const FORAGE_FINISHED = { after: { day: 1, time: '11:30' }, before: { day: 1, time: '13:30' } };
+const FORAGE_STOPS = { dawn: { day: 2, time: '05:00' }, dusk: { day: 2, time: '19:00' } };
+const FORAGE_RISE = 4;
+/** The fewest pixels of the green that previews a fitting site, as `orders` asks of a house. */
+const FORAGE_PREVIEW_FITS = 30;
+/**
+ * The clip keeps the clock, the Stockpiles panel, the panel of the forager it follows, the camp, the hut, and the
+ * forest's edge the foragers work on day 2. Played at twice its speed with 32 colors it took 3.3 MB, inside the 4 MB a
+ * clip of the stage's demo set may take, where 48 colors took 4.2 MB.
+ */
+const FORAGE_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, colors: 32, speed: 2 };
+const FORAGER_DOING = /^(Walking to a tree to forage|Foraging|Carrying food to the camp|Looking for forage)$/;
+
+/** Takes `FORAGE_VIEW` from the opening view at the `CLIP` size: a wheel zoom, a right drag that turns and tilts, and a drag that pans. */
+async function takeForageView(session, page) {
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  const { wheel, turn, pan } = FORAGE_VIEW;
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.wheel(0, wheel);
+  await session.still(page);
+  for (const [move, button] of [[turn, 'right'], [pan, 'left']]) {
+    const from = { x: middle.x - move.x / 2, y: middle.y - move.y / 2 };
+    await session.drag(page, from, { x: from.x + move.x, y: from.y + move.y }, button);
+    await session.still(page);
+  }
+}
+
+SCENARIOS.foraging = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunicPixels, click } = selectionDriver(session);
+  const { food, lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const label = (page) => page.getByRole('status', { name: "Forager's hut site" });
+  const jobs = async (page) =>
+    page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+    });
+  const panelReads = async (page, done) => {
+    const deadline = Date.now() + 10_000;
+    let read = await reads(page);
+    while (!done(read) && Date.now() < deadline) {
+      await page.waitForTimeout(100);
+      read = await reads(page);
+    }
+    return read;
+  };
+  const clickHut = async (page) => {
+    let read = null;
+    for (const spot of [FORAGE_SPOTS.roof, FORAGE_SPOTS.hut]) {
+      read = await click(page, spot);
+      if (read?.title === "Forager's hut") break;
+    }
+    return read;
+  };
+  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels instead.
+  const clickForager = async (page, shot) => {
+    const png = await session.screenshot(page, shot);
+    const boxes = skipOf(await uiBoxes(page));
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    let read = null;
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, 12)) {
+      read = await click(page, { x: cell.x / cell.count, y: cell.y / cell.count });
+      if (read?.rows?.Job === 'Forager') return read;
+    }
+    return read;
+  };
+  const named = (value) => (value ?? '').split(' and ').filter(Boolean);
+
+  const play = await session.open(CLIP, { record: true, search: FORAGE_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page);
+  const opening = { food: await food(page), jobs: await jobs(page) };
+  session.check(
+    'a new game opens with 24 food at the camp and all 8 settlers without a job',
+    opening.food.camp === 24 && opening.jobs.withJob === 0 && opening.jobs.withoutJob === 8,
+    `at ${await at(page)} the Stockpiles panel reads ${opening.food.camp} food at the camp, ${opening.jobs.withJob} settlers with a job and ${opening.jobs.withoutJob} with none`,
+  );
+  await page.keyboard.press('KeyC');
+  const chopped = [];
+  for (const spot of FORAGE_SPOTS.trees) {
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    chopped.push(await said(page, /^1 tree marked for felling/));
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await said(page, /Drag over trees/);
+  }
+  session.check('a Chop click on each of the four trees marks one tree', chopped.every((line) => /^1 tree marked for felling/.test(line)), chopped.map((line) => `"${line}"`).join(', '));
+  const toolbar = await page.getByRole('toolbar', { name: 'Orders' }).boundingBox();
+  await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + 2);
+  await page.keyboard.press('KeyG');
+  const toolPressed = await page.getByRole('button', { name: "Forager's hut", exact: true, pressed: true }).count();
+  const hint = await said(page, /forager's hut on 2 by 2 tiles/);
+  await page.mouse.move(FORAGE_SPOTS.hut.x, FORAGE_SPOTS.hut.y, { steps: 3 });
+  const fits = await said(page, /Click to place the forager's hut site here/);
+  await session.still(page);
+  const preview = session.orderPixels(await session.screenshot(page, 'foraging-hut-preview'), CLIP.width, toolbar);
+  session.check('a hut that fits previews green over its tiles', preview.fits >= FORAGE_PREVIEW_FITS, `${preview.fits} pixels of the fits color, needs ${FORAGE_PREVIEW_FITS}`);
+  await page.mouse.down();
+  await page.mouse.up();
+  const placed = await said(page, /^Forager's hut site placed/);
+  session.check(
+    "G picks the Forager's hut tool, which previews and places a hut site with a click",
+    toolPressed === 1 && /forager's hut on 2 by 2 tiles/.test(hint) && /Click to place the forager's hut site here/.test(fits) && /^Forager's hut site placed/.test(placed),
+    `${toolPressed ? 'the tool is pressed' : 'no tool is pressed'}; the status line read "${hint}", then "${fits}", then "${placed}"`,
+  );
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const siteLabel = (await label(page).count()) === 1 ? (await label(page).innerText()).replace(/\s+/g, ' ') : null;
+  session.check(
+    "the hut site's label reads 0 of 8 logs, no stone, and waits for materials",
+    siteLabel !== null && /Logs\s*0\/8/.test(siteLabel) && !/Stone/.test(siteLabel) && /Waiting for materials/.test(siteLabel),
+    `the label reads "${siteLabel ?? 'nothing'}"`,
+  );
+  await session.screenshot(page, 'foraging-site');
+
+  await page.keyboard.press('4');
+  const deadline = Date.now() + 240_000;
+  while ((await label(page).count()) > 0) {
+    if (Date.now() > deadline) fail('the hut site still stood four minutes after the orders at 8×');
+    await page.waitForTimeout(100);
+  }
+  const finished = await session.gameMinutes(page);
+  await session.pause(page);
+  await session.still(page);
+  session.check(
+    `the hut is finished on day 1 between ${FORAGE_FINISHED.after.time} and ${FORAGE_FINISHED.before.time}`,
+    finished >= clockMinutes(FORAGE_FINISHED.after) && finished <= clockMinutes(FORAGE_FINISHED.before),
+    `the label was gone at ${clockText(finished)}; paused at ${await at(page)}`,
+  );
+
+  const hut = await clickHut(page);
+  const hired = named(hut?.rows?.Foragers);
+  session.check(
+    `at ${await at(page)} the hut's panel says what it does and names its two foragers, with both places filled`,
+    hut?.title === "Forager's hut" && /within 20 tiles/.test(hut.note ?? '') && hired.length === 2 && hut.rows.Places === '2 of 2',
+    `the panel reads "${text(hut)}"`,
+  );
+  await session.screenshot(page, 'foraging-hut-panel');
+  const hiredJobs = await jobs(page);
+  session.check(
+    'the Stockpiles panel counts 2 settlers with a job and 6 with none',
+    hiredJobs.withJob === 2 && hiredJobs.withoutJob === 6,
+    `${hiredJobs.withJob} with a job, ${hiredJobs.withoutJob} with none`,
+  );
+  const hiredNews = await lines(page);
+  session.check(
+    'the news names the two settlers who became foragers',
+    hiredNews.some((line) => /became foragers\.$/.test(line) && hired.every((name) => line.includes(name))),
+    `the news reads ${hiredNews.map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+
+  await page.getByRole('button', { name: 'Fewer places' }).click();
+  const fewer = await panelReads(page, (read) => read?.rows?.Places === '1 of 2');
+  const fewerJobs = await jobs(page);
+  const freed = hired.find((name) => !named(fewer?.rows?.Foragers).includes(name));
+  const fewerNews = await lines(page);
+  session.check(
+    'Fewer places frees the forager that came last and leaves one place filled',
+    fewer?.rows?.Places === '1 of 2' && named(fewer.rows.Foragers).length === 1 && named(fewer.rows.Foragers)[0] === hired[0] && fewerJobs.withJob === 1 && fewerJobs.withoutJob === 7,
+    `the panel reads "${text(fewer)}"; the Stockpiles panel counts ${fewerJobs.withJob} with a job and ${fewerJobs.withoutJob} with none`,
+  );
+  session.check(
+    'the news says the freed forager left the hut',
+    freed !== undefined && fewerNews.some((line) => line.endsWith(`${freed} left the forager's hut.`)),
+    `the news reads ${fewerNews.map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+  await page.getByRole('button', { name: 'More places' }).click();
+  const more = await panelReads(page, (read) => read?.rows?.Places === '2 of 2');
+  const moreJobs = await jobs(page);
+  session.check(
+    'More places fills the place again by the nearest settler without a job',
+    more?.rows?.Places === '2 of 2' && named(more.rows.Foragers).length === 2 && moreJobs.withJob === 2 && moreJobs.withoutJob === 6,
+    `the panel reads "${text(more)}"; the Stockpiles panel counts ${moreJobs.withJob} with a job and ${moreJobs.withoutJob} with none`,
+  );
+  const foragers = named(more?.rows?.Foragers);
+  await page.keyboard.press('Escape');
+
+  await session.reach(page, FORAGE_STOPS.dawn);
+  await session.still(page);
+  const forager = await clickForager(page, 'foraging-forager-aim');
+  session.check(
+    `at ${await at(page)} a forager's panel reads its job and what it does`,
+    forager?.rows?.Job === 'Forager' && foragers.includes(forager.title) && FORAGER_DOING.test(forager.rows.Doing ?? ''),
+    `the panel reads "${text(forager)}"`,
+  );
+  const whole = await page.getByRole('region', { name: 'Selection' }).evaluate((node) => ({ shown: node.clientHeight, holds: node.scrollHeight }));
+  session.check(
+    "at 960x540 the forager's panel shows every one of its rows",
+    whole.holds <= whole.shown,
+    `the panel is ${whole.shown} px tall and its rows take ${whole.holds} px`,
+  );
+  await session.screenshot(page, 'foraging-forager-panel');
+  const dawn = { at: await at(page), food: await food(page) };
+  const from = play.since();
+  await session.reach(page, FORAGE_STOPS.dusk);
+  await session.still(page);
+  const to = play.since();
+  const dusk = { at: await at(page), food: await food(page), jobs: await jobs(page), forager: await reads(page) };
+  await session.screenshot(page, 'foraging-dusk');
+  session.check(
+    `the food at the camp rises by at least ${FORAGE_RISE} from ${dawn.at} to ${dusk.at}`,
+    dusk.food.camp - dawn.food.camp >= FORAGE_RISE,
+    `the camp held ${dawn.food.camp} food at ${dawn.at} and ${dusk.food.camp} at ${dusk.at}`,
+  );
+  session.check(
+    'the two foragers keep their places through the day',
+    dusk.jobs.withJob === 2 && dusk.forager?.title === forager?.title && dusk.forager?.rows?.Job === 'Forager',
+    `${dusk.jobs.withJob} settlers with a job at ${dusk.at}; the followed forager's panel reads "${text(dusk.forager)}"`,
+  );
+  await session.finishClips(play.context, page, [{ label: 'foraging-day', from, to, ...FORAGE_CLIP }]);
+  seen.push(...play.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
