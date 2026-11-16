@@ -9,7 +9,7 @@ import { NAMES, Sex, nameOf } from './names';
 import { type OrderCommand, SiteState } from './orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { at, mapFrom } from './testMaps';
-import { VillagerState } from './villagers';
+import { THINK_GROUPS, VillagerState } from './villagers';
 
 const house = (x: number, y: number): OrderCommand => ({ kind: 'placeHouse', x, y });
 const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
@@ -174,7 +174,37 @@ describe('a night with homes', () => {
     runUntil(sim, () => housed.every((id) => sim.villagers.task[id] !== 0), 10);
   });
 
-  it('sees a housed settler with no walk to its house stay where it stands all night, by internals for the house', () => {
+  it('sees housed settlers put down what they carry at dusk and stand until the tick of their group, then set out, all within a round of groups', () => {
+    const sim = housesWithGoods(8, true);
+    applyCommand(sim, house(17, 8));
+    applyCommand(sim, house(23, 8));
+    runUntil(sim, () => isNight(sim.tick), 2000);
+    const housed = ids(sim).filter((id) => homeOf(sim, id) !== NO_HOME);
+    expect(housed).toEqual([0, 1, 2, 3]);
+    expect(housed.some((id) => sim.villagers.carried[id] !== Good.None)).toBe(true);
+    const dusk = sim.tick;
+    const setOut = new Map<number, number>();
+    for (let round = 0; round < THINK_GROUPS; round++) {
+      const tick = sim.tick;
+      const before = housed.map((id) => [sim.villagers.x[id], sim.villagers.y[id]]);
+      step(sim);
+      housed.forEach((id, i) => {
+        expect(sim.villagers.state[id]).toBe(VillagerState.GoingIn);
+        expect([sim.villagers.task[id], sim.villagers.carried[id]]).toEqual([0, Good.None]);
+        const moved = sim.villagers.x[id] !== before[i]![0] || sim.villagers.y[id] !== before[i]![1];
+        if (moved && !setOut.has(id)) setOut.set(id, tick);
+      });
+    }
+    for (const id of housed) {
+      const tick = setOut.get(id);
+      expect(tick, `villager ${id} set out`).toBeDefined();
+      expect(tick! % THINK_GROUPS, `villager ${id}`).toBe(id % THINK_GROUPS);
+      expect(tick! - dusk).toBeLessThan(THINK_GROUPS);
+    }
+    expect(housed.some((id) => setOut.get(id) !== dusk)).toBe(true);
+  });
+
+  it('sees a housed settler with no walk to the camp stay where it stands all night and plan no route, by internals for the house', () => {
     const rows = open(16);
     for (const y of [11, 12]) rows[y] = '~'.repeat(16);
     for (const y of [13, 14, 15]) rows[y] = '...' + '~'.repeat(13);
@@ -185,7 +215,9 @@ describe('a night with homes', () => {
     runUntil(sim, () => isNight(sim.tick), 2000);
     sim.villagers.x[0] = 1.5;
     sim.villagers.y[0] = 14.5;
+    const searches = sim.pathSearch.searches;
     runUntil(sim, () => isDawn(sim.tick), 1500, () => {
+      expect(sim.pathSearch.searches).toBe(searches);
       expect([sim.villagers.x[0], sim.villagers.y[0]]).toEqual([1.5, 14.5]);
       expect(sim.villagers.state[0]).not.toBe(VillagerState.Inside);
     });
