@@ -9,7 +9,6 @@ import { GOOD_KINDS } from '../src/sim/goods';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
-import { MAX_SITES } from '../src/sim/orders';
 import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
@@ -35,10 +34,13 @@ const BARE_REACH = 16;
 const STOCKPILE_SPACING = 2;
 /**
  * House sites stand on a grid of this many by this many cells, one at the
- * center of each cell, so the 1500 villagers build across the whole map. The
- * grid holds `MAX_SITES`, and a site the rules refuse is left out.
+ * center of each cell, so the 1500 villagers build across the whole map. A site
+ * the rules refuse is left out. The grid stayed at 16 when `MAX_SITES` grew to
+ * 1,024, so the load is the one measured before: a grid of 32 placed 728 sites
+ * on the 256 map, raised supplying from 8% to 31% of the work, and still housed
+ * no more households by the end.
  */
-const SITE_GRID = Math.sqrt(MAX_SITES);
+const SITE_GRID = 16;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const KINDS = [
@@ -269,7 +271,7 @@ console.log(
 );
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
-    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${MAX_SITES} house sites, stockpile on every other open tile, ` +
+    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = SIZES.map(measure);
