@@ -34,14 +34,14 @@ const EVENTS: readonly NewsEvent[] = [
     const at = (frame: Seen, id: number, orders: Orders) => frame.workplaces[id]! >= 0 && orders.sites.kind[frame.workplaces[id]!] === building;
     return [
       {
-        kind: `took a place at ${BUILDING_WORDS[building].noun}`,
-        befell: (before, after, id, orders) => alive(after, id) && before.workplaces[id]! < 0 && at(after, id, orders),
-        verb: (count) => `became ${count === 1 ? job.one : job.many}`,
+        kind: `left ${BUILDING_WORDS[building].noun}`,
+        befell: (before, after, id, orders) => alive(after, id) && before.workplaces[id] !== after.workplaces[id] && at(before, id, orders),
+        verb: () => `left the ${BUILDING_WORDS[building].noun}`,
       },
       {
-        kind: `left ${BUILDING_WORDS[building].noun}`,
-        befell: (before, after, id, orders) => alive(after, id) && after.workplaces[id]! < 0 && at(before, id, orders),
-        verb: () => `left the ${BUILDING_WORDS[building].noun}`,
+        kind: `took a place at ${BUILDING_WORDS[building].noun}`,
+        befell: (before, after, id, orders) => alive(after, id) && before.workplaces[id] !== after.workplaces[id] && at(after, id, orders),
+        verb: (count) => `became ${count === 1 ? job.one : job.many}`,
       },
     ];
   }),

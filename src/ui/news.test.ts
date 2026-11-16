@@ -109,4 +109,29 @@ describe('the settlement news', () => {
       `Day 1, 23:59. ${name(heir!)} became a forager.`,
     ]);
   });
+
+  it('says who left one hut and took a place at another when lowering the places moves a forager there', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0 });
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    const slots: number[] = [];
+    let moved = -1;
+    const { said } = listen(sim, 1200, () => {
+      if (sim.tick === 100) {
+        for (const [x, y] of [[4, 4], [18, 18]] as const) {
+          expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })).toMatchObject({ ok: true });
+          slots.push(sim.orders.siteOf[at(sim.map, x, y)]!);
+          finishBuilding(sim, slots.at(-1)!);
+        }
+      } else if (sim.tick === 1000) {
+        applyCommand(sim, { kind: 'setPlaces', slot: slots[0]!, places: 1 });
+        moved = [0, 1].find((id) => sim.villagers.workplace[id] === slots[1])!;
+      }
+    });
+    expect(moved).toBeGreaterThanOrEqual(0);
+    expect(said).toEqual([
+      `Day 1, 08:47. ${name(0)} and ${name(1)} became foragers.`,
+      `Day 1, 15:59. ${name(moved)} left the forager's hut.`,
+      `Day 1, 15:59. ${name(moved)} became a forager.`,
+    ]);
+  });
 });
