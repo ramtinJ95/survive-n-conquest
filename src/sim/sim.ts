@@ -10,6 +10,7 @@ import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
 import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
 import { type PathSearch, createPathSearch } from './paths';
+import { CAMP_FOOD, type Stores, createStores } from './stores';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, createVillagers, moveVillagers, stopFallenTasks } from './villagers';
@@ -27,6 +28,8 @@ export interface Population {
   readonly monsters: number;
   /** Marks every tree and every rock tile on the map at the start, through the same orders a player gives. */
   readonly markAll?: boolean;
+  /** The food the camp starts with, `CAMP_FOOD` when left out. A start above `CAMP_FOOD_LIMIT` raises what the camp holds to it. */
+  readonly campFood?: number;
 }
 
 /** The load the performance budget is set for: a full city at work under a late assault. */
@@ -35,11 +38,16 @@ export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 300
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
 
-/** The population for the `swarm` URL setting: `on` for the benchmark load, `off` for none, and the settlers for anything else. */
-export function populationFor(swarm: string | null): Population {
-  if (swarm === 'on') return BENCHMARK_POPULATION;
-  if (swarm === 'off') return NOBODY;
-  return SETTLERS;
+/**
+ * The population for the `swarm` URL setting: `on` for the benchmark load,
+ * `off` for none, and the settlers for anything else. The `food` setting, a
+ * whole number, sets the camp's starting food. Anything else leaves it at the
+ * population's own.
+ */
+export function populationFor(swarm: string | null, food: string | null = null): Population {
+  const population = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
+  const campFood = food !== null && /^\d{1,5}$/.test(food) ? Number(food) : NaN;
+  return campFood <= 0xffff ? { ...population, campFood } : population;
 }
 
 /** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
@@ -50,6 +58,12 @@ export interface Tally {
   stocked: number;
   delivered: number;
   built: number;
+  meals: number;
+  /** Meals missed: at dusk with an empty store, or by a villager that did not come home. */
+  missed: number;
+  /** Units of food carried from a common store into a home. */
+  carriedHome: number;
+  died: number;
 }
 
 export interface Sim {
@@ -67,12 +81,17 @@ export interface Sim {
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly goods: GoodsState;
+  readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
   readonly tally: Tally;
   tick: number;
   /** Dawns passed since the start. */
   dawns: number;
+  /** Villagers alive. */
+  living: number;
+  /** True once the last villager died. The clock stops for good. A simulation that started with nobody is never over. */
+  over: boolean;
   speed: Speed;
   paused: boolean;
 }
@@ -89,17 +108,20 @@ export function createSim(source: TileMap, population: Population): Sim {
     flow,
     tileChanges: createTileChanges(map.size * map.size),
     villagers: createVillagers(map, flow, population.villagers),
-    households: createHouseholds(Math.ceil(population.villagers / 2)),
+    households: createHouseholds(population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     goods: createGoodsState(map.size),
+    stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
-    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0 },
+    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0 },
     tick: 0,
     dawns: 0,
+    living: population.villagers,
+    over: false,
     speed: 1,
     paused: false,
   };
@@ -116,9 +138,10 @@ export function createSim(source: TileMap, population: Population): Sim {
 export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefined {
   switch (command.kind) {
     case 'togglePause':
-      sim.paused = !sim.paused;
+      if (!sim.over) sim.paused = !sim.paused;
       return;
     case 'setSpeed':
+      if (sim.over) return;
       sim.speed = command.speed;
       sim.paused = false;
       return;
@@ -142,9 +165,10 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
  * Runs the systems in their fixed order. Nothing in a tick allocates. At dawn
  * the food on open ground whose day has come is gone, and tasks set aside as
  * out of reach open again, as they do after a tick in which land gained walks
- * to the camp.
+ * to the camp. Once the settlement has died out, nothing runs.
  */
 export function step(sim: Sim): void {
+  if (sim.over) return;
   const night = isNight(sim.tick);
   if (isDawn(sim.tick)) {
     sim.dawns += 1;
@@ -158,5 +182,5 @@ export function step(sim: Sim): void {
 }
 
 export function ticksPerSecond(sim: Sim): number {
-  return sim.paused ? 0 : TICKS_PER_SECOND * sim.speed;
+  return sim.paused || sim.over ? 0 : TICKS_PER_SECOND * sim.speed;
 }

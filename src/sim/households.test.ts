@@ -100,8 +100,8 @@ describe('the households', () => {
   });
 
   it(`hold at most ${MAX_HOUSEHOLDS}`, () => {
-    expect(createHouseholds(MAX_HOUSEHOLDS).home.length).toBe(MAX_HOUSEHOLDS);
-    expect(() => createHouseholds(MAX_HOUSEHOLDS + 1)).toThrow();
+    expect(createHouseholds(MAX_HOUSEHOLDS * 2).home.length).toBe(MAX_HOUSEHOLDS);
+    expect(() => createHouseholds(MAX_HOUSEHOLDS * 2 + 1)).toThrow();
   });
 });
 

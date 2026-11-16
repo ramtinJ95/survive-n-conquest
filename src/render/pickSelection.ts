@@ -75,7 +75,7 @@ function hiddenBy(cover: Box3 | null, camera: PerspectiveCamera): boolean {
   return sight.intersectBox(cover, hit) !== null && hit.distanceTo(eye) < chest.distanceTo(eye);
 }
 
-/** The pixels from a click to the nearest settler's body, out of its house, that `cover` does not hide, and that settler, or Infinity and -1. */
+/** The pixels from a click to the nearest living settler's body, out of its house, that `cover` does not hide, and that settler, or Infinity and -1. */
 function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, y: number, width: number, height: number, cover: Box3 | null) {
   const { map, villagers, states } = scene;
   const half = map.size / 2;
@@ -83,7 +83,7 @@ function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, 
   let best = Infinity;
   let id = -1;
   for (let villager = 0; villager * 2 < villagers.length; villager++) {
-    if (states[villager] === VillagerState.Inside) continue;
+    if (states[villager] === VillagerState.Inside || states[villager] === VillagerState.Dead) continue;
     const mapX = villagers[villager * 2]!;
     const mapY = villagers[villager * 2 + 1]!;
     const ground = heightAt(map, mapX, mapY);

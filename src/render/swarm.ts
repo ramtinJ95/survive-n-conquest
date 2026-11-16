@@ -101,8 +101,8 @@ export interface UnitFrame {
  * so villagers that are not drawn leave no gap. It turns the way it walks,
  * steps and swings its arms against its legs as it goes, swings both arms over
  * its head and down as it works, and holds what it carries up on both hands.
- * At its spot for the night it faces the camp `camp`, and inside its house it
- * is not drawn. The motion follows the tick, so the units hold still while the
+ * At its spot for the night it faces the camp `camp`. Inside its house, and
+ * once dead, it is not drawn. The motion follows the tick, so the units hold still while the
  * clock is paused. They take the light of the scene, and they cast and take
  * its shadows.
  */
@@ -178,7 +178,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
         last[id * 2] = mapX;
         last[id * 2 + 1] = mapY;
       }
-      if (states[id] === VillagerState.Inside) continue;
+      if (states[id] === VillagerState.Inside || states[id] === VillagerState.Dead) continue;
 
       const walks = walking[id] === 1;
       const works = states[id] === VillagerState.Working;

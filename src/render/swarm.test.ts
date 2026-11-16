@@ -192,13 +192,14 @@ describe('createSwarm', () => {
     expect(reach(named('villager arms'), 0, new Vector3(0, -1, 0)).y).toBeLessThan(0);
   });
 
-  it('draws no villager that is inside its house, and leaves no gap among the others', () => {
+  it('draws no villager that is inside its house or dead, and leaves no gap among the others', () => {
     const { named, show } = swarm(3, 0);
     const positions = [10.5, 20.5, 30.5, 30.5, 40.5, 12.5];
-    const inside = Uint8Array.of(VillagerState.Inside, VillagerState.Idle, VillagerState.Inside);
-    show(frame(0, positions, { states: inside, carried: Uint8Array.of(Good.None, Good.Log, Good.None) }));
+    const inside = Uint8Array.of(VillagerState.Inside, VillagerState.Idle, VillagerState.Dead);
+    show(frame(0, positions, { states: inside, carried: Uint8Array.of(Good.None, Good.Log, Good.Food) }));
     expect([named('villagers').count, named('villager arms').count, named('villager legs').count]).toEqual([1, 2, 2]);
     expect(named('carried logs').count).toBe(1);
+    expect(named('carried food').count).toBe(0);
     const body = placed(named('villagers'), 0);
     expect([body.x, body.z]).toEqual([30.5 - half, 30.5 - half]);
     for (const name of ['villager arms', 'villager legs']) {
