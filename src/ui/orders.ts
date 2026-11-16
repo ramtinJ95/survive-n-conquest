@@ -16,7 +16,7 @@ import {
   siteTileProblem,
 } from '../sim/orders';
 import type { SimFrame } from '../frame';
-import { BUILDING_WORDS } from './buildings';
+import { BUILDING_WORDS, capital } from './buildings';
 import './orders.css';
 
 interface ToolLook {
@@ -98,7 +98,6 @@ interface RefusedSite {
   readonly blocker: Building | null;
 }
 
-const capital = (words: string) => words[0]!.toUpperCase() + words.slice(1);
 const TILE_COUNTS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
 
 const REFUSALS: Readonly<Record<Refusal, (site: RefusedSite) => string>> = {

@@ -2,21 +2,26 @@ import type { PerspectiveCamera } from 'three';
 import { type Selection, pickSelection } from '../render/pickSelection';
 import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
 import { BUILDING } from '../sim/building';
-import { BUILDINGS, Building, kindOf, siteMidX, siteMidY } from '../sim/buildings';
+import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY } from '../sim/buildings';
+import { SEASONS, seasonIndexAt } from '../sim/calendar';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
+import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
 import { TileKind, type TileMap, tileAt } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
+import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
 import { CAMP_STORE, HOUSE_FOOD_LIMIT } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
 import type { SimFrame } from '../frame';
+import { BUILDING_WORDS, JOB_WORDS, capital, neededGoods } from './buildings';
+import { listNames } from './news';
 import { siteProgress } from './sites';
 import './selection.css';
 
@@ -29,7 +34,23 @@ export interface Facts {
   readonly camp: number;
   readonly frame: Pick<
     SimFrame,
-    'villagers' | 'carried' | 'states' | 'tasks' | 'taskTiles' | 'names' | 'sexes' | 'households' | 'homes' | 'missedMeals' | 'storeFood' | 'campFoodLimit'
+    | 'tick'
+    | 'villagers'
+    | 'carried'
+    | 'states'
+    | 'tasks'
+    | 'taskTiles'
+    | 'destinations'
+    | 'names'
+    | 'sexes'
+    | 'households'
+    | 'homes'
+    | 'workplaces'
+    | 'hired'
+    | 'missedMeals'
+    | 'storeFood'
+    | 'campFoodLimit'
+    | 'campFoodInbound'
   >;
 }
 
@@ -37,13 +58,14 @@ type VillagerSelection = Extract<Selection, { kind: 'villager' }>;
 type BuildingSelection = Extract<Selection, { kind: 'building' }>;
 type CampSelection = Extract<Selection, { kind: 'camp' }>;
 
-/** The selection each panel kind shows. A building is a site or a house by its state in the sites table. */
-interface PanelSelections {
-  readonly villager: VillagerSelection;
-  readonly site: BuildingSelection;
-  readonly house: BuildingSelection;
-  readonly camp: CampSelection;
-}
+/**
+ * The selection each panel kind shows. A building has one panel for its kind
+ * as a site and one for it finished, by its kind and its state in the sites
+ * table, so a kind added to `BUILDINGS` needs both here.
+ */
+type PanelSelections = { readonly villager: VillagerSelection; readonly camp: CampSelection } & {
+  readonly [N in BuildingName]: BuildingSelection;
+} & { readonly [N in BuildingName as `${N}Site`]: BuildingSelection };
 
 export type PanelKind = keyof PanelSelections;
 
@@ -52,7 +74,10 @@ interface Button<S> {
   readonly text: string;
   /** The button's accessible name. */
   readonly name: string;
-  readonly press: (facts: Facts, selection: S) => void;
+  /** True while a press would change nothing, as at either end of a range. */
+  readonly disabled?: (facts: Facts, selection: S) => boolean;
+  /** The command a press sends to the simulation. */
+  readonly press: (facts: Facts, selection: S) => Command;
 }
 
 interface Row<S> {
@@ -77,7 +102,7 @@ export interface PanelText {
   readonly rows: readonly {
     readonly label: string;
     readonly value: string;
-    readonly buttons?: readonly { readonly text: string; readonly name: string; readonly press: () => void }[];
+    readonly buttons?: readonly { readonly text: string; readonly name: string; readonly disabled: boolean; readonly press: () => Command }[];
   }[];
 }
 
@@ -87,8 +112,16 @@ const CARRY = task(CARRYING);
 const SUPPLY = task(SUPPLYING);
 const BUILD = task(BUILDING);
 const STOCK = task(STOCKING);
+const FORAGE = task(FORAGING);
+const WINTER = SEASONS.indexOf('Winter');
 
 const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food' };
+
+/** The word for the kind of the site or building on a tile, such as the anchor a task goes to. */
+function siteNoun({ orders }: Facts, tile: number): string {
+  const slot = tile < 0 ? -1 : orders.siteOf[tile]!;
+  return slot < 0 ? 'building' : BUILDING_WORDS[orders.sites.kind[slot] as Building].noun;
+}
 
 /** What a villager holding a task does, by the task's column value, while it walks to its work or works it. */
 const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: boolean) => string>> = {
@@ -98,9 +131,19 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     return working ? 'Chopping a tree' : 'Walking to a tree';
   },
   [CARRY]: (facts, id) => fetching(facts, id, 'to the stockpile', 'to pick up'),
-  [SUPPLY]: (facts, id) => fetching(facts, id, 'to a house site', 'to fetch', ' for a house site'),
-  [BUILD]: (_, __, working) => (working ? 'Building a house' : 'Walking to a house site'),
+  [SUPPLY]: (facts, id) => {
+    const site = siteNoun(facts, facts.frame.destinations[id]!);
+    return fetching(facts, id, `to a ${site} site`, 'to fetch', ` for a ${site} site`);
+  },
+  [BUILD]: (facts, id, working) => {
+    const site = siteNoun(facts, facts.frame.taskTiles[id]!);
+    return working ? `Building a ${site}` : `Walking to a ${site} site`;
+  },
   [STOCK]: ({ frame }, id) => (frame.carried[id] === Good.Food ? 'Carrying food home' : 'Walking to the camp for food'),
+  [FORAGE]: ({ frame }, id, working) => {
+    if (frame.carried[id] === Good.Food) return 'Carrying food to the camp';
+    return working ? 'Foraging' : 'Walking to a tree to forage';
+  },
 };
 
 function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, purpose = ''): string {
@@ -108,6 +151,21 @@ function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, 
   if (carried !== Good.None) return `Carrying ${GOOD_NAMES[carried]} ${to}`;
   return `Walking ${fetch} ${GOOD_NAMES[map.stackGood[frame.taskTiles[id]!] as Good]}${purpose}`;
 }
+
+/** The job of a villager: the job of the kind of its workplace, or `Job.None` when it has no place. */
+function jobOf({ orders, frame }: Facts, id: number): Job {
+  return jobAt(orders.sites, frame.workplaces[id]!);
+}
+
+/** What a villager with no task does by day, by its job: a forager says why it is not out foraging. */
+const IDLE_WORDS: Readonly<Record<Job, (facts: Facts) => string>> = {
+  [Job.None]: () => 'Idle',
+  [Job.Forager]: ({ frame }) => {
+    if (seasonIndexAt(frame.tick) === WINTER) return 'Idle, nothing grows until spring';
+    if (frame.storeFood[CAMP_STORE]! + frame.campFoodInbound >= frame.campFoodLimit) return 'Idle, waiting for room at the camp';
+    return 'Looking for forage';
+  },
+};
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
 const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
@@ -124,7 +182,7 @@ function doing(facts: Facts, id: number): string {
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[facts.frame.tasks[id]!];
-  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return 'Idle';
+  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts);
   return task(facts, id, state === VillagerState.Working);
 }
 
@@ -179,27 +237,23 @@ function livingIn(facts: Facts, slot: number): string {
   return household < 0 ? 'Nobody' : `Household ${household + 1}: ${members(facts, household)}`;
 }
 
-/** Every panel. A row or a control added here shows in the panel of its kind. */
-const PANELS: Panels = {
-  villager: {
-    title: (facts, { id }) => nameOfSettler(facts, id),
+/** The names of the workers at a workplace in the order they came, or Nobody. */
+function workersAt(facts: Facts, slot: number): string {
+  const { workplaces, hired } = facts.frame;
+  const ids = [...workplaces.keys()].filter((id) => workplaces[id] === slot).sort((a, b) => hired[a]! - hired[b]!);
+  return ids.length === 0 ? 'Nobody' : listNames(ids.map((id) => nameOfSettler(facts, id)));
+}
+
+/** The panel of a site of a building kind: what has arrived of each good it needs, its work, and its builders. */
+function sitePanel(building: Building): Panel<BuildingSelection> {
+  const goods = neededGoods(BUILDINGS[building]);
+  return {
+    title: `${BUILDING_WORDS[building].title} site`,
     rows: [
-      { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
-      { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
-      { label: 'Sex', read: ({ frame }, { id }) => SEX_WORDS[frame.sexes[id] as Sex] },
-      { label: 'Household', read: (facts, { id }) => householdOf(facts, id) },
-      {
-        label: 'Home',
-        read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
-      },
-      { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
-    ],
-  },
-  site: {
-    title: 'House site',
-    rows: [
-      { label: 'Logs', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[0]}/${BUILDINGS[Building.House].needs[Good.Log - 1]}` },
-      { label: 'Stone', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[1]}/${BUILDINGS[Building.House].needs[Good.Stone - 1]}` },
+      ...goods.map(({ label, needs }, index) => ({
+        label,
+        read: ({ map, orders }: Facts, { slot }: BuildingSelection) => `${siteProgress(map, orders, slot).arrived[index]}/${needs}`,
+      })),
       {
         label: 'Work',
         read: ({ map, orders }, { slot }) => {
@@ -209,7 +263,58 @@ const PANELS: Panels = {
       },
       { label: 'Builders', read: (facts, { anchor }) => String(builders(facts, anchor)) },
     ],
+  };
+}
+
+/** The panel of a finished workplace: what it does, who works there, and the control that sets how many of its places are filled. */
+function workplacePanel(building: Building, note: string): Panel<BuildingSelection> {
+  const { places, job } = BUILDINGS[building];
+  const wanted = ({ orders }: Facts, slot: number) => orders.sites.places[slot]!;
+  return {
+    title: BUILDING_WORDS[building].title,
+    note,
+    rows: [
+      { label: capital(JOB_WORDS[job].many), read: (facts, { slot }) => workersAt(facts, slot) },
+      {
+        label: 'Places',
+        read: (facts, { slot }) => `${wanted(facts, slot)} of ${places}`,
+        buttons: [
+          {
+            text: '−',
+            name: 'Fewer places',
+            disabled: (facts, { slot }) => wanted(facts, slot) <= 0,
+            press: (facts, { slot }) => ({ kind: 'setPlaces', slot, places: wanted(facts, slot) - 1 }),
+          },
+          {
+            text: '+',
+            name: 'More places',
+            disabled: (facts, { slot }) => wanted(facts, slot) >= places,
+            press: (facts, { slot }) => ({ kind: 'setPlaces', slot, places: wanted(facts, slot) + 1 }),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Every panel. A row or a control added here shows in the panel of its kind. */
+const PANELS: Panels = {
+  villager: {
+    title: (facts, { id }) => nameOfSettler(facts, id),
+    rows: [
+      { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
+      { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
+      { label: 'Job', read: (facts, { id }) => JOB_WORDS[jobOf(facts, id)].title },
+      { label: 'Sex', read: ({ frame }, { id }) => SEX_WORDS[frame.sexes[id] as Sex] },
+      { label: 'Household', read: (facts, { id }) => householdOf(facts, id) },
+      {
+        label: 'Home',
+        read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
+      },
+      { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
+    ],
   },
+  houseSite: sitePanel(Building.House),
   house: {
     title: 'House',
     note: 'A finished house.',
@@ -218,6 +323,8 @@ const PANELS: Panels = {
       { label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${HOUSE_FOOD_LIMIT}` },
     ],
   },
+  hutSite: sitePanel(Building.Hut),
+  hut: workplacePanel(Building.Hut, `Its foragers pick food in the forest within ${BUILDINGS[Building.Hut].reach} tiles and carry it to the camp.`),
   camp: {
     title: 'Camp',
     rows: [
@@ -236,7 +343,14 @@ function show<K extends PanelKind>(panels: Panels, kind: K, selection: PanelSele
     rows: panel.rows.map(({ label, read, buttons }) => ({
       label,
       value: read(facts, selection),
-      ...(buttons && { buttons: buttons.map(({ text, name, press }) => ({ text, name, press: () => press(facts, selection) })) }),
+      ...(buttons && {
+        buttons: buttons.map(({ text, name, disabled, press }) => ({
+          text,
+          name,
+          disabled: disabled?.(facts, selection) ?? false,
+          press: () => press(facts, selection),
+        })),
+      }),
     })),
   };
 }
@@ -254,8 +368,10 @@ export function readPanel(selection: Selection, facts: Facts, panels: Panels = P
   switch (selection.kind) {
     case 'villager':
       return show(panels, 'villager', selection, facts);
-    case 'building':
-      return show(panels, facts.orders.sites.state[selection.slot] === SiteState.Built ? 'house' : 'site', selection, facts);
+    case 'building': {
+      const { name } = kindOf(facts.orders.sites, selection.slot);
+      return show(panels, facts.orders.sites.state[selection.slot] === SiteState.Built ? name : `${name}Site`, selection, facts);
+    }
     case 'camp':
       return show(panels, 'camp', selection, facts);
   }
@@ -295,6 +411,8 @@ interface SelectionSetup {
   readonly mark: ReturnType<typeof createSelectionMark>;
   /** True while no order tool is active. Only then does a click select. */
   readonly mainButtonPans: () => boolean;
+  /** Sends a command that a control's button gives to the simulation. */
+  readonly send: (command: Command) => void;
   readonly panels?: Panels;
 }
 
@@ -304,7 +422,7 @@ interface SelectionSetup {
  * and what it is doing. A click on bare ground, the close button, or Escape
  * clears the selection.
  */
-export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, camera, mark, mainButtonPans, panels = PANELS }: SelectionSetup) {
+export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, camera, mark, mainButtonPans, send, panels = PANELS }: SelectionSetup) {
   const panel = document.createElement('section');
   panel.className = 'selection';
   panel.setAttribute('role', 'region');
@@ -325,6 +443,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
   let frame: SimFrame | null = null;
   let shown: PanelKind | null = null;
   let values: HTMLElement[] = [];
+  let controls: HTMLButtonElement[][] = [];
   let text: PanelText | null = null;
 
   const facts = (): Facts | null => (frame ? { map, orders, camp, frame } : null);
@@ -340,26 +459,26 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
     if (text.kind !== shown) {
       shown = text.kind;
       values = text.rows.map(() => document.createElement('span'));
+      controls = text.rows.map(({ buttons = [] }, row) =>
+        buttons.map(({ text: face, name: accessible }, index) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = face;
+          button.setAttribute('aria-label', accessible);
+          button.addEventListener('mousedown', (event) => event.preventDefault());
+          button.addEventListener('click', () => {
+            const pressed = text?.rows[row]?.buttons?.[index];
+            if (pressed && !pressed.disabled) send(pressed.press());
+          });
+          return button;
+        }),
+      );
       list.replaceChildren(
-        ...text.rows.flatMap(({ label, buttons = [] }, row) => {
+        ...text.rows.flatMap(({ label }, row) => {
           const name = document.createElement('dt');
           name.textContent = label;
           const value = document.createElement('dd');
-          value.append(
-            values[row]!,
-            ...buttons.map(({ text: face, name: accessible }, index) => {
-              const button = document.createElement('button');
-              button.type = 'button';
-              button.textContent = face;
-              button.setAttribute('aria-label', accessible);
-              button.addEventListener('mousedown', (event) => event.preventDefault());
-              button.addEventListener('click', () => {
-                text?.rows[row]?.buttons?.[index]?.press();
-                refresh();
-              });
-              return button;
-            }),
-          );
+          value.append(values[row]!, ...controls[row]!);
           return [name, value];
         }),
       );
@@ -368,7 +487,10 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
     }
     setText(title, text.title);
     setText(note, text.note ?? '');
-    text.rows.forEach(({ value }, index) => setText(values[index]!, value));
+    text.rows.forEach(({ value, buttons = [] }, row) => {
+      setText(values[row]!, value);
+      buttons.forEach(({ disabled }, index) => (controls[row]![index]!.disabled = disabled));
+    });
     panel.hidden = false;
   };
 

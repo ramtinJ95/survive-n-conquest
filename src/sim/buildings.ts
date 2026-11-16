@@ -42,6 +42,11 @@ export function kindOf(sites: Sites, slot: number): BuildingKind {
   return BUILDINGS[sites.kind[slot] as Building];
 }
 
+/** The job of a villager whose workplace is the building in slot `workplace`, or `Job.None` for -1, no place. */
+export function jobAt(sites: Sites, workplace: number): Job {
+  return workplace < 0 ? Job.None : kindOf(sites, workplace).job;
+}
+
 /**
  * The first column or row of a footprint of `side` tiles, from the anchor tile
  * on that axis. A footprint of odd side is centered on its anchor, and one of

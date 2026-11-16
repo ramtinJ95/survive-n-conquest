@@ -85,3 +85,9 @@
   cursor: pointer;
   pointer-events: auto;
 }
+
+.selection dd button:disabled {
+  color: var(--ink-soft);
+  opacity: 0.45;
+  cursor: default;
+}

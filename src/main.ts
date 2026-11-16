@@ -83,6 +83,7 @@ const selection = mountSelection(document.body, {
   camera,
   mark,
   mainButtonPans: toolbar.mainButtonPans,
+  send: (command) => sim.postMessage(command satisfies ToSim),
 });
 const stockpiles = mountStockpiles(document.body, map, orders);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);

@@ -1,4 +1,4 @@
-import { Job, kindOf, siteMidX, siteMidY } from './buildings';
+import { type Job, jobAt, kindOf, siteMidX, siteMidY } from './buildings';
 import { Good, putDownHeld } from './goods';
 import { SiteState, setSitePlaces } from './orders';
 import type { Sim } from './sim';
@@ -6,8 +6,7 @@ import { NO_TASK, VillagerState } from './villagerState';
 
 /** The job of the villager: the job of its workplace's kind, or `Job.None` when it has no place. */
 export function jobOf(sim: Sim, id: number): Job {
-  const workplace = sim.villagers.workplace[id]!;
-  return workplace < 0 ? Job.None : kindOf(sim.orders.sites, workplace).job;
+  return jobAt(sim.orders.sites, sim.villagers.workplace[id]!);
 }
 
 /**
