@@ -17,12 +17,18 @@ export interface SimFrame extends ClockSnapshot {
   readonly monsters: Float32Array;
   /** One `Good` per villager in id order: what each one carries. */
   readonly carried: Uint8Array;
-  /** One `VillagerState` per villager in id order. */
+  /** One `VillagerState` per villager in id order. A villager in its house at night is `VillagerState.Inside`, on the tile it went in on. */
   readonly states: Uint8Array;
   /** One task column value per villager in id order: `NO_TASK`, or one more than its kind's index in `TASK_KINDS`. */
   readonly tasks: Uint8Array;
   /** The tile of each villager's task in id order, or -1. */
   readonly taskTiles: Int32Array;
+  /** Per villager in id order: an index into `NAMES[sex]`, a `Sex`, and a household. */
+  readonly names: Uint16Array;
+  readonly sexes: Uint8Array;
+  readonly households: Int16Array;
+  /** Per household: the site slot of its house, or `NO_HOME`. */
+  readonly homes: Int16Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -51,11 +57,48 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
   const states = sim.villagers.state.slice();
   const tasks = sim.villagers.task.slice();
   const taskTiles = sim.villagers.taskTile.slice();
+  const names = sim.villagers.name.slice();
+  const sexes = sim.villagers.sex.slice();
+  const households = sim.villagers.household.slice();
+  const homes = sim.households.home.slice();
   const tiles = takeTileChanges(sim);
   const orders = takeOrderChanges(sim.orders);
   self.postMessage(
-    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, carried, states, tasks, taskTiles, tiles, orders, outcome } satisfies SimFrame,
-    { transfer: [villagers.buffer, monsters.buffer, carried.buffer, states.buffer, tasks.buffer, taskTiles.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
+    {
+      tick: sim.tick,
+      speed: sim.speed,
+      paused: sim.paused,
+      villagers,
+      monsters,
+      carried,
+      states,
+      tasks,
+      taskTiles,
+      names,
+      sexes,
+      households,
+      homes,
+      tiles,
+      orders,
+      outcome,
+    } satisfies SimFrame,
+    {
+      transfer: [
+        villagers.buffer,
+        monsters.buffer,
+        carried.buffer,
+        states.buffer,
+        tasks.buffer,
+        taskTiles.buffer,
+        names.buffer,
+        sexes.buffer,
+        households.buffer,
+        homes.buffer,
+        tiles.buffer,
+        orders.claims.buffer,
+        orders.sites.buffer,
+      ],
+    },
   );
 }
 
