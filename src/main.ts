@@ -1,5 +1,6 @@
 import { WebGLRenderer } from 'three';
 import { bindCameraInput } from './render/cameraInput';
+import { createSelectionMark } from './render/selectionMark';
 import { loadShapes } from './render/shapes';
 import { createSwarm } from './render/swarm';
 import { tone } from './render/tone';
@@ -11,6 +12,7 @@ import { populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import { mountOrders } from './ui/orders';
+import { mountSelection } from './ui/selection';
 import { mountSiteLabels } from './ui/sites';
 import { mountStockpiles } from './ui/stockpiles';
 import './ui/style.css';
@@ -30,6 +32,8 @@ const look = await loadShapes();
 const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
 scene.add(...swarm.meshes);
+const mark = createSelectionMark(map);
+scene.add(...mark.meshes);
 const camera = rig.camera;
 showControlsHint(map.seed);
 if (look.fallback) {
@@ -60,6 +64,7 @@ renderer.setAnimationLoop((now) => {
   lastFrame = now;
   toolbar.follow();
   show(tick, tick + Math.min(Math.max((now - lastTickAt) * ticksPerMs, 0), 1));
+  selection.follow();
   renderer.render(scene, camera);
   siteLabels.follow();
 });
@@ -67,6 +72,15 @@ renderer.setAnimationLoop((now) => {
 const sim = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 mountClock(document.body, sim);
 const toolbar = mountOrders(document.body, sim, { map, orders, canvas: renderer.domElement, camera, marks });
+const selection = mountSelection(document.body, {
+  map,
+  orders,
+  camp,
+  canvas: renderer.domElement,
+  camera,
+  mark,
+  mainButtonPans: toolbar.mainButtonPans,
+});
 const stockpiles = mountStockpiles(document.body, map, orders.claims);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);
 bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
@@ -77,6 +91,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   changeTiles(data.tiles);
   changeOrders(data.orders);
   toolbar.heard(data);
+  selection.heard(data);
   stockpiles.heard(data);
   siteLabels.heard(data);
   swarm.show(data);

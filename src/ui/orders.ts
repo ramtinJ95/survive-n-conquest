@@ -326,10 +326,13 @@ export function mountOrders(
   window.addEventListener('keydown', (event) => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.code === 'Escape') {
+      if (!gesture && !tool) return;
+      // Marks the key as spent, so that the same Escape does not also clear the selection.
+      event.preventDefault();
       if (gesture) {
         gesture = null;
         preview();
-      } else if (tool) {
+      } else {
         choose(null);
       }
       return;
