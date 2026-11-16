@@ -23,10 +23,11 @@ const SPOT_CHECKS = 16;
  * What a villager is doing. By day it is idle near the camp, or walks its route
  * to a task and works it there. A villager whose task just ended waits where it
  * stands until it next looks for work, so it does not wander off between two
- * tasks at the same place. By night a villager whose household has a home walks
- * its route to a door of the house and is inside until dawn, standing on the
- * door tile. One whose household has none walks the flow field to the camp
- * center, then out to its spot, where it stays until dawn.
+ * tasks at the same place. By night a villager whose household has a home is
+ * going in: it stands until its think tick, plans its route to a door of the
+ * house, walks it, and is inside until dawn, standing on the door tile. One
+ * whose household has none walks the flow field to the camp center, then out
+ * to its spot, where it stays until dawn.
  */
 export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
@@ -55,7 +56,7 @@ export interface Villagers {
   readonly task: Uint8Array;
   /** The tile of the task, such as the tree, the rock, or the unit to carry, or -1. */
   readonly taskTile: Int32Array;
-  /** The tile the villager stands on to work its task, or -1. */
+  /** The tile the villager stands on to work its task, or -1. A villager going in holds its door here, or -1 when it stays where it stands. */
   readonly workTile: Int32Array;
   /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's center, or -1. */
   readonly destination: Int32Array;
@@ -63,6 +64,7 @@ export interface Villagers {
   readonly carried: Uint8Array;
   /** `MAX_PATH` tiles of route to the work tile for each villager, row by row. The villager walks to the center of each in turn. */
   readonly path: Int32Array;
+  /** The tiles of route kept. A villager going in with a door and no route has not planned it yet. */
   readonly pathLength: Uint16Array;
   /** The route tile the villager walks to next. It has walked the whole kept route when this equals `pathLength`. */
   readonly pathCursor: Uint16Array;
@@ -271,12 +273,13 @@ function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
 }
 
 /**
- * Ends the villager's day: it gives its task up and sets out for its house, or
- * for the camp when its household has no home. One with no door to walk to
- * keeps a work tile of -1 and stays where it stands.
+ * Ends the villager's day: it gives its task up and goes in to its house, or
+ * to the camp when its household has no home. One going in picks its door now
+ * and plans its route on its think tick. One with no walk to the camp, or no
+ * door, keeps a work tile of -1 and stays where it stands.
  */
 function nightfall(sim: Sim, id: number): void {
-  const { villagers } = sim;
+  const { map, villagers } = sim;
   endTask(sim, id);
   const home = sim.households.home[villagers.household[id]!]!;
   if (home === NO_HOME) {
@@ -284,13 +287,24 @@ function nightfall(sim: Sim, id: number): void {
     return;
   }
   villagers.state[id] = VillagerState.GoingIn;
-  const door = nearestDoor(sim, home, villagers.x[id]!, villagers.y[id]!);
-  if (door >= 0 && planPath(sim, id, door)) villagers.workTile[id] = door;
+  const reaches = sim.flow.next[tileAt(map, villagers.x[id]!, villagers.y[id]!)] !== -1;
+  villagers.workTile[id] = reaches ? nearestDoor(sim, home, villagers.x[id]!, villagers.y[id]!) : -1;
+  villagers.pathLength[id] = 0;
+  villagers.pathCursor[id] = 0;
 }
 
-function goIn(sim: Sim, id: number): void {
+/** Walks a villager going in toward its door, once it has planned its route on a think tick, and takes it inside there. */
+function goIn(sim: Sim, id: number, thinks: boolean): void {
   const { villagers } = sim;
-  if (villagers.workTile[id] === -1) return;
+  const door = villagers.workTile[id]!;
+  if (door === -1) return;
+  if (villagers.pathLength[id] === 0) {
+    if (!thinks) return;
+    if (!planPath(sim, id, door)) {
+      villagers.workTile[id] = -1;
+      return;
+    }
+  }
   if (!walkRoute(sim, id)) villagers.workTile[id] = -1;
   else if (atWork(villagers, id)) villagers.state[id] = VillagerState.Inside;
 }
@@ -471,11 +485,11 @@ function doTask(sim: Sim, id: number): void {
 /**
  * Moves every villager one tick. By day an idle villager looks for work on the
  * tick of its group and wanders near the camp until it finds some. At dusk a
- * villager gives its task up at once and walks into its household's house, or
- * to its spot at the camp when the household has none. The choice is made only
- * at dusk, so a home gained in the night is first used the next night. At dawn
- * every villager is idle again where it stands, so one that was inside comes
- * out on the tile it went in on.
+ * villager gives its task up at once. One whose household has a house sets out
+ * for it on the tick of its group and goes in. The others walk to their spots
+ * at the camp. The choice is made only at dusk, so a home gained in the night
+ * is first used the next night. At dawn every villager is idle again where it
+ * stands, so one that was inside comes out on the tile it went in on.
  */
 export function moveVillagers(sim: Sim, night: boolean): void {
   const { state } = sim.villagers;
@@ -483,7 +497,7 @@ export function moveVillagers(sim: Sim, night: boolean): void {
   for (let id = 0; id < state.length; id++) {
     if (night) {
       if (!atNight(state[id]!)) nightfall(sim, id);
-      if (state[id] === VillagerState.GoingIn) goIn(sim, id);
+      if (state[id] === VillagerState.GoingIn) goIn(sim, id, id % THINK_GROUPS === group);
       else if (state[id] !== VillagerState.Inside) goToCamp(sim, id);
       continue;
     }
