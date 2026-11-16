@@ -64,6 +64,37 @@ export function primitiveShapes(): Shapes {
 /** A unit of food, on the ground or in hands: a plain grain sack, with no model behind it. */
 export const foodShape = (): BufferGeometry => colored(new BoxGeometry(0.34, 0.28, 0.3).translate(0, 0.14, 0), 0xc8a86b);
 
+/**
+ * The forager's hut, in meters: a low square of `courses` logs a side, of the
+ * stockpiled logs' color, under a steep roof of eight sides in a darker shade
+ * of the house's thatch. It is smaller than the house and its roof is a cone,
+ * so the two tell apart at a glance.
+ */
+export const HUT_LOOK = { side: 1.7, log: 0.125, courses: 3, roof: 1.3, eave: 1.05, colors: { log: 0xd9b77e, timber: 0x5c3516, thatch: 0x7c5a25 } };
+
+/** The forager's hut, with no model behind it, standing on the origin and centered on its footprint. */
+export function hutShape(): BufferGeometry {
+  const { side, log, courses, roof, eave, colors } = HUT_LOOK;
+  const walls = 2 * log * courses;
+  const along = side / 2 - log;
+  const logs = Array.from({ length: courses }, (_, course) => {
+    const y = log + 2 * log * course;
+    const lengthwise = () => new CylinderGeometry(log, log, side + log, 6).rotateZ(Math.PI / 2);
+    return [
+      lengthwise().translate(0, y, along),
+      lengthwise().translate(0, y, -along),
+      lengthwise().rotateY(Math.PI / 2).translate(along, y, 0),
+      lengthwise().rotateY(Math.PI / 2).translate(-along, y, 0),
+    ];
+  }).flat();
+  return mergeGeometries([
+    colored(new BoxGeometry(side - 2 * log, walls, side - 2 * log).translate(0, walls / 2, 0), colors.timber),
+    ...logs.map((part) => colored(part, colors.log)),
+    colored(new BoxGeometry(0.42, 0.6, 0.06).translate(0, 0.3, side / 2), colors.timber),
+    colored(new ConeGeometry(eave, roof, 8).translate(0, walls + roof / 2, 0), colors.thatch),
+  ]);
+}
+
 function plain(geometry: BufferGeometry): BufferGeometry {
   const flat = geometry.index ? geometry.toNonIndexed() : geometry;
   const from = flat.getAttribute('color');
