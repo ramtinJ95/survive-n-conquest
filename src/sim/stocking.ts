@@ -1,5 +1,5 @@
 import { nearestDoor, storeDoor } from './building';
-import { ANYONE, Job } from './buildings';
+import { ANYONE, Job, siteMidX, siteMidY } from './buildings';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME } from './households';
 import { jobOf } from './jobs';
@@ -35,11 +35,11 @@ const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.house
 
 /**
  * Sends a villager with empty hands, whose home lacks food, to the common
- * store nearest it that has a unit no carrier spoke for, the camp or a barn,
- * and reserves the unit and its place in the home. A villager without a job
- * whose home lacks nothing keeps the camp stocked the same way, from the
- * nearest barn, for the households that eat there. The house is the home of
- * the villager's household, which stays its home while a member lives.
+ * store nearest its home that has a unit no carrier spoke for, the camp or a
+ * barn, and reserves the unit and its place in the home. A villager without a
+ * job whose home lacks nothing keeps the camp stocked the same way, from the
+ * barn nearest the camp, for the households that eat there. The house is the
+ * home of the villager's household, which stays its home while a member lives.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, stores, flow } = sim;
@@ -49,14 +49,16 @@ function take(sim: Sim, id: number): boolean {
   if (home !== NO_HOME && lacks(sim, villagers.household[id]!) > 0) to = home;
   else if (stores.barnCount > 0 && jobOf(sim, id) === Job.None && campLacks(sim) > 0) to = CAMP_STORE;
   else return false;
-  const x = villagers.x[id]!;
-  const y = villagers.y[id]!;
-  const from = nearestCommonStore(sim, x, y, Wants.Food, to === CAMP_STORE);
-  if (from < 0) return false;
-  const pickup = storeDoor(sim, from, x, y);
-  if (pickup < 0) return false;
   const { size } = sim.map;
-  const door = to === CAMP_STORE ? flow.goal : nearestDoor(sim, home, (pickup % size) + 0.5, Math.floor(pickup / size) + 0.5);
+  const { sites } = sim.orders;
+  const toCamp = to === CAMP_STORE;
+  const from = toCamp
+    ? nearestCommonStore(sim, (flow.goal % size) + 0.5, Math.floor(flow.goal / size) + 0.5, Wants.Food, true)
+    : nearestCommonStore(sim, siteMidX(sites, home), siteMidY(sites, home), Wants.Food);
+  if (from < 0) return false;
+  const pickup = storeDoor(sim, from, villagers.x[id]!, villagers.y[id]!);
+  if (pickup < 0) return false;
+  const door = toCamp ? flow.goal : nearestDoor(sim, home, (pickup % size) + 0.5, Math.floor(pickup / size) + 0.5);
   if (door < 0 || !planPath(sim, id, pickup)) return false;
   stores.outbound[from] = stores.outbound[from]! + 1;
   stores.inbound[to] = stores.inbound[to]! + 1;

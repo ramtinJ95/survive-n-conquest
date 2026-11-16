@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { dateAt } from './calendar';
 import { isDawn, isNight } from './daylight';
-import { FIRST_YEAR_HUT, FIRST_YEAR_SEED, firstYearCommands } from './firstYear';
+import { FIRST_YEAR_BARNS, FIRST_YEAR_HUT, FIRST_YEAR_SEED, barnYearCommands, firstYearCommands } from './firstYear';
 import { FORAGING } from './foraging';
 import { Good } from './goods';
 import { generateMap } from './mapgen';
 import { type Sex, nameOf } from './names';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { CAMP_STORE } from './stores';
 import { TASK_KINDS } from './tasks';
 
 const FORAGE = TASK_KINDS.indexOf(FORAGING) + 1;
@@ -63,5 +64,26 @@ describe('the first year on seed 7 with a hut', () => {
     expect(first.sim.tally.foraged).toBeGreaterThan(0);
     expect(second.dawns).toEqual(first.dawns);
     expect(second.sim.tally).toEqual(first.sim.tally);
+  });
+});
+
+describe('the first year on seed 7 with a barn', () => {
+  function yearWith(barn: { readonly x: number; readonly y: number }) {
+    const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
+    for (const command of barnYearCommands(barn)) expect(applyCommand(sim, command)).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[barn.y * sim.map.size + barn.x]!;
+    let barnAtAutumnsEnd = 0;
+    while (dateAt(sim.tick).day <= 12) {
+      if (isNight(sim.tick) && !isNight(sim.tick - 1) && dateAt(sim.tick).day === 9) barnAtAutumnsEnd = sim.stores.food[slot]!;
+      step(sim);
+    }
+    return { sim, barnAtAutumnsEnd };
+  }
+
+  it('has two foragers pick more with the barn beside the hut than with it far away, where the camp stays nearer every tree', () => {
+    const beside = yearWith(FIRST_YEAR_BARNS.beside);
+    const far = yearWith(FIRST_YEAR_BARNS.far);
+    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([102, 37, 0, 8]);
+    expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([71, 0, 1, 8]);
   });
 });
