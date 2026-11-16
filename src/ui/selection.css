@@ -3,8 +3,8 @@
   position: fixed;
   left: var(--edge-gap);
   bottom: calc(var(--edge-gap) + 44px);
-  width: 220px;
-  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 140px);
+  width: 256px;
+  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 184px);
   overflow: hidden;
   box-sizing: border-box;
   margin: 0;
@@ -84,4 +84,10 @@
   font: inherit;
   cursor: pointer;
   pointer-events: auto;
+}
+
+.selection dd button:disabled {
+  color: var(--ink-soft);
+  opacity: 0.45;
+  cursor: default;
 }

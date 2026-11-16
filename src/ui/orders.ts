@@ -1,9 +1,11 @@
 import type { PerspectiveCamera } from 'three';
 import { ORDER_COLORS, type OrderMarks, Preview } from '../render/orderMarks';
 import { createPicker, type PickedTile } from '../render/pick';
+import { BUILDINGS, Building, type BuildingName, footprintStart } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import {
   MAX_SITES,
+  MAX_SITE_RISE,
   type AreaOrder,
   type OrderCommand,
   type OrderOutcome,
@@ -13,14 +15,15 @@ import {
   siteRefusal,
   siteTileProblem,
 } from '../sim/orders';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
+import { BUILDING_WORDS, capital } from './buildings';
 import './orders.css';
 
-type ToolId = AreaOrder | 'house';
-
-interface Tool {
-  readonly id: ToolId;
+interface ToolLook {
+  /** The button's accessible name. */
   readonly label: string;
+  /** The words on the button, when they are shorter than its name. */
+  readonly face?: string;
   /** `event.code` values that pick the tool. The first one is shown on the button. */
   readonly codes: readonly string[];
   readonly key: string;
@@ -28,7 +31,10 @@ interface Tool {
   readonly icon: string;
 }
 
-const TOOLS: readonly Tool[] = [
+/** A tool that marks the tiles a drag covers, or one that places a building with a click. */
+export type Tool = (ToolLook & { readonly id: AreaOrder }) | (ToolLook & { readonly id: BuildingName; readonly building: Building });
+
+export const TOOLS: readonly Tool[] = [
   {
     id: 'chop',
     label: 'Chop',
@@ -55,6 +61,7 @@ const TOOLS: readonly Tool[] = [
   },
   {
     id: 'house',
+    building: Building.House,
     label: 'House',
     codes: ['KeyH'],
     key: 'H',
@@ -62,45 +69,134 @@ const TOOLS: readonly Tool[] = [
     icon: '<path d="M4 11 12 4l8 7"/><path d="M6.5 9.5V20h11V9.5"/><path d="M10.5 20v-5h3v5"/>',
   },
   {
+    id: 'hut',
+    building: Building.Hut,
+    label: "Forager's hut",
+    face: 'Hut',
+    codes: ['KeyG'],
+    key: 'G',
+    hint: "Click to place a forager's hut on 2 by 2 tiles of open, level ground.",
+    icon: '<path d="M4.5 13h15L12 3.5z"/><path d="M7 13v7h10v-7"/><path d="M10.5 20v-3.5h3V20"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
     key: 'Del',
-    hint: 'Drag over marks, stockpiles, and house sites to remove them.',
+    hint: 'Drag over marks, stockpiles, and building sites to remove them.',
     icon: '<circle cx="12" cy="12" r="8"/><path d="m6.5 17.5 11-11"/>',
   },
 ];
 
-const REFUSALS: Readonly<Record<Refusal, string>> = {
-  'no-trees': 'No unmarked trees stand there.',
-  'no-rock': 'No unmarked rock lies there.',
-  'no-open-ground': 'No open ground there can join a stockpile.',
-  'nothing-to-cancel': 'Nothing there to cancel.',
-  'off-map': 'The site runs off the edge of the map.',
-  water: 'A house cannot stand in water.',
-  rock: 'A house cannot stand on rock. Quarry it first.',
-  trees: 'Trees stand in the way. Chop them first.',
-  camp: 'The camp stands in the way.',
-  site: 'Another house stands in the way.',
-  stockpile: 'A stockpile stands in the way.',
-  goods: 'Goods lie on the site.',
-  uneven: 'The ground is too steep. Its nine tiles may differ by 1.5 m at most.',
-  divides: 'The house would cut land off from the camp.',
-  full: `The map holds ${MAX_SITES} houses and sites at most.`,
+/** The building a tool places with a click, or null for a tool that marks an area. */
+const placing = (tool: Tool | null): Building | null => (tool && 'building' in tool ? tool.building : null);
+
+/** What a refusal says about the building being placed, `noun`, and the kind of building already in its way, if any. */
+interface RefusedSite {
+  readonly noun: string;
+  readonly side: number;
+  readonly blocker: Building | null;
+}
+
+const TILE_COUNTS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+const REFUSALS: Readonly<Record<Refusal, (site: RefusedSite) => string>> = {
+  'no-trees': () => 'No unmarked trees stand there.',
+  'no-rock': () => 'No unmarked rock lies there.',
+  'no-open-ground': () => 'No open ground there can join a stockpile.',
+  'nothing-to-cancel': () => 'Nothing there to cancel.',
+  'off-map': () => 'The site runs off the edge of the map.',
+  water: ({ noun }) => `A ${noun} cannot stand in water.`,
+  rock: ({ noun }) => `A ${noun} cannot stand on rock. Quarry it first.`,
+  trees: () => 'Trees stand in the way. Chop them first.',
+  camp: () => 'The camp stands in the way.',
+  site: ({ noun, blocker }) => {
+    const other = blocker === null ? 'site' : BUILDING_WORDS[blocker].noun;
+    return other === noun ? `Another ${noun} stands in the way.` : `${capital(`a ${other}`)} stands in the way.`;
+  },
+  stockpile: () => 'A stockpile stands in the way.',
+  goods: () => 'Goods lie on the site.',
+  uneven: ({ side }) => `The ground is too steep. Its ${TILE_COUNTS[side * side] ?? side * side} tiles may differ by ${MAX_SITE_RISE} m at most.`,
+  divides: ({ noun }) => `The ${noun} would cut land off from the camp.`,
+  full: () => `The map holds ${MAX_SITES} buildings and sites at most.`,
 };
 
 /** Refusals that belong to the whole site rather than to some of its tiles. */
 const WHOLE_SITE: ReadonlySet<Refusal> = new Set(['off-map', 'uneven', 'divides', 'full']);
 
+/** The kind of the first site or building found on the footprint of a `building` anchored on (x, y), or null. */
+function blockerOn(map: TileMap, orders: Orders, building: Building, x: number, y: number): Building | null {
+  const { side } = BUILDINGS[building];
+  const x0 = footprintStart(x, side);
+  const y0 = footprintStart(y, side);
+  for (let ty = Math.max(y0, 0); ty < Math.min(y0 + side, map.size); ty++) {
+    for (let tx = Math.max(x0, 0); tx < Math.min(x0 + side, map.size); tx++) {
+      const slot = orders.siteOf[ty * map.size + tx]!;
+      if (slot >= 0) return orders.sites.kind[slot] as Building;
+    }
+  }
+  return null;
+}
+
+/** Why a `building` anchored on (x, y) is refused, in words, after `Cannot build here.` */
+function refusedWords(map: TileMap, orders: Orders, building: Building, x: number, y: number, refusal: Refusal): string {
+  const words = { noun: BUILDING_WORDS[building].noun, side: BUILDINGS[building].side, blocker: blockerOn(map, orders, building, x, y) };
+  return `Cannot build here. ${REFUSALS[refusal](words)}`;
+}
+
+/** What the preview of a building tool draws on each tile of the footprint under the pointer, and what it says. */
+export interface SitePreview {
+  readonly footprint: { readonly x0: number; readonly y0: number; readonly side: number };
+  readonly tiles: readonly number[];
+  readonly kinds: readonly Preview[];
+  readonly line: string;
+  readonly refused: boolean;
+}
+
+/** The preview of a `building` anchored on the tile (x, y), by the simulation's own rules on the main thread's copy of the orders. */
+export function sitePreview(map: TileMap, orders: Orders, building: Building, x: number, y: number): SitePreview {
+  const { side } = BUILDINGS[building];
+  const x0 = footprintStart(x, side);
+  const y0 = footprintStart(y, side);
+  const refusal = siteRefusal(map, orders, building, x, y);
+  const tiles: number[] = [];
+  const kinds: Preview[] = [];
+  for (let ty = y0; ty < y0 + side; ty++) {
+    for (let tx = x0; tx < x0 + side; tx++) {
+      if (tx < 0 || ty < 0 || tx >= map.size || ty >= map.size) continue;
+      const tile = ty * map.size + tx;
+      const problem = siteTileProblem(map, orders, tile);
+      tiles.push(tile);
+      kinds.push(refusal === null ? Preview.Fits : problem || WHOLE_SITE.has(refusal) ? Preview.Blocks : Preview.Refused);
+    }
+  }
+  const line = refusal ? refusedWords(map, orders, building, x, y, refusal) : `Click to place the ${BUILDING_WORDS[building].noun} site here.`;
+  return { footprint: { x0, y0, side }, tiles, kinds, line, refused: refusal !== null };
+}
+
+/** The order a press of the main button sends, from the tile it went down on to the tile it came up on, or null when it sends none. */
+export function orderFor(tool: Tool, from: PickedTile, to: PickedTile): OrderCommand | null {
+  if ('building' in tool) return to.onMap ? { kind: 'place', building: tool.building, x: to.x, y: to.y } : null;
+  return { kind: 'markArea', order: tool.id, area: { x0: from.x, y0: from.y, x1: to.x, y1: to.y } };
+}
+
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-const DONE: Readonly<Record<ToolId, (tiles: number) => string>> = {
+const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> = {
   chop: (tiles) => `${plural(tiles, 'tree', 'trees')} marked for felling.`,
   quarry: (tiles) => `${plural(tiles, 'rock tile', 'rock tiles')} marked for quarrying.`,
   stockpile: (tiles) => `${plural(tiles, 'tile joins', 'tiles join')} the stockpile zone.`,
-  house: () => 'House site placed.',
+  house: () => `${BUILDING_WORDS[Building.House].title} site placed.`,
+  hut: () => `${BUILDING_WORDS[Building.Hut].title} site placed.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
+
+/** What the status line says of an order's outcome. A refused place command is read on the orders as they were when it was refused. */
+export function outcomeWords(map: TileMap, orders: Orders, result: OrderOutcome, sent: OrderCommand | null): string {
+  if (result.ok) return DONE[result.order](result.tiles);
+  if (sent?.kind === 'place') return refusedWords(map, orders, sent.building, sent.x, sent.y, result.refusal);
+  return REFUSALS[result.refusal]({ noun: 'site', side: 0, blocker: null });
+}
 
 const PENDING: Readonly<Record<AreaOrder, (tiles: number) => string>> = {
   chop: (tiles) => `Release to mark ${plural(tiles, 'tree', 'trees')}.`,
@@ -122,13 +218,12 @@ function toolButton(tool: Tool): HTMLButtonElement {
   node.style.setProperty('--tool-color', ORDER_COLORS[tool.id]);
   node.innerHTML =
     `<svg viewBox="0 0 24 24" aria-hidden="true">${tool.icon}</svg>` +
-    `<span class="order-tool-label">${tool.label}</span><kbd>${tool.key}</kbd>`;
+    `<span class="order-tool-label">${tool.face ?? tool.label}</span><kbd>${tool.key}</kbd>`;
   // A pointer press must not keep focus, or the next Space would press this button again instead of pausing.
   node.addEventListener('mousedown', (event) => event.preventDefault());
   return node;
 }
 
-/** A press of the main button on the map with a tool: a drag for an area tool, a click for House. */
 const ROVING_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
   ArrowDown: (at, count) => (at + 1) % count,
   ArrowUp: (at, count) => (at + count - 1) % count,
@@ -200,8 +295,10 @@ export function mountOrders(
   let hovered: PickedTile | null = null;
   /** Where the pointer rests over the map, so that the tile under it follows the camera. */
   let pointerAt: { x: number; y: number } | null = null;
-  /** The tile a house was just placed on. Its preview stays hidden until the pointer moves on, so the new site shows. */
+  /** The tile a building was just placed on. Its preview stays hidden until the pointer moves on, so the new site shows. */
   let placed: PickedTile | null = null;
+  /** The last order sent, so the status line can say why a building was refused where it was aimed. */
+  let sent: OrderCommand | null = null;
   let outcome: { text: string; refused: boolean; until: number } | null = null;
   let outcomeTimer = 0;
   const tiles: number[] = [];
@@ -222,9 +319,11 @@ export function mountOrders(
     kinds.length = 0;
     let line = tool?.hint ?? '';
     let refused = false;
-    const drag = gesture && gesture.tool.id !== 'house' ? gesture : null;
+    const drag = gesture && placing(gesture.tool) === null ? gesture : null;
     const color = tool ? ORDER_COLORS[tool.id] : ORDER_COLORS.chop;
-    if (tool && tool.id !== 'house' && (drag || hovered)) {
+    const building = placing(tool);
+    const site = building !== null && hovered?.onMap && !sameTile(placed, hovered) ? sitePreview(map, orders, building, hovered.x, hovered.y) : null;
+    if (tool && !('building' in tool) && (drag || hovered)) {
       const corners = drag ? area(drag.from, drag.to) : area(hovered!, hovered!);
       const kind = tool.id === 'cancel' ? Preview.Remove : Preview.Mark;
       const count = areaEffect(map, orders, tool.id, corners, (tile) => {
@@ -233,27 +332,16 @@ export function mountOrders(
       });
       if (drag) line = PENDING[tool.id](count);
       marks.showArea(corners, color);
-    } else if (tool?.id === 'house' && hovered?.onMap && !sameTile(placed, hovered)) {
-      const refusal = siteRefusal(map, orders, hovered.x, hovered.y);
-      for (let y = hovered.y - 1; y <= hovered.y + 1; y++) {
-        for (let x = hovered.x - 1; x <= hovered.x + 1; x++) {
-          if (x < 0 || y < 0 || x >= map.size || y >= map.size) continue;
-          const tile = y * map.size + x;
-          const problem = siteTileProblem(map, orders, tile);
-          tiles.push(tile);
-          kinds.push(
-            refusal === null ? Preview.Fits : problem || WHOLE_SITE.has(refusal) ? Preview.Blocks : Preview.Refused,
-          );
-        }
-      }
-      line = refusal ? `Cannot build here. ${REFUSALS[refusal]}` : 'Click to place the house site here.';
-      refused = refusal !== null;
+    } else if (site) {
+      tiles.push(...site.tiles);
+      kinds.push(...site.kinds);
+      line = site.line;
+      refused = site.refused;
       marks.showArea(null, color);
-      marks.showGhost(hovered, refusal === null);
     } else {
       marks.showArea(null, color);
     }
-    if (!(tool?.id === 'house' && hovered?.onMap && !sameTile(placed, hovered))) marks.showGhost(null, false);
+    marks.showGhost(site && site.footprint, !site?.refused);
     marks.showPreview(tiles, kinds, color);
     if (outcome && performance.now() < outcome.until && !drag) say(outcome.text, outcome.refused);
     else say(line, refused);
@@ -271,7 +359,10 @@ export function mountOrders(
   const toggle = (next: Tool) => choose(tool === next ? null : next);
   for (const candidate of TOOLS) buttons.get(candidate.id)!.addEventListener('click', () => toggle(candidate));
 
-  const send = (command: OrderCommand) => worker.postMessage(command);
+  const send = (command: OrderCommand) => {
+    sent = command;
+    worker.postMessage(command);
+  };
 
   const pickAt = (x: number, y: number) => pick(x, y, canvas.clientWidth, canvas.clientHeight);
 
@@ -311,11 +402,8 @@ export function mountOrders(
     gesture = null;
     if (!tool || pressed?.pointer !== event.pointerId || pressed.tool !== tool) return;
     const at = pickAt(event.clientX, event.clientY);
-    if (tool.id === 'house') {
-      if (at.onMap) send({ kind: 'placeHouse', x: at.x, y: at.y });
-    } else {
-      send({ kind: 'markArea', order: tool.id, area: area(pressed.from, at) });
-    }
+    const order = orderFor(tool, pressed.from, at);
+    if (order) send(order);
     hovered = at;
     preview();
   });
@@ -349,10 +437,8 @@ export function mountOrders(
     const changed = data.orders.claims.length > 0 || data.orders.sites.length > 0;
     if (data.outcome) {
       const result: OrderOutcome = data.outcome;
-      if (result.ok && result.order === 'house') placed = hovered;
-      const text = result.ok
-        ? DONE[result.order](result.tiles)
-        : `${result.order === 'house' ? 'Cannot build here. ' : ''}${REFUSALS[result.refusal]}`;
+      if (result.ok && sent?.kind === 'place') placed = hovered;
+      const text = outcomeWords(map, orders, result, sent);
       outcome = { text, refused: !result.ok, until: performance.now() + OUTCOME_MS };
       window.clearTimeout(outcomeTimer);
       outcomeTimer = window.setTimeout(preview, OUTCOME_MS);

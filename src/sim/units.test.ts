@@ -285,7 +285,7 @@ describe('the flow field', () => {
         for (let tx = x - 1; tx <= x + 1; tx++) {
           const tile = ty * size + tx;
           if (!walkable(closed, tile)) continue;
-          closed.kinds[tile] = TileKind.House;
+          closed.kinds[tile] = TileKind.Built;
           block[count++] = tile;
         }
       }
@@ -327,7 +327,7 @@ describe('the flow field', () => {
     const flow = createFlowField(pocket, at(pocket, 5, 2));
     const block = Int32Array.from({ length: 9 }, (_, i) => at(pocket, 4 + (i % 3), 6 + Math.floor(i / 3)));
     const hadWalk = tilesWhere(pocket, (tile) => flow.next[tile] !== -1);
-    for (const tile of block) pocket.kinds[tile] = TileKind.House;
+    for (const tile of block) pocket.kinds[tile] = TileKind.Built;
     closeFlowTiles(pocket, flow, block, 9);
 
     const fresh = createFlowField(pocket, flow.goal);

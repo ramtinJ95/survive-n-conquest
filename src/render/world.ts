@@ -64,7 +64,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   scene.add(goods.group);
 
   const sites = createSites(map, shapes);
-  scene.add(sites.houses, sites.scaffolds);
+  scene.add(...sites.buildings, ...sites.scaffolds);
 
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);

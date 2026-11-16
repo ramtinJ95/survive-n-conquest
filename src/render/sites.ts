@@ -10,17 +10,18 @@ import {
   RGBADepthPacking,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { HOUSE_WORK_TICKS } from '../sim/building';
+import { BUILDINGS, Building, type BuildingName, kindOf, siteMidX, siteMidY, siteX0, siteY0 } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
-import { type Shapes, colored, shapeMaterial } from './shapes';
+import { HUT_LOOK, type Shapes, colored, hutShape, shapeMaterial } from './shapes';
 
-/** A house stands on a footing of grey stone that reaches this far below its floor, past the lowest of its nine tiles. */
+/** A building stands on a footing of grey stone that reaches this far below its floor, past the lowest tile of its footprint. */
 const FOOTING = { color: 0x8d8a82, depth: 1.8, inset: 0.05 };
 
 /**
- * A site under work stands in a scaffold of poles and rails, so a house that is half up reads as building work and
- * not as a low house. The poles are the light timber of the house model, this thick, and reach this share of its height.
+ * A site under work stands in a scaffold of poles and rails around its walls, so a building that is half up reads as
+ * building work and not as a low building. The poles are the light timber of the house model, this thick, and reach
+ * this share of its height.
  */
 const SCAFFOLD = { color: 0x855637, thickness: 0.09, height: 0.85, rails: [0.45, 0.95], out: 0.1 };
 
@@ -38,15 +39,16 @@ function scaffoldGeometry(minX: number, maxX: number, minZ: number, maxZ: number
 }
 
 /**
- * The walls go up first and the roof closes last: the walls are this share of the house's height and take this share
- * of the building work. A house cut through its roof shows the flat underside of the thatch and reads as a low hut.
+ * The walls go up first and the roof closes last: the walls take this share of the building work. A house cut through
+ * its roof shows the flat underside of the thatch and reads as a low hut.
  */
-const WALLS = { height: 0.49, work: 0.8 };
+const WALLS_WORK = 0.8;
 
-function heightShareAt(workShare: number): number {
-  return workShare <= WALLS.work
-    ? (workShare / WALLS.work) * WALLS.height
-    : WALLS.height + ((workShare - WALLS.work) / (1 - WALLS.work)) * (1 - WALLS.height);
+/** The share of a building's height that stands at a share of its work, for walls that are `walls` of its height. */
+function heightShareAt(workShare: number, walls: number): number {
+  return workShare <= WALLS_WORK
+    ? (workShare / WALLS_WORK) * walls
+    : walls + ((workShare - WALLS_WORK) / (1 - WALLS_WORK)) * (1 - walls);
 }
 
 const DECLARED = 'attribute float rise;\nvarying float vOverRise;';
@@ -78,61 +80,101 @@ function instanced(name: string, geometry: BufferGeometry, material: Material): 
   return mesh;
 }
 
-/**
- * Draws every house, finished or not, as one instanced mesh, and the scaffolds
- * of the sites under work as another. A house on a site rises from its footing
- * inside its scaffold with the share of the building work done, so the
- * progress reads without the label. A finished house stands whole and without
- * a scaffold. The floor lies on the highest of the nine tiles, and the footing
- * fills the fall of the ground under it.
- */
-export function createSites(map: TileMap, shapes: Shapes) {
-  const half = map.size / 2;
+/** What a kind of building is drawn as: its shape, the box its walls stand in, and the share of its height its walls take. */
+interface Look {
+  readonly shape: BufferGeometry;
+  readonly walls: { readonly minX: number; readonly maxX: number; readonly minZ: number; readonly maxZ: number; readonly share: number };
+}
+
+/** The house model's walls are this share of its height. */
+const HOUSE_WALLS = 0.49;
+
+function looks(shapes: Shapes): Readonly<Record<Building, Look>> {
   shapes.house.computeBoundingBox();
   const { min, max } = shapes.house.boundingBox!;
-  const footing = new BoxGeometry(max.x - min.x - 2 * FOOTING.inset, FOOTING.depth, max.z - min.z - 2 * FOOTING.inset);
+  const hut = hutShape();
+  hut.computeBoundingBox();
+  const half = HUT_LOOK.side / 2;
+  const hutWalls = 2 * HUT_LOOK.log * HUT_LOOK.courses;
+  return {
+    [Building.House]: { shape: shapes.house, walls: { minX: min.x, maxX: max.x, minZ: min.z, maxZ: max.z, share: HOUSE_WALLS } },
+    [Building.Hut]: { shape: hut, walls: { minX: -half, maxX: half, minZ: -half, maxZ: half, share: hutWalls / hut.boundingBox!.max.y } },
+  };
+}
+
+/** One kind's building and scaffold meshes, and the height above which a finished one is never cut. */
+function meshesOf(name: BuildingName, { shape, walls }: Look) {
+  shape.computeBoundingBox();
+  const top = shape.boundingBox!.max.y;
+  const footing = new BoxGeometry(walls.maxX - walls.minX - 2 * FOOTING.inset, FOOTING.depth, walls.maxZ - walls.minZ - 2 * FOOTING.inset);
   const geometry = mergeGeometries([
-    shapes.house,
-    colored(footing.translate((min.x + max.x) / 2, -FOOTING.depth / 2, (min.z + max.z) / 2), FOOTING.color),
+    shape,
+    colored(footing.translate((walls.minX + walls.maxX) / 2, -FOOTING.depth / 2, (walls.minZ + walls.maxZ) / 2), FOOTING.color),
   ]);
-  const aboveTheRoof = max.y + 1;
   const rise = new InstancedBufferAttribute(new Float32Array(MAX_SITES), 1);
   geometry.setAttribute('rise', rise);
   const material = cutAboveRise(shapeMaterial());
   material.side = DoubleSide;
-  const houses = instanced('houses', geometry, material);
-  houses.customDepthMaterial = cutAboveRise(new MeshDepthMaterial({ depthPacking: RGBADepthPacking, side: DoubleSide }));
-  const scaffolds = instanced('scaffolds', scaffoldGeometry(min.x, max.x, min.z, max.z, max.y), shapeMaterial());
+  const building = instanced(`${name}s`, geometry, material);
+  building.customDepthMaterial = cutAboveRise(new MeshDepthMaterial({ depthPacking: RGBADepthPacking, side: DoubleSide }));
+  const scaffold = instanced(`${name}-scaffolds`, scaffoldGeometry(walls.minX, walls.maxX, walls.minZ, walls.maxZ, top), shapeMaterial());
+  return { building, scaffold, rise, top, walls: walls.share, count: 0, underWork: 0 };
+}
+
+/**
+ * Draws every building of each kind, finished or not, as one instanced mesh,
+ * and the scaffolds of its sites under work as another. A building on a site
+ * rises from its footing inside its scaffold with the share of the building
+ * work done, so the progress reads without the label. A finished building
+ * stands whole and without a scaffold. The floor lies on the highest tile of
+ * its footprint, and the footing fills the fall of the ground under it.
+ */
+export function createSites(map: TileMap, shapes: Shapes) {
+  const half = map.size / 2;
+  const look = looks(shapes);
+  const kinds = Object.values(Building).map((building) => meshesOf(BUILDINGS[building].name, look[building]));
   const pose = new Object3D();
 
-  /** Redraws every site and house from the orders. */
+  /** Redraws every site and building from the orders. */
   const show = (orders: Orders) => {
     const { sites } = orders;
-    let count = 0;
-    let underWork = 0;
+    for (const kind of kinds) {
+      kind.count = 0;
+      kind.underWork = 0;
+    }
     for (let slot = 0; slot < MAX_SITES; slot++) {
       const state = sites.state[slot]!;
       const work = sites.work[slot]!;
       if (state === SiteState.Free || (state === SiteState.Site && work === 0)) continue;
-      const cx = sites.x[slot]!;
-      const cy = sites.y[slot]!;
+      const kind = kinds[sites.kind[slot]!]!;
+      const { side, workTicks } = kindOf(sites, slot);
+      const x0 = siteX0(sites, slot);
+      const y0 = siteY0(sites, slot);
       let highest = -Infinity;
-      for (let y = cy - 1; y <= cy + 1; y++) {
-        for (let x = cx - 1; x <= cx + 1; x++) highest = Math.max(highest, map.heights[y * map.size + x]!);
+      for (let y = y0; y < y0 + side; y++) {
+        for (let x = x0; x < x0 + side; x++) highest = Math.max(highest, map.heights[y * map.size + x]!);
       }
-      pose.position.set(cx + 0.5 - half, highest, cy + 0.5 - half);
+      pose.position.set(siteMidX(sites, slot) - half, highest, siteMidY(sites, slot) - half);
       pose.updateMatrix();
-      houses.setMatrixAt(count, pose.matrix);
-      rise.setX(count, state === SiteState.House ? aboveTheRoof : heightShareAt(Math.min(work, HOUSE_WORK_TICKS) / HOUSE_WORK_TICKS) * max.y);
-      count++;
-      if (state === SiteState.Site) scaffolds.setMatrixAt(underWork++, pose.matrix);
+      kind.building.setMatrixAt(kind.count, pose.matrix);
+      kind.rise.setX(kind.count, state === SiteState.Built ? kind.top + 1 : heightShareAt(Math.min(work, workTicks) / workTicks, kind.walls) * kind.top);
+      kind.count++;
+      if (state === SiteState.Site) kind.scaffold.setMatrixAt(kind.underWork++, pose.matrix);
     }
-    houses.count = count;
-    houses.instanceMatrix.needsUpdate = true;
-    rise.needsUpdate = true;
-    scaffolds.count = underWork;
-    scaffolds.instanceMatrix.needsUpdate = true;
+    for (const { building, scaffold, rise, count, underWork } of kinds) {
+      building.count = count;
+      building.instanceMatrix.needsUpdate = true;
+      rise.needsUpdate = true;
+      scaffold.count = underWork;
+      scaffold.instanceMatrix.needsUpdate = true;
+    }
   };
 
-  return { houses, scaffolds, show };
+  return {
+    /** Each kind's finished and rising buildings, by `Building`. */
+    buildings: kinds.map(({ building }) => building),
+    /** Each kind's scaffolds, by `Building`. */
+    scaffolds: kinds.map(({ scaffold }) => scaffold),
+    show,
+  };
 }

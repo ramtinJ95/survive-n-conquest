@@ -1,10 +1,11 @@
+import { nearestDoor } from './building';
+import { ANYONE } from './buildings';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME } from './households';
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, foodLimit, freeFood } from './stores';
 import type { TaskKind } from './tasks';
-import { nearestDoor } from './villagers';
 
 /**
  * The units of food a household's home lacks to hold its living members'
@@ -95,4 +96,4 @@ function release(sim: Sim, id: number): void {
 const nothing = () => {};
 
 /** Carrying one unit of food from the camp to the villager's home, the most urgent kind of task. */
-export const STOCKING: TaskKind = { take, holds, work, release, refresh: nothing, reopen: nothing };
+export const STOCKING: TaskKind = { job: ANYONE, take, holds, work, release, refresh: nothing, reopen: nothing };

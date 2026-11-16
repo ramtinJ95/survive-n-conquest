@@ -1,25 +1,34 @@
+import { BUILDINGS, type Building, type BuildingName, footprintStart, kindOf, siteX0, siteY0 } from './buildings';
 import { campTile, underCamp } from './camp';
 import { TileKind, type TileMap, walkable } from './map';
 
 export const Claim = { None: 0, Chop: 1, Quarry: 2, Stockpile: 3, Site: 4 } as const;
 export type Claim = (typeof Claim)[keyof typeof Claim];
 
-/** House: a finished house. */
-export const SiteState = { Free: 0, Site: 1, House: 2 } as const;
+/** Built: a finished building. */
+export const SiteState = { Free: 0, Site: 1, Built: 2 } as const;
 export type SiteState = (typeof SiteState)[keyof typeof SiteState];
 
 export const MAX_SITES = 1024;
-/** The most that the highest of a site's nine tiles may stand above the lowest, in meters. */
+/** The most that the highest of a site's tiles may stand above the lowest, in meters. */
 export const MAX_SITE_RISE = 1.5;
 
-/** Sites and houses, one fixed-capacity table. A slot index is the site's stable id. x, y is the center tile of the 3x3. */
+/**
+ * Sites and buildings of every kind, one fixed-capacity table. A slot index is
+ * the site's stable id. x, y is the anchor tile, from which `footprintStart`
+ * finds the footprint.
+ */
 export interface Sites {
   readonly x: Int16Array;
   readonly y: Int16Array;
+  /** One `Building` for each slot. */
+  readonly kind: Uint8Array;
   readonly state: Uint8Array;
   /** Ticks of building work done on each site. Work on a cancelled site is lost. */
   readonly work: Uint16Array;
-  /** One past the highest slot ever placed, so no site or house lies at or above it. It never shrinks. */
+  /** The places of a finished workplace that the player wants filled. 0 at every other slot. */
+  readonly places: Uint8Array;
+  /** One past the highest slot ever placed, so no site or building lies at or above it. It never shrinks. */
   used: number;
 }
 
@@ -31,11 +40,11 @@ export interface Orders {
   /**
    * One Claim per tile, an array the size of the map. Chop only on tree tiles, Quarry only on rock tiles,
    * Stockpile and Site only on open ground. A tile holds at most one claim, so illegal combinations cannot
-   * be represented. Site covers both unfinished sites and finished houses; the sites table tells them apart.
+   * be represented. Site covers both unfinished sites and finished buildings; the sites table tells them apart.
    */
   readonly claims: Uint8Array;
   readonly sites: Sites;
-  /** The slot of the site or house on each tile, or -1. */
+  /** The slot of the site or building on each tile, or -1. */
   readonly siteOf: Int16Array;
   /** The tiles and site slots changed since the last `takeOrderChanges`. A refused order changes nothing and lists nothing. */
   readonly changes: {
@@ -44,7 +53,7 @@ export interface Orders {
     tileCount: number;
     readonly slots: Uint8Array;
   };
-  /** Scratch for the divide test, so placing a house allocates nothing. Not part of the orders' state. */
+  /** Scratch for the divide test, so placing a site allocates nothing. Not part of the orders' state. */
   readonly reached: Uint8Array;
   readonly queue: Int32Array;
 }
@@ -61,8 +70,8 @@ export type AreaOrder = 'chop' | 'quarry' | 'stockpile' | 'cancel';
 
 export type OrderCommand =
   | { readonly kind: 'markArea'; readonly order: AreaOrder; readonly area: TileArea }
-  // x, y is the center tile of the 3x3.
-  | { readonly kind: 'placeHouse'; readonly x: number; readonly y: number };
+  // x, y is the anchor tile: the center of a house, the top left of a hut.
+  | { readonly kind: 'place'; readonly building: Building; readonly x: number; readonly y: number };
 
 export type Refusal =
   // Area orders that would change no tile.
@@ -70,7 +79,7 @@ export type Refusal =
   | 'no-rock'
   | 'no-open-ground'
   | 'nothing-to-cancel'
-  // A tile of the house site.
+  // A tile of the site.
   | 'off-map'
   | 'water'
   | 'rock'
@@ -85,17 +94,17 @@ export type Refusal =
   | 'full';
 
 export type OrderOutcome =
-  | { readonly ok: true; readonly order: AreaOrder | 'house'; readonly tiles: number }
-  | { readonly ok: false; readonly order: AreaOrder | 'house'; readonly refusal: Refusal };
+  | { readonly ok: true; readonly order: AreaOrder | BuildingName; readonly tiles: number }
+  | { readonly ok: false; readonly order: AreaOrder | BuildingName; readonly refusal: Refusal };
 
-/** Int32 values per changed site in `OrderChanges.sites`: slot, center x, center y, state, work. */
-export const SITE_CHANGE_STRIDE = 5;
+/** Int32 values per changed site in `OrderChanges.sites`: slot, anchor x, anchor y, state, work, kind, places. */
+export const SITE_CHANGE_STRIDE = 7;
 
 /** What changed in the orders since the last frame, as the worker sends it to the main thread. */
 export interface OrderChanges {
   /** Pairs of a tile index and its claim now. */
   readonly claims: Int32Array;
-  /** Groups of `SITE_CHANGE_STRIDE`: a site slot, its center x and y, its state, and its work now. */
+  /** Groups of `SITE_CHANGE_STRIDE`: a site slot, its anchor x and y, its state, its work, its kind, and its places now. */
   readonly sites: Int32Array;
 }
 
@@ -108,8 +117,10 @@ export function createOrders(map: TileMap, camp: number = campTile(map)): Orders
     sites: {
       x: new Int16Array(MAX_SITES),
       y: new Int16Array(MAX_SITES),
+      kind: new Uint8Array(MAX_SITES),
       state: new Uint8Array(MAX_SITES),
       work: new Uint16Array(MAX_SITES),
+      places: new Uint8Array(MAX_SITES),
       used: 0,
     },
     siteOf: new Int16Array(tiles).fill(-1),
@@ -134,21 +145,26 @@ export function setClaim(orders: Orders, tile: number, value: Claim): void {
   changes.tiles[changes.tileCount++] = tile;
 }
 
-/** Points the nine tiles centered on (x, y) at `slot`, or at no site when `slot` is -1. */
-function pointNine(orders: Orders, x: number, y: number, slot: number): void {
+/** Points the footprint of a building of kind `building` anchored on (x, y) at `slot`, or at no site when `slot` is -1. */
+function pointFootprint(orders: Orders, building: Building, x: number, y: number, slot: number): void {
   const { size } = orders;
-  for (let ty = y - 1; ty <= y + 1; ty++) orders.siteOf.fill(slot, ty * size + x - 1, ty * size + x + 2);
+  const { side } = BUILDINGS[building];
+  const x0 = footprintStart(x, side);
+  const y0 = footprintStart(y, side);
+  for (let ty = y0; ty < y0 + side; ty++) orders.siteOf.fill(slot, ty * size + x0, ty * size + x0 + side);
 }
 
-/** Places a site in a free slot or frees one. Either way the slot starts with no work. */
-function setSite(orders: Orders, slot: number, x: number, y: number, state: SiteState): void {
+/** Places a site in a free slot or frees one. Either way the slot starts with no work and no places. */
+function setSite(orders: Orders, slot: number, building: Building, x: number, y: number, state: SiteState): void {
   orders.sites.x[slot] = x;
   orders.sites.y[slot] = y;
+  orders.sites.kind[slot] = building;
   orders.sites.state[slot] = state;
   orders.sites.work[slot] = 0;
+  orders.sites.places[slot] = 0;
   orders.changes.slots[slot] = 1;
   orders.sites.used = Math.max(orders.sites.used, slot + 1);
-  pointNine(orders, x, y, state === SiteState.Free ? -1 : slot);
+  pointFootprint(orders, building, x, y, state === SiteState.Free ? -1 : slot);
 }
 
 /** Sets the ticks of building work done on a site, and lists the site for `takeOrderChanges`. */
@@ -157,9 +173,15 @@ export function setSiteWork(orders: Orders, slot: number, work: number): void {
   orders.changes.slots[slot] = 1;
 }
 
-/** Turns a site whose work is done into a house. */
+/** Sets how many places of a finished workplace the player wants filled, and lists the site for `takeOrderChanges`. */
+export function setSitePlaces(orders: Orders, slot: number, places: number): void {
+  orders.sites.places[slot] = places;
+  orders.changes.slots[slot] = 1;
+}
+
+/** Turns a site whose work is done into a building. */
 export function finishSite(orders: Orders, slot: number): void {
-  orders.sites.state[slot] = SiteState.House;
+  orders.sites.state[slot] = SiteState.Built;
   orders.changes.slots[slot] = 1;
 }
 
@@ -175,9 +197,10 @@ export function clip(map: TileMap, { x0, y0, x1, y1 }: TileArea): TileArea {
 }
 
 function siteTouches(sites: Sites, slot: number, area: TileArea): boolean {
-  const x = sites.x[slot]!;
-  const y = sites.y[slot]!;
-  return x + 1 >= area.x0 && x - 1 <= area.x1 && y + 1 >= area.y0 && y - 1 <= area.y1;
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
+  const last = kindOf(sites, slot).side - 1;
+  return x0 + last >= area.x0 && x0 <= area.x1 && y0 + last >= area.y0 && y0 <= area.y1;
 }
 
 interface AreaRule {
@@ -216,8 +239,8 @@ const AREA_RULES: Record<AreaOrder, AreaRule> = {
 
 /**
  * Calls visit for each tile the area order would change, and returns the count. applyOrder uses it, and the
- * interface uses it for the drag preview. Cancel visits marked/stockpile tiles in the area and all nine tiles
- * of each unfinished site that touches the area (never a House).
+ * interface uses it for the drag preview. Cancel visits marked/stockpile tiles in the area and every tile
+ * of each unfinished site that touches the area (never a finished building).
  */
 export function areaEffect(
   map: TileMap,
@@ -243,17 +266,20 @@ export function areaEffect(
   const { sites } = orders;
   for (let slot = 0; slot < sites.used; slot++) {
     if (sites.state[slot] !== SiteState.Site || !siteTouches(sites, slot, bounds)) continue;
-    for (let y = sites.y[slot]! - 1; y <= sites.y[slot]! + 1; y++) {
-      for (let x = sites.x[slot]! - 1; x <= sites.x[slot]! + 1; x++) visit?.(y * size + x);
+    const { side } = kindOf(sites, slot);
+    const x0 = siteX0(sites, slot);
+    const y0 = siteY0(sites, slot);
+    for (let y = y0; y < y0 + side; y++) {
+      for (let x = x0; x < x0 + side; x++) visit?.(y * size + x);
     }
-    count += 9;
+    count += side * side;
   }
   return count;
 }
 
 /**
- * What stops this one tile from taking part in a house site, or null. Order: water, rock, trees, camp,
- * site (incl. house), stockpile, goods.
+ * What stops this one tile from taking part in a site, or null. Order: water, rock, trees, camp,
+ * site (incl. a finished building), stockpile, goods.
  */
 export function siteTileProblem(map: TileMap, orders: Orders, tile: number): Refusal | null {
   const kind = map.kinds[tile];
@@ -276,7 +302,7 @@ const BEFORE = 1;
 const AFTER = 2;
 
 /**
- * Marks with `bit` every tile that a walk from the camp reaches, where sites, houses, and tiles that already
+ * Marks with `bit` every tile that a walk from the camp reaches, where sites, buildings, and tiles that already
  * hold `bit` block the walk. Walks cut a corner only past two walkable tiles, so side steps reach exactly
  * what walks reach.
  */
@@ -301,28 +327,32 @@ function markReach(map: TileMap, orders: Orders, bit: number): void {
   }
 }
 
-function divides(map: TileMap, orders: Orders, x: number, y: number): boolean {
+function divides(map: TileMap, orders: Orders, x0: number, y0: number, side: number): boolean {
   const { size } = map;
   const { reached } = orders;
   reached.fill(0);
   markReach(map, orders, BEFORE);
-  // Holding only AFTER, the nine tiles block the second walk and drop out of the check below.
-  for (let ty = y - 1; ty <= y + 1; ty++) reached.fill(AFTER, ty * size + x - 1, ty * size + x + 2);
+  // Holding only AFTER, the footprint blocks the second walk and drops out of the check below.
+  for (let ty = y0; ty < y0 + side; ty++) reached.fill(AFTER, ty * size + x0, ty * size + x0 + side);
   markReach(map, orders, AFTER);
   return reached.includes(BEFORE);
 }
 
 /**
- * Why a house centered on (x, y) is refused, or null if it fits. Checks in order: off-map (any of the nine
- * outside), each tile's problem, uneven (> MAX_SITE_RISE), full (no free slot), divides.
+ * Why a building of kind `building` anchored on (x, y) is refused, or null if it fits. Checks in order:
+ * off-map (any tile of the footprint outside), each tile's problem, uneven (> MAX_SITE_RISE), full (no
+ * free slot), divides.
  */
-export function siteRefusal(map: TileMap, orders: Orders, x: number, y: number): Refusal | null {
+export function siteRefusal(map: TileMap, orders: Orders, building: Building, x: number, y: number): Refusal | null {
   const { size, heights } = map;
-  if (x < 1 || y < 1 || x > size - 2 || y > size - 2) return 'off-map';
+  const { side } = BUILDINGS[building];
+  const x0 = footprintStart(x, side);
+  const y0 = footprintStart(y, side);
+  if (x0 < 0 || y0 < 0 || x0 + side > size || y0 + side > size) return 'off-map';
   let lowest = Infinity;
   let highest = -Infinity;
-  for (let ty = y - 1; ty <= y + 1; ty++) {
-    for (let tx = x - 1; tx <= x + 1; tx++) {
+  for (let ty = y0; ty < y0 + side; ty++) {
+    for (let tx = x0; tx < x0 + side; tx++) {
       const tile = ty * size + tx;
       const problem = siteTileProblem(map, orders, tile);
       if (problem) return problem;
@@ -332,21 +362,24 @@ export function siteRefusal(map: TileMap, orders: Orders, x: number, y: number):
   }
   if (highest - lowest > MAX_SITE_RISE) return 'uneven';
   if (freeSlot(orders) < 0) return 'full';
-  if (divides(map, orders, x, y)) return 'divides';
+  if (divides(map, orders, x0, y0, side)) return 'divides';
   return null;
 }
 
 export function applyOrder(map: TileMap, orders: Orders, command: OrderCommand): OrderOutcome {
-  if (command.kind === 'placeHouse') {
-    const { x, y } = command;
-    const refusal = siteRefusal(map, orders, x, y);
-    if (refusal) return { ok: false, order: 'house', refusal };
+  if (command.kind === 'place') {
+    const { building, x, y } = command;
+    const { name, side } = BUILDINGS[building];
+    const refusal = siteRefusal(map, orders, building, x, y);
+    if (refusal) return { ok: false, order: name, refusal };
     const slot = freeSlot(orders);
-    setSite(orders, slot, x, y, SiteState.Site);
-    for (let ty = y - 1; ty <= y + 1; ty++) {
-      for (let tx = x - 1; tx <= x + 1; tx++) setClaim(orders, ty * map.size + tx, Claim.Site);
+    setSite(orders, slot, building, x, y, SiteState.Site);
+    const x0 = footprintStart(x, side);
+    const y0 = footprintStart(y, side);
+    for (let ty = y0; ty < y0 + side; ty++) {
+      for (let tx = x0; tx < x0 + side; tx++) setClaim(orders, ty * map.size + tx, Claim.Site);
     }
-    return { ok: true, order: 'house', tiles: 9 };
+    return { ok: true, order: name, tiles: side * side };
   }
 
   const { order, area } = command;
@@ -357,7 +390,7 @@ export function applyOrder(map: TileMap, orders: Orders, command: OrderCommand):
     const bounds = clip(map, area);
     for (let slot = 0; slot < orders.sites.used; slot++) {
       if (orders.sites.state[slot] === SiteState.Site && siteTouches(orders.sites, slot, bounds)) {
-        setSite(orders, slot, orders.sites.x[slot]!, orders.sites.y[slot]!, SiteState.Free);
+        setSite(orders, slot, orders.sites.kind[slot] as Building, orders.sites.x[slot]!, orders.sites.y[slot]!, SiteState.Free);
       }
     }
   }
@@ -385,6 +418,8 @@ export function takeOrderChanges(orders: Orders): OrderChanges {
     changed[at + 2] = sites.y[slot]!;
     changed[at + 3] = sites.state[slot]!;
     changed[at + 4] = sites.work[slot]!;
+    changed[at + 5] = sites.kind[slot]!;
+    changed[at + 6] = sites.places[slot]!;
     at += SITE_CHANGE_STRIDE;
     changes.slots[slot] = 0;
   }
@@ -400,7 +435,8 @@ export function applyOrderChanges(orders: Orders, { claims, sites }: OrderChange
   for (let i = 0; i < claims.length; i += 2) orders.claims[claims[i]!] = claims[i + 1]!;
   for (let i = 0; i < sites.length; i += SITE_CHANGE_STRIDE) {
     const slot = sites[i]!;
-    if (orders.sites.state[slot] !== SiteState.Free) pointNine(orders, orders.sites.x[slot]!, orders.sites.y[slot]!, -1);
+    const { x, y, kind, state } = orders.sites;
+    if (state[slot] !== SiteState.Free) pointFootprint(orders, kind[slot] as Building, x[slot]!, y[slot]!, -1);
   }
   for (let i = 0; i < sites.length; i += SITE_CHANGE_STRIDE) {
     const slot = sites[i]!;
@@ -408,7 +444,9 @@ export function applyOrderChanges(orders: Orders, { claims, sites }: OrderChange
     orders.sites.y[slot] = sites[i + 2]!;
     orders.sites.state[slot] = sites[i + 3]!;
     orders.sites.work[slot] = sites[i + 4]!;
+    orders.sites.kind[slot] = sites[i + 5]!;
+    orders.sites.places[slot] = sites[i + 6]!;
     orders.sites.used = Math.max(orders.sites.used, slot + 1);
-    if (sites[i + 3] !== SiteState.Free) pointNine(orders, sites[i + 1]!, sites[i + 2]!, slot);
+    if (sites[i + 3] !== SiteState.Free) pointFootprint(orders, sites[i + 5] as Building, sites[i + 1]!, sites[i + 2]!, slot);
   }
 }

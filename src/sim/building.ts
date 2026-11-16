@@ -1,7 +1,8 @@
-import { TICKS_PER_SECOND } from './calendar';
+import { Building, Job, MAX_SIDE, footprintStart, kindOf, siteX0, siteY0 } from './buildings';
 import { closeFlowTiles } from './flowField';
 import { GOOD_KINDS, Good, STACK_LIMIT } from './goods';
 import { moveInto } from './households';
+import { openWorkplace } from './jobs';
 import { TileKind, type TileMap } from './map';
 import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './orders';
 import { planPath } from './paths';
@@ -10,29 +11,25 @@ import type { TaskKind } from './tasks';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, nearestOpen, setOpen } from './tileSet';
 
-/** Units of each good that a house needs, at index `good - 1`: 12 logs, 6 stone, and no food. */
-export const HOUSE_NEEDS: readonly number[] = [12, 6, 0];
-/** Ticks of building work that finish a house once its last unit has arrived, shared by its builders. */
-export const HOUSE_WORK_TICKS = 90 * TICKS_PER_SECOND;
 /** Villagers that build one site at a time, one on each corner tile. */
 export const MAX_BUILDERS = 4;
 
 /**
  * What villagers have taken on at each site, by slot. What has arrived at a
- * site is never counted here: it is the stacks on the site's nine tiles.
+ * site is never counted here: it is the stacks on the site's tiles.
  */
 export interface SiteTasks {
   /** Units on their way to each site, at `slot * GOOD_KINDS + good - 1`. */
   readonly inbound: Uint8Array;
   /** Villagers that hold building work at each site. */
   readonly builders: Uint8Array;
-  /** Bit `1 << corner` is set where a builder holds that corner tile. Corner 1 is right of the center, 2 below it, and 3 both. */
+  /** Bit `1 << corner` is set where a builder holds that corner tile of the footprint. Corner 0 is its top left, 1 its top right, 2 its bottom left, and 3 its bottom right. */
   readonly corners: Uint8Array;
   /** 1 where a site's building work is set aside as out of reach, until dawn or until land gains walks. */
   readonly setAside: Uint8Array;
-  /** The center tiles of the sites whose building work is open: every unit arrived, a corner free, reached, and not set aside. */
+  /** The anchor tiles of the sites whose building work is open: every unit arrived, a corner free, reached, and not set aside. */
   readonly building: TileSet;
-  /** Scratch for `finishHouse`: the nine tiles of the house. */
+  /** Scratch for `finishBuilding`: the tiles of the building. */
   readonly closing: Int32Array;
 }
 
@@ -43,40 +40,52 @@ export function createSiteTasks(size: number): SiteTasks {
     corners: new Uint8Array(MAX_SITES),
     setAside: new Uint8Array(MAX_SITES),
     building: createTileSet(size),
-    closing: new Int32Array(9),
+    closing: new Int32Array(MAX_SIDE * MAX_SIDE),
   };
 }
 
-/** One of a site's nine tiles, counted from 0 at its top left to 8 at its bottom right, row by row. */
-function siteTile(orders: Orders, slot: number, index: number): number {
-  const { size, sites } = orders;
-  const row = (index / 3) | 0;
-  return (sites.y[slot]! - 1 + row) * size + sites.x[slot]! - 1 + index - row * 3;
+/** The tiles of a site's footprint. */
+function siteTiles(orders: Orders, slot: number): number {
+  const { side } = kindOf(orders.sites, slot);
+  return side * side;
 }
 
-export function siteCenter(orders: Orders, slot: number): number {
+/** One of a site's tiles, counted from 0 at its top left to `siteTiles - 1` at its bottom right, row by row. */
+function siteTile(orders: Orders, slot: number, index: number): number {
+  const { size, sites } = orders;
+  const { side } = kindOf(sites, slot);
+  const row = (index / side) | 0;
+  return (siteY0(sites, slot) + row) * size + siteX0(sites, slot) + index - row * side;
+}
+
+/** The anchor tile of a site, which stands for the site in its open building work and in the tasks that go to it. */
+export function siteAnchor(orders: Orders, slot: number): number {
   return orders.sites.y[slot]! * orders.size + orders.sites.x[slot]!;
 }
 
-/** Units of `good` that have arrived at a site: the stacks of that good on its nine tiles. */
+/** Units of `good` that have arrived at a site: the stacks of that good on its tiles. */
 export function arrived(map: TileMap, orders: Orders, slot: number, good: Good): number {
+  const { size, sites } = orders;
+  const { side } = kindOf(sites, slot);
+  const x0 = footprintStart(sites.x[slot]!, side);
+  const y0 = footprintStart(sites.y[slot]!, side);
   let units = 0;
-  for (let index = 0; index < 9; index++) {
-    const tile = siteTile(orders, slot, index);
-    if (map.stackGood[tile] === good) units += map.stackSize[tile]!;
+  for (let row = y0 * size + x0, end = row + side * size; row < end; row += size) {
+    for (let tile = row; tile < row + side; tile++) if (map.stackGood[tile] === good) units += map.stackSize[tile]!;
   }
   return units;
 }
 
 /** Units of `good` that a site still lacks and that are not on their way to it. */
 export function lacking(sim: Sim, slot: number, good: Good): number {
-  const needs = HOUSE_NEEDS[good - 1]!;
+  const needs = kindOf(sim.orders.sites, slot).needs[good - 1]!;
   return needs - arrived(sim.map, sim.orders, slot, good) - sim.siteTasks.inbound[slot * GOOD_KINDS + good - 1]!;
 }
 
 function allArrived(sim: Sim, slot: number): boolean {
+  const { needs } = kindOf(sim.orders.sites, slot);
   for (let index = 0; index < GOOD_KINDS; index++) {
-    if (arrived(sim.map, sim.orders, slot, (index + 1) as Good) < HOUSE_NEEDS[index]!) return false;
+    if (arrived(sim.map, sim.orders, slot, (index + 1) as Good) < needs[index]!) return false;
   }
   return true;
 }
@@ -84,14 +93,14 @@ function allArrived(sim: Sim, slot: number): boolean {
 /** Brings a site's place in the open building work up to date. */
 function refreshSite(sim: Sim, slot: number): void {
   const { orders, siteTasks } = sim;
-  const center = siteCenter(orders, slot);
+  const anchor = siteAnchor(orders, slot);
   const open =
     orders.sites.state[slot] === SiteState.Site &&
-    sim.flow.next[center] !== -1 &&
+    sim.flow.next[anchor] !== -1 &&
     siteTasks.builders[slot]! < MAX_BUILDERS &&
     siteTasks.setAside[slot] === 0 &&
     allArrived(sim, slot);
-  setOpen(siteTasks.building, orders.size, center, open);
+  setOpen(siteTasks.building, orders.size, anchor, open);
 }
 
 /** Starts a newly placed site with nothing on its way and no builders. */
@@ -107,12 +116,13 @@ export function resetSite(sim: Sim, slot: number): void {
 /**
  * Stacks a unit that arrived on the site's own tiles. Logs fill them in row
  * order from the top left and stone from the bottom right, one good to a
- * stack. A house needs fewer units than nine stacks hold, so a unit always fits.
+ * stack. Every kind needs fewer units than its tiles' stacks hold, so a unit always fits.
  */
 export function deliver(sim: Sim, slot: number, good: Good): void {
   const { map, orders } = sim;
-  for (let step = 0; step < 9; step++) {
-    const tile = siteTile(orders, slot, good === Good.Stone ? 8 - step : step);
+  const tiles = siteTiles(orders, slot);
+  for (let step = 0; step < tiles; step++) {
+    const tile = siteTile(orders, slot, good === Good.Stone ? tiles - 1 - step : step);
     const size = map.stackSize[tile]!;
     if (size > 0 && (map.stackGood[tile] !== good || size === STACK_LIMIT)) continue;
     map.stackGood[tile] = good;
@@ -125,35 +135,71 @@ export function deliver(sim: Sim, slot: number, good: Good): void {
 }
 
 /**
- * Turns a site whose work is done into a house, and the home of a household
- * that has none. Its materials are used up, its nine tiles stop walkers, and
- * the routes are brought up to date in place. The villagers leave the land it
- * closed once the work that finished it ends.
+ * Turns a site whose work is done into a building. Its materials are used up,
+ * its tiles stop walkers, and the routes are brought up to date in place. The
+ * villagers leave the land it closed once the work that finished it ends. A
+ * house becomes the home of a household that has none, and a workplace asks
+ * for all its places and fills them.
  */
-export function finishHouse(sim: Sim, slot: number): void {
+export function finishBuilding(sim: Sim, slot: number): void {
   const { map, orders, siteTasks } = sim;
-  for (let index = 0; index < 9; index++) {
+  const tiles = siteTiles(orders, slot);
+  for (let index = 0; index < tiles; index++) {
     const tile = siteTile(orders, slot, index);
     map.stackGood[tile] = Good.None;
     map.stackSize[tile] = 0;
-    map.kinds[tile] = TileKind.House;
+    map.kinds[tile] = TileKind.Built;
     noteTileChange(sim, tile);
     siteTasks.closing[index] = tile;
   }
   finishSite(orders, slot);
-  moveInto(sim.households, slot);
-  closeFlowTiles(map, sim.flow, siteTasks.closing, 9);
+  if (orders.sites.kind[slot] === Building.House) moveInto(sim.households, slot);
+  closeFlowTiles(map, sim.flow, siteTasks.closing, tiles);
   sim.tally.built += 1;
   refreshSite(sim, slot);
+  if (kindOf(orders.sites, slot).places > 0) openWorkplace(sim, slot);
+}
+
+/**
+ * The tile beside one of the building's tiles, sharing a side with it, that
+ * has a walk to the camp and lies nearest a point in a straight line, or -1.
+ * Equally near tiles go to the lowest.
+ */
+export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
+  const { size } = sim.map;
+  const { sites } = sim.orders;
+  const { side } = kindOf(sites, slot);
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let dy = -1; dy <= side; dy++) {
+    for (let dx = -1; dx <= side; dx++) {
+      if ((dx === -1 || dx === side) === (dy === -1 || dy === side)) continue;
+      const x = x0 + dx;
+      const y = y0 + dy;
+      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
+      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
+      if (distance < bestDistance) {
+        best = y * size + x;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
 }
 
 function cornerTile(orders: Orders, slot: number, corner: number): number {
-  return siteCenter(orders, slot) + (corner & 1 ? 1 : -1) + (corner & 2 ? orders.size : -orders.size);
+  const { sites, size } = orders;
+  const last = kindOf(sites, slot).side - 1;
+  return (siteY0(sites, slot) + (corner & 2 ? last : 0)) * size + siteX0(sites, slot) + (corner & 1 ? last : 0);
 }
 
-/** The corner a builder on `tile` holds at the site centered on `center`. */
-function cornerAt(size: number, center: number, tile: number): number {
-  return (tile % size > center % size ? 1 : 0) | (tile > center ? 2 : 0);
+/** The corner a builder on `tile`, one of the site's corner tiles, holds. */
+function cornerAt(orders: Orders, slot: number, tile: number): number {
+  const { sites, size } = orders;
+  const x = tile % size;
+  return (x > siteX0(sites, slot) ? 1 : 0) | ((tile - x) / size > siteY0(sites, slot) ? 2 : 0);
 }
 
 /** The free corner tile of a site nearest a point in a straight line. Equally near corners go to the lowest tile. */
@@ -197,18 +243,18 @@ function take(sim: Sim, id: number): boolean {
   const px = villagers.x[id]!;
   const py = villagers.y[id]!;
   for (;;) {
-    const center = nearestOpen(siteTasks.building, orders.size, px, py);
-    if (center < 0) return false;
-    const slot = orders.siteOf[center]!;
+    const anchor = nearestOpen(siteTasks.building, orders.size, px, py);
+    if (anchor < 0) return false;
+    const slot = orders.siteOf[anchor]!;
     const corner = nearestFreeCorner(sim, slot, px, py);
     if (!planPath(sim, id, corner)) {
       setAside(sim, slot);
       continue;
     }
     siteTasks.builders[slot]! += 1;
-    siteTasks.corners[slot]! |= 1 << cornerAt(orders.size, center, corner);
+    siteTasks.corners[slot]! |= 1 << cornerAt(orders, slot, corner);
     refreshSite(sim, slot);
-    villagers.taskTile[id] = center;
+    villagers.taskTile[id] = anchor;
     villagers.workTile[id] = corner;
     return true;
   }
@@ -220,14 +266,14 @@ function holds(sim: Sim, id: number): boolean {
   return slot >= 0 && sim.orders.sites.state[slot] === SiteState.Site;
 }
 
-/** One tick of building work. The tick that completes it finishes the house. */
+/** One tick of building work. The tick that completes it finishes the building. */
 function work(sim: Sim, id: number): boolean {
   const { orders } = sim;
   const slot = orders.siteOf[sim.villagers.taskTile[id]!]!;
   const done = orders.sites.work[slot]! + 1;
   setSiteWork(orders, slot, done);
-  if (done < HOUSE_WORK_TICKS) return false;
-  finishHouse(sim, slot);
+  if (done < kindOf(orders.sites, slot).workTicks) return false;
+  finishBuilding(sim, slot);
   return true;
 }
 
@@ -235,10 +281,9 @@ function work(sim: Sim, id: number): boolean {
 function release(sim: Sim, id: number): void {
   const { villagers, orders, siteTasks } = sim;
   if (!holds(sim, id)) return;
-  const center = villagers.taskTile[id]!;
-  const slot = orders.siteOf[center]!;
+  const slot = orders.siteOf[villagers.taskTile[id]!]!;
   siteTasks.builders[slot]! -= 1;
-  siteTasks.corners[slot]! &= ~(1 << cornerAt(orders.size, center, villagers.workTile[id]!));
+  siteTasks.corners[slot]! &= ~(1 << cornerAt(orders, slot, villagers.workTile[id]!));
   refreshSite(sim, slot);
 }
 
@@ -249,4 +294,4 @@ function refresh(sim: Sim, tile: number): void {
 }
 
 /** Building work at a site that has all its materials, the most urgent kind of task after stocking a home. */
-export const BUILDING: TaskKind = { take, holds, work, release, refresh, reopen };
+export const BUILDING: TaskKind = { job: Job.None, take, holds, work, release, refresh, reopen };

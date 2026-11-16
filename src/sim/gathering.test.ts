@@ -8,7 +8,8 @@ import { type Command, type Sim, applyCommand, createSim, step } from './sim';
 import { endTask, takeTask } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
-import { VillagerState, WANDER_REACH } from './villagers';
+import { WANDER_REACH } from './villagers';
+import { VillagerState } from './villagerState';
 
 const mark = (order: AreaOrder, x0: number, y0: number, x1 = x0, y1 = y0): OrderCommand => ({
   kind: 'markArea',

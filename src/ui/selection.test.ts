@@ -1,51 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING, HOUSE_WORK_TICKS, finishHouse } from '../sim/building';
-import { TICKS_PER_DAY } from '../sim/calendar';
+import { frameOf } from '../frame';
+import { BUILDING, finishBuilding } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
+import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
+import { isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
+import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
 import { TileKind } from '../sim/map';
-import { Sex } from '../sim/names';
+import { Sex, nameOf } from '../sim/names';
 import { SiteState, applyOrder, createOrders } from '../sim/orders';
 import { type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
 import { CAMP_STORE, STORES } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
-import { NO_TASK, TASK_KINDS, type TaskKind } from '../sim/tasks';
+import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { at, mapFrom } from '../sim/testMaps';
-import { VillagerState, die } from '../sim/villagers';
-import { type Facts, type Panels, type Selection, keepSelection, markPlace, readPanel } from './selection';
+import { die } from '../sim/villagers';
+import { NO_TASK, VillagerState } from '../sim/villagerState';
+import { type Facts, type Selection, keepSelection, markPlace, readPanel } from './selection';
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
 
-/** The facts the main thread holds about a simulation, with the frame built from its villager columns as the worker publishes them. */
+/** The facts the main thread holds about a simulation, with the frame the worker would post. */
 function factsOf(sim: Sim): Facts {
-  const { x, y, carried, state, task: tasks, taskTile, name, sex, household, missedMeals } = sim.villagers;
-  const villagers = new Float32Array(x.length * 2);
-  for (let id = 0; id < x.length; id++) {
-    villagers[id * 2] = x[id]!;
-    villagers[id * 2 + 1] = y[id]!;
-  }
-  return {
-    map: sim.map,
-    orders: sim.orders,
-    camp: sim.camp,
-    frame: {
-      villagers,
-      carried: carried.slice(),
-      states: state.slice(),
-      tasks: tasks.slice(),
-      taskTiles: taskTile.slice(),
-      names: name.slice(),
-      sexes: sex.slice(),
-      households: household.slice(),
-      homes: sim.households.home.slice(),
-      missedMeals: missedMeals.slice(),
-      storeFood: sim.stores.food.slice(),
-      campFoodLimit: sim.stores.campLimit,
-    },
-  };
+  return { map: sim.map, orders: sim.orders, camp: sim.camp, frame: frameOf(sim).frame };
 }
 
 const settler = (facts: Facts, id: number) => readPanel({ kind: 'villager', id }, facts).rows.find((row) => row.label === 'Doing')!.value;
@@ -67,7 +48,7 @@ function settlement(seed = 3, villagers = 8): Sim {
   applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: 3, y0: 3, x1: 4, y1: 4 } });
   applyCommand(sim, { kind: 'markArea', order: 'quarry', area: { x0: 20, y0: 3, x1: 20, y1: 4 } });
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 18, y0: 18, x1: 20, y1: 20 } });
-  expect(applyCommand(sim, { kind: 'placeHouse', x: 12, y: 6 })).toMatchObject({ ok: true });
+  expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 12, y: 6 })).toMatchObject({ ok: true });
   return sim;
 }
 
@@ -136,18 +117,23 @@ describe("a settler's panel", () => {
       orders: createOrders(map, at(map, 6, 6)),
       camp: at(map, 6, 6),
       frame: {
+        tick: 0,
         villagers: Float32Array.of(3.5, 3.5),
         carried: Uint8Array.of(carried),
         states: Uint8Array.of(state),
         tasks: Uint8Array.of(taskValue),
         taskTiles: Int32Array.of(at(map, 2, 2)),
+        destinations: Int32Array.of(-1),
         names: Uint16Array.of(0),
         sexes: Uint8Array.of(Sex.Man),
         households: Int16Array.of(0),
         homes: Int16Array.of(NO_HOME),
+        workplaces: Int16Array.of(-1),
+        hired: Uint32Array.of(0),
         missedMeals: Uint8Array.of(0),
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
+        campFoodInbound: 0,
       },
     });
     const panel = (state: number, taskValue: number, carried: Good) => readPanel({ kind: 'villager', id: 0 }, facts(state, taskValue, carried));
@@ -163,6 +149,7 @@ describe("a settler's panel", () => {
       rows: [
         { label: 'Doing', value: 'Carrying a log to the stockpile' },
         { label: 'Carries', value: '1 log' },
+        { label: 'Job', value: 'None' },
         { label: 'Sex', value: 'Man' },
         { label: 'Household', value: 'Household 1' },
         { label: 'Home', value: 'None, sleeps at the camp' },
@@ -182,12 +169,12 @@ describe("a settler's panel", () => {
     const rows = (id: number) => Object.fromEntries(panel(id).rows.slice(2).map(({ label, value }) => [label, value]));
 
     expect(panel(0).title).toBe('Merek');
-    expect(rows(0)).toEqual({ Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
+    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
     expect(panel(1).title).toBe('Elsi');
-    expect(rows(1)).toEqual({ Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
+    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
     expect(rows(2)).toMatchObject({ Sex: 'Man', Household: `Household 2, with ${panel(3).title}` });
 
-    while (sim.orders.sites.state[0] !== SiteState.House) step(sim);
+    while (sim.orders.sites.state[0] !== SiteState.Built) step(sim);
     expect(rows(0).Home).toBe('A house');
     expect(rows(1).Home).toBe('A house');
     expect(rows(2).Home).toBe('None, sleeps at the camp');
@@ -234,26 +221,165 @@ describe("a settler's panel", () => {
   });
 });
 
+/**
+ * Four settlers of seed 7 at the camp of an open map, a grove east of it, and
+ * a forager's hut between them, finished at once, so its two places are
+ * filled by the settlers nearest it.
+ */
+function hutSettlement(campFood?: number): { sim: Sim; slot: number } {
+  const rows = Array.from({ length: 32 }, (_, y) => Array.from({ length: 32 }, (_, x) => (x >= 22 && x <= 28 && y >= 6 && y <= 26 ? 'T' : '.')).join(''));
+  const sim = createSim(mapFrom(rows, SEED), { villagers: 4, monsters: 0, ...(campFood === undefined ? {} : { campFood }) });
+  const x = (sim.camp % sim.map.size) + 4;
+  const y = Math.floor(sim.camp / sim.map.size);
+  expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })).toMatchObject({ ok: true });
+  const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
+  finishBuilding(sim, slot);
+  return { sim, slot };
+}
+
+/** The settlers that work at a slot, in the order they took their places. */
+const workersOf = (sim: Sim, slot: number) =>
+  [...sim.villagers.workplace.keys()].filter((id) => sim.villagers.workplace[id] === slot).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!);
+
+const nameOfId = (sim: Sim, id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+
+describe("a forager's hut's panel", () => {
+  it('says what the hut does, names its two foragers in the order they came, and reads both its places filled', () => {
+    const { sim, slot } = hutSettlement();
+    const [first, second] = workersOf(sim, slot);
+    const hut: Selection = { kind: 'building', slot, anchor: sim.orders.sites.y[slot]! * sim.map.size + sim.orders.sites.x[slot]! };
+    expect(readPanel(hut, factsOf(sim))).toMatchObject({
+      kind: 'hut',
+      title: "Forager's hut",
+      note: 'Its foragers pick food in the forest within 20 tiles and carry it to the camp.',
+      rows: [
+        { label: 'Foragers', value: `${nameOfId(sim, first!)} and ${nameOfId(sim, second!)}` },
+        {
+          label: 'Places',
+          value: '2 of 2',
+          buttons: [
+            { text: '−', name: 'Fewer places', disabled: false },
+            { text: '+', name: 'More places', disabled: true },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('sends one place fewer and one more with its buttons, frees the forager that came last, and stops at either end', () => {
+    const { sim, slot } = hutSettlement();
+    const [first, second] = workersOf(sim, slot);
+    const hut: Selection = { kind: 'building', slot, anchor: sim.orders.sites.y[slot]! * sim.map.size + sim.orders.sites.x[slot]! };
+    const rows = () => readPanel(hut, factsOf(sim)).rows;
+    const press = (name: string) => {
+      const button = rows()[1]!.buttons!.find((candidate) => candidate.name === name)!;
+      expect(button.disabled, name).toBe(false);
+      const command = button.press();
+      applyCommand(sim, command);
+      return command;
+    };
+
+    expect(press('Fewer places')).toEqual({ kind: 'setPlaces', slot, places: 1 });
+    expect(rows().map(({ value }) => value)).toEqual([nameOfId(sim, first!), '1 of 2']);
+    expect(readPanel({ kind: 'villager', id: second! }, factsOf(sim)).rows.find(({ label }) => label === 'Job')!.value).toBe('None');
+    expect(press('Fewer places')).toEqual({ kind: 'setPlaces', slot, places: 0 });
+    expect(rows()[0]!.value).toBe('Nobody');
+    expect(rows()[1]).toMatchObject({ value: '0 of 2', buttons: [{ disabled: true }, { disabled: false }] });
+    expect(press('More places')).toEqual({ kind: 'setPlaces', slot, places: 1 });
+    expect(press('More places')).toEqual({ kind: 'setPlaces', slot, places: 2 });
+    expect(rows()[1]).toMatchObject({ value: '2 of 2', buttons: [{ disabled: false }, { disabled: true }] });
+  });
+
+  it('is the panel of a hut site, with its 8 logs and no stone, until the hut is finished', () => {
+    const map = mapFrom(Array.from({ length: 16 }, () => '.'.repeat(16)));
+    const orders = createOrders(map, at(map, 12, 12));
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.Hut, x: 4, y: 4 })).toMatchObject({ ok: true });
+    const slot = orders.siteOf[at(map, 4, 4)]!;
+    const site: Selection = { kind: 'building', slot, anchor: at(map, 4, 4) };
+    const { frame } = siteFacts();
+    const facts: Facts = {
+      map,
+      orders,
+      camp: at(map, 12, 12),
+      frame: frame([4.5, 4.5, 8.5, 8.5], [task(BUILDING), task(SUPPLYING)], [at(map, 4, 4), at(map, 9, 9)], [VillagerState.Working, VillagerState.Walking]),
+    };
+    facts.frame.carried[1] = Good.Log;
+    facts.frame.destinations[1] = at(map, 4, 4);
+    expect(readPanel(site, facts)).toEqual({
+      kind: 'hutSite',
+      title: "Forager's hut site",
+      rows: [
+        { label: 'Logs', value: '0/8' },
+        { label: 'Work', value: 'Waiting for materials' },
+        { label: 'Builders', value: '1' },
+      ],
+    });
+    expect(readPanel({ kind: 'villager', id: 0 }, facts).rows[0]).toEqual({ label: 'Doing', value: "Building a forager's hut" });
+    expect(readPanel({ kind: 'villager', id: 1 }, facts).rows[0]).toEqual({ label: 'Doing', value: "Carrying a log to a forager's hut site" });
+  });
+});
+
+describe("a forager's panel", () => {
+  it('reads its job and what it does through a spring day: walking to a tree, foraging, and carrying the food to the camp', () => {
+    const { sim, slot } = hutSettlement();
+    const foragers = workersOf(sim, slot);
+    const others = [0, 1, 2, 3].filter((id) => !foragers.includes(id));
+    const row = (id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+    expect(foragers.map((id) => row(id, 'Job'))).toEqual(['Forager', 'Forager']);
+    expect(others.map((id) => row(id, 'Job'))).toEqual(['None', 'None']);
+
+    const seen = new Set<string>();
+    while (!isNight(sim.tick)) {
+      step(sim);
+      for (const id of foragers) seen.add(row(id, 'Doing'));
+    }
+    expect(seen).toEqual(new Set(['Walking to a tree to forage', 'Foraging', 'Carrying food to the camp', 'Looking for forage']));
+  });
+
+  it('says it finds nothing to forage in winter', () => {
+    const { sim, slot } = hutSettlement(200);
+    const foragers = workersOf(sim, slot);
+    while (dateAt(sim.tick).season !== 'Winter' || dateAt(sim.tick).minuteOfDay < 12 * 60) step(sim);
+    expect(foragers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, nothing grows until spring', 'Idle, nothing grows until spring']);
+  });
+
+  it('says it waits for room while the camp is full, counting the food on its way there', () => {
+    const { sim, slot } = hutSettlement(39);
+    const foragers = workersOf(sim, slot);
+    const FORAGE = task(FORAGING);
+    while (!foragers.some((id) => sim.villagers.task[id] === FORAGE)) step(sim);
+    for (let tick = 0; tick < 50; tick++) step(sim);
+    const idle = foragers.filter((id) => sim.villagers.task[id] !== FORAGE);
+    expect([sim.stores.food[CAMP_STORE], idle.length]).toEqual([39, 1]);
+    expect(settler(factsOf(sim), idle[0]!)).toBe('Idle, waiting for room at the camp');
+  });
+});
+
 function siteFacts() {
   const map = mapFrom(Array.from({ length: 16 }, () => '.'.repeat(16)));
   const camp = at(map, 12, 12);
   const orders = createOrders(map, camp);
-  expect(applyOrder(map, orders, { kind: 'placeHouse', x: 4, y: 4 })).toMatchObject({ ok: true });
+  expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 4, y: 4 })).toMatchObject({ ok: true });
   const slot = orders.siteOf[at(map, 4, 4)]!;
-  const building: Selection = { kind: 'building', slot, center: at(map, 4, 4) };
+  const building: Selection = { kind: 'building', slot, anchor: at(map, 4, 4) };
   const frame = (villagers: number[], tasks: number[], taskTiles: number[], states = tasks.map(() => VillagerState.Walking as number)) => ({
+    tick: 0,
     villagers: Float32Array.from(villagers),
     carried: new Uint8Array(tasks.length),
     states: Uint8Array.from(states),
     tasks: Uint8Array.from(tasks),
     taskTiles: Int32Array.from(taskTiles),
+    destinations: new Int32Array(tasks.length).fill(-1),
     names: new Uint16Array(tasks.length),
     sexes: new Uint8Array(tasks.length),
     households: Int16Array.from(tasks, (_, id) => id >> 1),
     homes: new Int16Array((tasks.length + 1) >> 1).fill(NO_HOME),
+    workplaces: new Int16Array(tasks.length).fill(-1),
+    hired: new Uint32Array(tasks.length),
     missedMeals: new Uint8Array(tasks.length),
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
+    campFoodInbound: 0,
   });
   return { map, camp, orders, slot, building, frame };
 }
@@ -261,16 +387,16 @@ function siteFacts() {
 describe('a building panel', () => {
   it('shows what has arrived at a site, its work, and its builders', () => {
     const { map, camp, orders, slot, building, frame } = siteFacts();
-    const center = at(map, 4, 4);
+    const anchor = at(map, 4, 4);
     const elsewhere = at(map, 9, 9);
     const facts: Facts = {
       map,
       orders,
       camp,
-      frame: frame([3.5, 3.5, 5.5, 5.5, 1.5, 1.5, 4.5, 2.5], [task(BUILDING), task(BUILDING), task(SUPPLYING), task(BUILDING)], [center, center, center, elsewhere]),
+      frame: frame([3.5, 3.5, 5.5, 5.5, 1.5, 1.5, 4.5, 2.5], [task(BUILDING), task(BUILDING), task(SUPPLYING), task(BUILDING)], [anchor, anchor, anchor, elsewhere]),
     };
     expect(readPanel(building, facts)).toEqual({
-      kind: 'site',
+      kind: 'houseSite',
       title: 'House site',
       rows: [
         { label: 'Logs', value: '0/12' },
@@ -286,14 +412,14 @@ describe('a building panel', () => {
     map.stackSize[at(map, 4, 3)] = 4;
     map.stackGood[at(map, 5, 5)] = Good.Stone;
     map.stackSize[at(map, 5, 5)] = 6;
-    orders.sites.work[slot] = HOUSE_WORK_TICKS / 2;
+    orders.sites.work[slot] = BUILDINGS[Building.House].workTicks / 2;
     expect(readPanel(building, facts).rows.slice(0, 3)).toEqual([
       { label: 'Logs', value: '12/12' },
       { label: 'Stone', value: '6/6' },
       { label: 'Work', value: '50%' },
     ]);
 
-    orders.sites.state[slot] = SiteState.House;
+    orders.sites.state[slot] = SiteState.Built;
     facts.frame.storeFood[slot] = 7;
     expect(readPanel(building, facts)).toEqual({
       kind: 'house',
@@ -308,19 +434,19 @@ describe('a building panel', () => {
 
   it("names the household that lives in a house, and nobody in a house past the last household's, by internals for the houses", () => {
     const sim = settlement(SEED, 2);
-    expect(applyCommand(sim, { kind: 'placeHouse', x: 6, y: 10 })).toMatchObject({ ok: true });
-    const household = (slot: number) => readPanel({ kind: 'building', slot, center: 0 }, factsOf(sim)).rows;
-    finishHouse(sim, 0);
-    finishHouse(sim, 1);
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 10 })).toMatchObject({ ok: true });
+    const household = (slot: number) => readPanel({ kind: 'building', slot, anchor: 0 }, factsOf(sim)).rows;
+    finishBuilding(sim, 0);
+    finishBuilding(sim, 1);
     expect(household(0)[0]).toEqual({ label: 'Household', value: 'Household 1: Merek and Elsi' });
     expect(household(1)[0]).toEqual({ label: 'Household', value: 'Nobody' });
   });
 
   it('says how much food a house and the camp hold, as the household stocks its home', () => {
     const sim = settlement(SEED, 2);
-    finishHouse(sim, 0);
+    finishBuilding(sim, 0);
     const food = (selection: Selection) => readPanel(selection, factsOf(sim)).rows.find((entry) => entry.label === 'Food')!.value;
-    const house: Selection = { kind: 'building', slot: 0, center: 0 };
+    const house: Selection = { kind: 'building', slot: 0, anchor: 0 };
     expect([food(house), food({ kind: 'camp' })]).toEqual(['0 of 16', '24 of 40']);
     while (sim.stores.food[0]! < 6) step(sim);
     expect([food(house), food({ kind: 'camp' })]).toEqual(['6 of 16', '18 of 40']);
@@ -351,38 +477,22 @@ describe('a building panel', () => {
   });
 });
 
-describe('a control', () => {
-  it('is declared in one panel entry, reads its value, and presses its buttons on the selection', () => {
-    const { map, camp, orders, frame, slot, building: house } = siteFacts();
+describe('the mark of a building', () => {
+  it("rings a house and a forager's hut over the middle of their own tiles, just clear of their corners", () => {
+    const { map, camp, orders, frame, building: house } = siteFacts();
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.Hut, x: 9, y: 4 })).toMatchObject({ ok: true });
+    const hut: Selection = { kind: 'building', slot: orders.siteOf[at(map, 9, 4)]!, anchor: at(map, 9, 4) };
     const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5], [0], [-1]) };
-    const places = new Map<number, number>();
-    const filled = (center: number) => places.get(center) ?? 0;
-    const panels: Panels = {
-      villager: { title: 'Settler', rows: [] },
-      site: { title: 'House site', rows: [] },
-      house: {
-        title: 'House',
-        rows: [
-          {
-            label: 'Places',
-            read: (_, { center }) => String(filled(center)),
-            buttons: [
-              { text: '−', name: 'Fewer places', press: (_, { center }) => places.set(center, filled(center) - 1) },
-              { text: '+', name: 'More places', press: (_, { center }) => places.set(center, filled(center) + 1) },
-            ],
-          },
-        ],
-      },
-      camp: { title: 'Camp', rows: [] },
-    };
-    orders.sites.state[slot] = SiteState.House;
 
-    const before = readPanel(house, facts, panels);
-    expect(before.rows).toMatchObject([{ label: 'Places', value: '0', buttons: [{ text: '−', name: 'Fewer places' }, { text: '+', name: 'More places' }] }]);
-    before.rows[0]!.buttons![1]!.press();
-    before.rows[0]!.buttons![1]!.press();
-    expect(readPanel(house, facts, panels).rows[0]).toMatchObject({ value: '2' });
-    expect(readPanel(house, facts).rows[0]).toEqual({ label: 'Household', value: 'Nobody' });
+    const houseRing = markPlace(house, facts)!;
+    const hutRing = markPlace(hut, facts)!;
+    expect([houseRing.x, houseRing.y]).toEqual([4.5, 4.5]);
+    expect([hutRing.x, hutRing.y]).toEqual([10, 5]);
+    const corner = (side: number) => (side / 2) * Math.SQRT2;
+    expect(houseRing.radius).toBeGreaterThan(corner(3));
+    expect(houseRing.radius).toBeLessThan(corner(3) + 0.25);
+    expect(hutRing.radius).toBeGreaterThan(corner(2));
+    expect(hutRing.radius).toBeLessThan(corner(2) + 0.25);
   });
 });
 
@@ -394,13 +504,13 @@ describe('keepSelection', () => {
     expect(applyOrder(map, orders, { kind: 'markArea', order: 'cancel', area: { x0: 4, y0: 4, x1: 4, y1: 4 } })).toMatchObject({ ok: true });
     expect(keepSelection(building, orders)).toBeNull();
 
-    expect(applyOrder(map, orders, { kind: 'placeHouse', x: 10, y: 4 })).toMatchObject({ ok: true });
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 10, y: 4 })).toMatchObject({ ok: true });
     expect(orders.siteOf[at(map, 10, 4)]).toBe(slot);
     expect(keepSelection(building, orders)).toBeNull();
 
-    const moved: Selection = { kind: 'building', slot, center: at(map, 10, 4) };
+    const moved: Selection = { kind: 'building', slot, anchor: at(map, 10, 4) };
     expect(keepSelection(moved, orders)).toBe(moved);
-    orders.sites.state[slot] = SiteState.House;
+    orders.sites.state[slot] = SiteState.Built;
     expect(keepSelection(moved, orders)).toBe(moved);
   });
 

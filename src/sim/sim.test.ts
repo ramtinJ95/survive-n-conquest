@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Building } from './buildings';
 import { TileKind } from './map';
 import { generateMap } from './mapgen';
 import { Claim, type OrderOutcome, createOrders, siteRefusal } from './orders';
@@ -41,7 +42,7 @@ function runScript(script: readonly Scheduled[], ticks: number): { sim: Sim; out
 function firstHouseSpot(): { x: number; y: number } {
   const orders = createOrders(map);
   for (let y = 1; y < map.size - 1; y++) {
-    for (let x = 1; x < map.size - 1; x++) if (siteRefusal(map, orders, x, y) === null) return { x, y };
+    for (let x = 1; x < map.size - 1; x++) if (siteRefusal(map, orders, Building.House, x, y) === null) return { x, y };
   }
   throw new Error('no house fits on the test map');
 }
@@ -51,8 +52,8 @@ const WHOLE_MAP = { x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 };
 
 const SCRIPT: readonly Scheduled[] = [
   { tick: 0, command: { kind: 'setSpeed', speed: 4 } },
-  { tick: 10, command: { kind: 'placeHouse', ...HOUSE } },
-  { tick: 10, command: { kind: 'placeHouse', ...HOUSE } },
+  { tick: 10, command: { kind: 'place', building: Building.House, ...HOUSE } },
+  { tick: 10, command: { kind: 'place', building: Building.House, ...HOUSE } },
   { tick: 20, command: { kind: 'markArea', order: 'chop', area: WHOLE_MAP } },
   { tick: 30, command: { kind: 'markArea', order: 'quarry', area: WHOLE_MAP } },
   { tick: 40, command: { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: 9, y1: 9 } } },
@@ -96,8 +97,8 @@ describe('the simulation', () => {
   it('answers an order with its outcome and a clock command with nothing', () => {
     const sim = createSim(map, NOBODY);
     expect(applyCommand(sim, { kind: 'togglePause' })).toBeUndefined();
-    expect(applyCommand(sim, { kind: 'placeHouse', ...HOUSE })).toEqual({ ok: true, order: 'house', tiles: 9 });
-    expect(applyCommand(sim, { kind: 'placeHouse', ...HOUSE })).toEqual({ ok: false, order: 'house', refusal: 'site' });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, ...HOUSE })).toEqual({ ok: true, order: 'house', tiles: 9 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, ...HOUSE })).toEqual({ ok: false, order: 'house', refusal: 'site' });
   });
 
   it('starts at the first tick, running at 1x', () => {

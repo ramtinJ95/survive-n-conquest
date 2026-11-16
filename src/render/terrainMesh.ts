@@ -42,7 +42,7 @@ const GROUND_COLOR: Record<TileKind, (palette: Palette, ground: Ground, out: Col
     out.lerpColors(palette.sand, palette.lakeBed, ramp(0, 2.2, WATER_LEVEL - height)),
   [TileKind.Bare]: (palette, { meadow, worn }, out) =>
     out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)).lerp(palette.worn, worn),
-  [TileKind.House]: (palette, { meadow, worn }, out) =>
+  [TileKind.Built]: (palette, { meadow, worn }, out) =>
     out.lerpColors(palette.bare, palette.soil, 0.25 * ramp(-0.2, 0.4, meadow)).lerp(palette.worn, worn),
 };
 

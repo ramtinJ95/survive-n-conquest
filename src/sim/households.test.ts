@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { HOUSE_WORK_TICKS, finishHouse } from './building';
+import { finishBuilding } from './building';
+import { BUILDINGS, Building } from './buildings';
 import { isDawn, isNight } from './daylight';
 import { Good } from './goods';
 import { MAX_HOUSEHOLDS, NO_HOME, createHouseholds } from './households';
@@ -9,9 +10,10 @@ import { NAMES, Sex, nameOf } from './names';
 import { type OrderCommand, SiteState, setSiteWork } from './orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { at, mapFrom } from './testMaps';
-import { THINK_GROUPS, VillagerState } from './villagers';
+import { THINK_GROUPS } from './villagers';
+import { VillagerState } from './villagerState';
 
-const house = (x: number, y: number): OrderCommand => ({ kind: 'placeHouse', x, y });
+const house = (x: number, y: number): OrderCommand => ({ kind: 'place', building: Building.House, x, y });
 const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
 
 const ROW = [5, 11, 17, 23, 29];
@@ -112,7 +114,7 @@ describe('moving into a house', () => {
     const finished: number[] = [];
     runUntil(sim, () => finished.length === ROW.length, 6000, () => {
       for (let slot = 0; slot < ROW.length; slot++) {
-        if (sim.orders.sites.state[slot] === SiteState.House && !finished.includes(slot)) finished.push(slot);
+        if (sim.orders.sites.state[slot] === SiteState.Built && !finished.includes(slot)) finished.push(slot);
       }
     });
     expect(finished).not.toEqual([0, 1, 2, 3, 4]);
@@ -122,10 +124,10 @@ describe('moving into a house', () => {
   it('gives two houses finished in one tick to the two lowest households with no home, by internals', () => {
     const sim = housesWithGoods(8);
     for (const x of ROW.slice(0, 3)) applyCommand(sim, house(x, 8));
-    finishHouse(sim, 1);
+    finishBuilding(sim, 1);
     step(sim);
-    finishHouse(sim, 2);
-    finishHouse(sim, 0);
+    finishBuilding(sim, 2);
+    finishBuilding(sim, 0);
     expect(Array.from(sim.households.home)).toEqual([1, 2, 0, NO_HOME]);
   });
 
@@ -210,7 +212,7 @@ describe('a night with homes', () => {
     for (const y of [13, 14, 15]) rows[y] = '...' + '~'.repeat(13);
     const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0 });
     expect(applyCommand(sim, house(12, 3))).toMatchObject({ ok: true });
-    finishHouse(sim, 0);
+    finishBuilding(sim, 0);
     expect(sim.households.home[0]).toBe(0);
     runUntil(sim, () => isNight(sim.tick), 2000);
     sim.villagers.x[0] = 1.5;
@@ -228,7 +230,7 @@ describe('a night with homes', () => {
     expect(applyCommand(sim, house(17, 8))).toMatchObject({ ok: true });
     runUntil(sim, () => isNight(sim.tick), 2000);
     runUntil(sim, () => ids(sim).every((id) => atCamp(sim, id)), 600);
-    finishHouse(sim, 0);
+    finishBuilding(sim, 0);
     expect(sim.households.home[0]).toBe(0);
     runUntil(sim, () => isDawn(sim.tick), 1500, () => {
       for (const id of ids(sim)) expect(atCamp(sim, id), `villager ${id} on tick ${sim.tick}`).toBe(true);
@@ -245,13 +247,13 @@ describe('a night with homes', () => {
     runUntil(sim, () => sim.orders.sites.work[0]! > 0 && !isNight(sim.tick), 3000);
     runUntil(sim, () => isNight(sim.tick + 1), 3000, () => setSiteWork(sim.orders, 0, 1));
     expect(sim.orders.sites.work[0]).toBeGreaterThan(0);
-    setSiteWork(sim.orders, 0, HOUSE_WORK_TICKS - 1);
+    setSiteWork(sim.orders, 0, BUILDINGS[Building.House].workTicks - 1);
     const built = sim.tally.built;
     const finishedAtNight = isNight(sim.tick);
     step(sim);
     expect(sim.tally.built).toBe(built + 1);
     expect(finishedAtNight).toBe(false);
-    expect(sim.orders.sites.state[0]).toBe(SiteState.House);
+    expect(sim.orders.sites.state[0]).toBe(SiteState.Built);
     const members = ids(sim).filter((id) => homeOf(sim, id) === 0);
     const others = ids(sim).filter((id) => homeOf(sim, id) !== 0);
     expect(members).toHaveLength(2);

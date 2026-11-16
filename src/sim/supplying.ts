@@ -1,4 +1,5 @@
-import { deliver, lacking, siteCenter } from './building';
+import { deliver, lacking, siteAnchor } from './building';
+import { Job, siteMidX, siteMidY } from './buildings';
 import { GOOD_KINDS, Good, pickUp, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { SiteState } from './orders';
 import { planPath } from './paths';
@@ -22,20 +23,18 @@ function wants(sim: Sim, slot: number, good: Good): boolean {
 }
 
 /**
- * The site nearest a point in a straight line that a walk from the camp
- * reaches and that wants a unit, or -1. Equally near sites go to the lowest slot.
+ * The site whose middle lies nearest a point in a straight line, among those
+ * a walk from the camp reaches at their anchor and that want a unit, or -1.
+ * Equally near sites go to the lowest slot.
  */
 function nearestSite(sim: Sim, px: number, py: number, good: Good): number {
-  const { sites, size } = sim.orders;
+  const { sites } = sim.orders;
   let best = -1;
   let bestDistance = Infinity;
   for (let slot = 0; slot < sites.used; slot++) {
-    if (sites.state[slot] !== SiteState.Site) continue;
-    const x = sites.x[slot]!;
-    const y = sites.y[slot]!;
-    if (sim.flow.next[y * size + x] === -1) continue;
-    const dx = x + 0.5 - px;
-    const dy = y + 0.5 - py;
+    if (sites.state[slot] !== SiteState.Site || sim.flow.next[siteAnchor(sim.orders, slot)] === -1) continue;
+    const dx = siteMidX(sites, slot) - px;
+    const dy = siteMidY(sites, slot) - py;
     const distance = dx * dx + dy * dy;
     if (distance >= bestDistance || !wants(sim, slot, good)) continue;
     best = slot;
@@ -45,14 +44,14 @@ function nearestSite(sim: Sim, px: number, py: number, good: Good): number {
 }
 
 /**
- * The unit nearest a site's center in a straight line among the goods it
+ * The unit nearest a site's middle in a straight line among the goods it
  * lacks, on the ground or in a stockpile, or -1. Equally near units go to the lowest tile.
  */
 function nearestUnit(sim: Sim, slot: number): number {
   const { goods } = sim;
   const { size } = sim.orders;
-  const cx = sim.orders.sites.x[slot]! + 0.5;
-  const cy = sim.orders.sites.y[slot]! + 0.5;
+  const cx = siteMidX(sim.orders.sites, slot);
+  const cy = siteMidY(sim.orders.sites, slot);
   let best = -1;
   let bestDistance = Infinity;
   for (let index = 0; index < GOOD_KINDS; index++) {
@@ -89,11 +88,11 @@ function take(sim: Sim, id: number): boolean {
   if (held !== Good.None) {
     const slot = nearestSite(sim, px, py, held);
     if (slot < 0) return false;
-    const center = siteCenter(orders, slot);
-    if (!planPath(sim, id, center)) return false;
+    const anchor = siteAnchor(orders, slot);
+    if (!planPath(sim, id, anchor)) return false;
     reserve(sim, slot, held);
-    villagers.destination[id] = center;
-    villagers.workTile[id] = center;
+    villagers.destination[id] = anchor;
+    villagers.workTile[id] = anchor;
     return true;
   }
   for (;;) {
@@ -108,7 +107,7 @@ function take(sim: Sim, id: number): boolean {
     refreshStack(sim, source);
     reserve(sim, slot, map.stackGood[source]! as Good);
     villagers.taskTile[id] = source;
-    villagers.destination[id] = siteCenter(orders, slot);
+    villagers.destination[id] = siteAnchor(orders, slot);
     villagers.workTile[id] = source;
     return true;
   }
@@ -123,15 +122,15 @@ function holds(sim: Sim, id: number): boolean {
 /** Picks the unit up and turns the villager toward the site, or delivers it there. Neither takes work ticks. */
 function work(sim: Sim, id: number): boolean {
   const { villagers, goods, orders } = sim;
-  const center = villagers.destination[id]!;
+  const anchor = villagers.destination[id]!;
   if (villagers.carried[id] === Good.None) {
     const source = villagers.taskTile[id]!;
     goods.outbound[source]! -= 1;
     villagers.carried[id] = pickUp(sim, source);
-    villagers.workTile[id] = center;
-    return !planPath(sim, id, center);
+    villagers.workTile[id] = anchor;
+    return !planPath(sim, id, anchor);
   }
-  const slot = orders.siteOf[center]!;
+  const slot = orders.siteOf[anchor]!;
   const good = villagers.carried[id]! as Good;
   sim.siteTasks.inbound[slot * GOOD_KINDS + good - 1]! -= 1;
   villagers.carried[id] = Good.None;
@@ -148,12 +147,12 @@ function work(sim: Sim, id: number): boolean {
  */
 function release(sim: Sim, id: number): void {
   const { villagers, goods } = sim;
-  const center = villagers.destination[id]!;
-  if (center < 0) return;
+  const anchor = villagers.destination[id]!;
+  if (anchor < 0) return;
   const held = villagers.carried[id]! as Good;
   const source = villagers.taskTile[id]!;
   const good = held !== Good.None ? held : (sim.map.stackGood[source]! as Good);
-  if (holds(sim, id)) sim.siteTasks.inbound[sim.orders.siteOf[center]! * GOOD_KINDS + good - 1]! -= 1;
+  if (holds(sim, id)) sim.siteTasks.inbound[sim.orders.siteOf[anchor]! * GOOD_KINDS + good - 1]! -= 1;
   if (held !== Good.None) {
     putDownHeld(sim, id);
     return;
@@ -163,4 +162,4 @@ function release(sim: Sim, id: number): void {
 }
 
 /** Carrying one unit to a site that lacks it, from the ground or from a stockpile. */
-export const SUPPLYING: TaskKind = { take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };
+export const SUPPLYING: TaskKind = { job: Job.None, take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };

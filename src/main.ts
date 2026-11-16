@@ -18,7 +18,8 @@ import { mountSelection } from './ui/selection';
 import { mountSiteLabels } from './ui/sites';
 import { mountStockpiles } from './ui/stockpiles';
 import './ui/style.css';
-import type { SimFrame, ToSim } from './worker';
+import type { SimFrame } from './frame';
+import type { ToSim } from './worker';
 
 const renderer = new WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -82,10 +83,11 @@ const selection = mountSelection(document.body, {
   camera,
   mark,
   mainButtonPans: toolbar.mainButtonPans,
+  send: (command) => sim.postMessage(command satisfies ToSim),
 });
 const stockpiles = mountStockpiles(document.body, map, orders);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);
-const news = mountNews(document.body);
+const news = mountNews(document.body, orders);
 const diedOut = mountDiedOut(document.body);
 bindCameraInput(renderer.domElement, rig, toolbar.mainButtonPans);
 sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {

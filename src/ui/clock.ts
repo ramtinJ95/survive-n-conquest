@@ -1,6 +1,6 @@
 import { dateAt } from '../sim/calendar';
 import { type Command, SPEEDS, type Speed } from '../sim/sim';
-import type { ClockSnapshot } from '../worker';
+import type { ClockSnapshot } from '../frame';
 
 const SPEED_KEYS: Readonly<Record<string, Speed>> = { Digit1: 1, Digit2: 2, Digit3: 4, Digit4: 8 };
 

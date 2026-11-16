@@ -1,29 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { frameOf } from '../frame';
+import { finishBuilding } from '../sim/building';
+import { Building } from '../sim/buildings';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
-import { SETTLERS, type Sim, createSim, step } from '../sim/sim';
+import { createOrders } from '../sim/orders';
+import { SETTLERS, type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { CAMP_STORE } from '../sim/stores';
-import { mapFrom } from '../sim/testMaps';
+import { at, mapFrom } from '../sim/testMaps';
+import { die } from '../sim/villagers';
 import { LINE_MS, createNews, listNames } from './news';
-
-/** What the main thread hears of a simulation in a frame. */
-const frameOf = (sim: Sim) => ({
-  tick: sim.tick,
-  states: sim.villagers.state.slice(),
-  missedMeals: sim.villagers.missedMeals.slice(),
-  names: sim.villagers.name.slice(),
-  sexes: sim.villagers.sex.slice(),
-});
 
 /** Runs a simulation, hearing a frame after every tick at 100 ms of wall time apiece, and keeps every line the news ever showed in its last words. */
 function listen(sim: Sim, ticks: number, each: () => void = () => {}) {
-  const news = createNews();
+  const news = createNews(sim.orders);
   const said = new Map<object, string>();
-  news.hear(frameOf(sim), 0);
+  news.hear(frameOf(sim).frame, 0);
   for (let tick = 0; tick < ticks && !sim.over; tick++) {
     step(sim);
     each();
-    news.hear(frameOf(sim), sim.tick * 100);
+    news.hear(frameOf(sim).frame, sim.tick * 100);
     for (const line of news.lines()) said.set(line, line.text);
   }
   return { news, said: [...said.values()] };
@@ -61,13 +57,14 @@ describe('the settlement news', () => {
   });
 
   it('shows at most five lines, keeps a sixth waiting until one has shown long enough, and then shows it for as long', () => {
-    const news = createNews();
+    const news = createNews(createOrders(mapFrom(Array.from({ length: 8 }, () => '.'.repeat(8)))));
     const frame = (tick: number, missedMeals: number[]) => ({
       tick,
       states: new Uint8Array(missedMeals.length),
       missedMeals: Uint8Array.from(missedMeals),
       names: Uint16Array.from(missedMeals, (_, id) => id),
       sexes: new Uint8Array(missedMeals.length),
+      workplaces: new Int16Array(missedMeals.length).fill(-1),
     });
     news.hear(frame(0, [0, 0, 0, 0, 0, 0]), 0);
     for (let id = 0; id < 6; id++) news.hear(frame(1000 * (id + 1), [0, 1, 2, 3, 4, 5].map((other) => (other <= id ? 1 : 0))), id * 1000);
@@ -80,5 +77,61 @@ describe('the settlement news', () => {
     expect(news.prune(2 * LINE_MS + 400)).toBe(false);
     expect(news.prune(2 * LINE_MS + 600)).toBe(true);
     expect(news.lines()).toHaveLength(0);
+  });
+
+  it("says who became foragers at a finished hut, who left it when its places were lowered, and who took a dead forager's place", () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 4, monsters: 0 });
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    const workers = () => [0, 1, 2, 3].filter((id) => sim.villagers.workplace[id]! >= 0).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!);
+    let slot = -1;
+    const events: number[][] = [];
+    const { said } = listen(sim, 2400, () => {
+      if (sim.tick === 100) {
+        expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x: 4, y: 4 })).toMatchObject({ ok: true });
+        slot = sim.orders.siteOf[at(sim.map, 4, 4)]!;
+        finishBuilding(sim, slot);
+        events.push(workers());
+      } else if (sim.tick === 1000) {
+        applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
+        events.push(workers());
+      } else if (sim.tick === 2000) {
+        const [dead] = workers();
+        die(sim, dead!);
+        events.push([dead!, ...workers()]);
+      }
+    });
+    const [hired, kept, [dead, heir]] = events as [number[], number[], number[]];
+    const freed = hired.find((id) => !kept.includes(id))!;
+    expect(said).toEqual([
+      `Day 1, 08:47. ${name(hired[0]!)} and ${name(hired[1]!)} became foragers.`,
+      `Day 1, 15:59. ${name(freed)} left the forager's hut.`,
+      `Day 1, 23:59. ${name(dead!)} starved.`,
+      `Day 1, 23:59. ${name(heir!)} became a forager.`,
+    ]);
+  });
+
+  it('says who left one hut and took a place at another when lowering the places moves a forager there', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0 });
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    const slots: number[] = [];
+    let moved = -1;
+    const { said } = listen(sim, 1200, () => {
+      if (sim.tick === 100) {
+        for (const [x, y] of [[4, 4], [18, 18]] as const) {
+          expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })).toMatchObject({ ok: true });
+          slots.push(sim.orders.siteOf[at(sim.map, x, y)]!);
+          finishBuilding(sim, slots.at(-1)!);
+        }
+      } else if (sim.tick === 1000) {
+        applyCommand(sim, { kind: 'setPlaces', slot: slots[0]!, places: 1 });
+        moved = [0, 1].find((id) => sim.villagers.workplace[id] === slots[1])!;
+      }
+    });
+    expect(moved).toBeGreaterThanOrEqual(0);
+    expect(said).toEqual([
+      `Day 1, 08:47. ${name(0)} and ${name(1)} became foragers.`,
+      `Day 1, 15:59. ${name(moved)} left the forager's hut.`,
+      `Day 1, 15:59. ${name(moved)} became a forager.`,
+    ]);
   });
 });

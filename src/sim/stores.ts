@@ -1,3 +1,4 @@
+import { Building } from './buildings';
 import { MAX_SITES, type Orders, SiteState } from './orders';
 
 /** The store id of the camp. Store `slot` below it is the store of the building in that site slot. */
@@ -44,13 +45,18 @@ export type StoreKind = (typeof StoreKind)[keyof typeof StoreKind];
 /** The one place that says which buildings are stores. Anything that is no store holds nothing. */
 export function storeKind(orders: Orders, store: number): StoreKind {
   if (store === CAMP_STORE) return StoreKind.Common;
-  return orders.sites.state[store] === SiteState.House ? StoreKind.Home : StoreKind.None;
+  return orders.sites.state[store] === SiteState.Built && orders.sites.kind[store] === Building.House ? StoreKind.Home : StoreKind.None;
 }
 
 /** The most food a store holds. */
 export function foodLimit(orders: Orders, stores: Stores, store: number): number {
   if (store === CAMP_STORE) return stores.campLimit;
   return storeKind(orders, store) === StoreKind.Home ? HOUSE_FOOD_LIMIT : 0;
+}
+
+/** A store that takes one more unit, counting the units on their way into it: the camp, or -1 when it is full. */
+export function storeWithRoom(orders: Orders, stores: Stores): number {
+  return stores.food[CAMP_STORE]! + stores.inbound[CAMP_STORE]! < foodLimit(orders, stores, CAMP_STORE) ? CAMP_STORE : -1;
 }
 
 /** Units in a store that no carrier has spoken for. */

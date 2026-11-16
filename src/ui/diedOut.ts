@@ -1,5 +1,5 @@
 import { dateAt } from '../sim/calendar';
-import type { SimFrame } from '../worker';
+import type { SimFrame } from '../frame';
 import './diedOut.css';
 
 /** The page's address with a new random seed and every other setting kept. */

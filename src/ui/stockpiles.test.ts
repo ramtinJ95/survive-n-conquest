@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import { SiteState, applyOrder, createOrders } from '../sim/orders';
 import { CAMP_STORE, STORES, StoreKind } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
-import { foodTotals, stockpileTotals } from './stockpiles';
+import { VillagerState } from '../sim/villagerState';
+import { foodTotals, jobCounts, stockpileTotals } from './stockpiles';
 
 const ROWS = Array.from({ length: 12 }, () => '.'.repeat(12));
 
@@ -35,16 +37,30 @@ describe('foodTotals', () => {
   it('counts the camp as one total and the houses as another, and no food in a site that is not a house', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
     const orders = createOrders(map);
-    for (const x of [2, 6]) expect(applyOrder(map, orders, { kind: 'placeHouse', x, y: 2 })).toMatchObject({ ok: true });
-    expect(applyOrder(map, orders, { kind: 'placeHouse', x: 2, y: 8 })).toMatchObject({ ok: true });
+    for (const x of [2, 6]) expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x, y: 2 })).toMatchObject({ ok: true });
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 2, y: 8 })).toMatchObject({ ok: true });
     const [first, second, site] = [at(map, 2, 2), at(map, 6, 2), at(map, 2, 8)].map((tile) => orders.siteOf[tile]!);
-    orders.sites.state[first!] = SiteState.House;
-    orders.sites.state[second!] = SiteState.House;
+    orders.sites.state[first!] = SiteState.Built;
+    orders.sites.state[second!] = SiteState.Built;
     const storeFood = new Uint16Array(STORES);
     storeFood[CAMP_STORE] = 17;
     storeFood[first!] = 6;
     storeFood[second!] = 3;
     storeFood[site!] = 5;
     expect(foodTotals(orders, storeFood)).toMatchObject({ [StoreKind.Common]: 17, [StoreKind.Home]: 9 });
+  });
+});
+
+describe('jobCounts', () => {
+  it('counts the living settlers who work at a finished hut as holding a job, and every other living one as holding none', () => {
+    const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
+    const orders = createOrders(map);
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.Hut, x: 4, y: 4 })).toMatchObject({ ok: true });
+    const hut = orders.siteOf[at(map, 4, 4)]!;
+    orders.sites.state[hut] = SiteState.Built;
+    const { Walking, Inside, Dead } = VillagerState;
+    const states = Uint8Array.of(Walking, Inside, Walking, Dead, Walking);
+    expect(jobCounts(orders, states, Int16Array.of(-1, hut, hut, -1, -1))).toEqual({ withJob: 2, withoutJob: 2 });
+    expect(jobCounts(orders, states, Int16Array.of(-1, -1, -1, -1, -1))).toEqual({ withJob: 0, withoutJob: 4 });
   });
 });

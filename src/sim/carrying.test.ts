@@ -6,9 +6,9 @@ import { tileAt } from './map';
 import { generateMap } from './mapgen';
 import { type AreaOrder, Claim, type OrderCommand } from './orders';
 import { type Command, type Sim, applyCommand, createSim, step } from './sim';
-import { NO_TASK, TASK_KINDS, endTask, takeTask } from './tasks';
+import { TASK_KINDS, endTask, takeTask } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { VillagerState } from './villagers';
+import { NO_TASK, VillagerState } from './villagerState';
 
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 

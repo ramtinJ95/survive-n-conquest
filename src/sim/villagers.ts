@@ -1,7 +1,9 @@
+import { nearestDoor } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME, loseMember } from './households';
+import { loseWorker } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
@@ -9,7 +11,8 @@ import { dine, eat, missMeal, storeOf, wanting } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
-import { NO_TASK, endTask, loseTasks, takeTask, taskKind } from './tasks';
+import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
+import { NO_TASK, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -22,18 +25,6 @@ const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
 const SPOT_CHECKS = 16;
 
-/**
- * What a villager is doing. By day it is idle near the camp, or walks its route
- * to a task and works it there. A villager whose task just ended waits where it
- * stands until it next looks for work, so it does not wander off between two
- * tasks at the same place. By night a villager whose household has a home is
- * going in: it stands until its think tick, plans its route to a door of the
- * house, walks it, and is inside until dawn, standing on the door tile. One
- * whose household has none walks the flow field to the camp center, then out
- * to its spot, where it stays until dawn. A dead villager is on the map no more.
- */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7, Dead: 8 } as const;
-export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
 const NAME_SALT = 0x2a3e_5b07;
@@ -61,7 +52,7 @@ export interface Villagers {
   readonly taskTile: Int32Array;
   /** The tile the villager stands on to work its task, or -1. A villager going in holds its door here, or -1 when it stays where it stands. */
   readonly workTile: Int32Array;
-  /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's center, or -1. */
+  /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's anchor, or -1. */
   readonly destination: Int32Array;
   /** The `Good` of the unit each villager carries, or `Good.None`. */
   readonly carried: Uint8Array;
@@ -79,6 +70,10 @@ export interface Villagers {
   readonly household: Int16Array;
   /** The meals each villager missed in a row. */
   readonly missedMeals: Uint8Array;
+  /** The site slot of the workplace where each villager holds a place, or -1. Its job is the job of that building's kind. */
+  readonly workplace: Int16Array;
+  /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
+  readonly hired: Uint32Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -151,6 +146,8 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     sex: new Uint8Array(count),
     household: new Int16Array(count),
     missedMeals: new Uint8Array(count),
+    workplace: new Int16Array(count).fill(-1),
+    hired: new Uint32Array(count),
   };
   const names = [shuffledNames(map.seed, Sex.Woman), shuffledNames(map.seed, Sex.Man)] as const;
   const campX = (camp.goal % map.size) + 0.5;
@@ -251,32 +248,6 @@ function goToCamp(sim: Sim, id: number): void {
 
 function atNight(state: number): boolean {
   return state === VillagerState.GoingToCamp || state === VillagerState.Settling || state === VillagerState.GoingIn || state === VillagerState.Inside;
-}
-
-/**
- * The tile beside one of the house's nine tiles, sharing a side with it, that
- * has a walk to the camp and lies nearest a point in a straight line, or -1.
- * Equally near tiles go to the lowest.
- */
-export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
-  const { size } = sim.map;
-  const { sites } = sim.orders;
-  let best = -1;
-  let bestDistance = Infinity;
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      if ((Math.abs(dx) === 2) === (Math.abs(dy) === 2)) continue;
-      const x = sites.x[slot]! + dx;
-      const y = sites.y[slot]! + dy;
-      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
-      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
-      if (distance < bestDistance) {
-        best = y * size + x;
-        bestDistance = distance;
-      }
-    }
-  }
-  return best;
 }
 
 /**
@@ -399,11 +370,11 @@ function stopTask(sim: Sim, id: number): void {
   villagers.targetY[id] = villagers.y[id]!;
 }
 
-/** Ends at once every task that no longer stands, as an order cancelled under it does not. */
+/** Ends at once every task that no longer stands, as one under a cancelled order or one a new job does not allow. */
 export function stopFallenTasks(sim: Sim): void {
   const { task } = sim.villagers;
   for (let id = 0; id < task.length; id++) {
-    if (task[id] !== NO_TASK && !taskKind(sim, id).holds(sim, id)) stopTask(sim, id);
+    if (task[id] !== NO_TASK && !stands(sim, id)) stopTask(sim, id);
   }
 }
 
@@ -475,7 +446,7 @@ function leaveClosedLand(sim: Sim): void {
     }
     if (villagers.task[id] === NO_TASK) continue;
     const workTile = villagers.workTile[id]!;
-    if (!taskKind(sim, id).holds(sim, id) || flow.next[workTile] === -1) stopTask(sim, id);
+    if (!stands(sim, id) || flow.next[workTile] === -1) stopTask(sim, id);
     else if ((moved || !routeStands(map, villagers, id)) && !planPath(sim, id, workTile)) stopTask(sim, id);
   }
   for (let id = 0; id < monsters.x.length; id++) standOnReach(sim, monsters.x, monsters.y, id);
@@ -484,8 +455,7 @@ function leaveClosedLand(sim: Sim): void {
 /** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */
 function doTask(sim: Sim, id: number): void {
   const { villagers } = sim;
-  const kind = taskKind(sim, id);
-  if (!kind.holds(sim, id)) {
+  if (!stands(sim, id)) {
     stopTask(sim, id);
     return;
   }
@@ -500,7 +470,7 @@ function doTask(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Working;
   // A wanting villager works at half the rate: on even ticks only.
   if (wanting(villagers, id) && (sim.tick & 1) === 1) return;
-  if (!kind.work(sim, id)) return;
+  if (!taskKind(sim, id).work(sim, id)) return;
   stopTask(sim, id);
   if (sim.flow.lostCount > 0) leaveClosedLand(sim);
 }
@@ -537,7 +507,8 @@ export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
 /**
  * Removes the villager from the map for good. It gives its task up, as a
  * cancelled one, and puts down what it carries. Its row stays, so ids and
- * households hold. When it was its household's last member, the house goes to
+ * households hold. Its place at a workplace opens to the nearest villager
+ * without a job. When it was its household's last member, the house goes to
  * the next household without one. When it was the last villager, the
  * settlement has died out.
  */
@@ -548,6 +519,7 @@ export function die(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Dead;
   sim.tally.died += 1;
   sim.living -= 1;
+  loseWorker(sim, id);
   loseMember(sim.households, villagers.household[id]!);
   if (sim.living === 0) sim.over = true;
 }

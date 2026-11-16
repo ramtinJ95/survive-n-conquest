@@ -1,8 +1,10 @@
+import { Job, jobAt } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import type { TileMap } from '../sim/map';
 import { Claim, type Orders } from '../sim/orders';
 import { StoreKind, storeKind } from '../sim/stores';
-import type { SimFrame } from '../worker';
+import { VillagerState } from '../sim/villagerState';
+import type { SimFrame } from '../frame';
 import './stockpiles.css';
 
 const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
@@ -15,11 +17,25 @@ const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[
   { kind: StoreKind.Home, label: 'Food in homes' },
 ];
 
+const JOBS_SHOWN: readonly { readonly label: string }[] = [{ label: 'Settlers with a job' }, { label: 'Settlers with no job' }];
+
 /** The food in the stores of each kind, from the food in each store by store id. */
 export function foodTotals(orders: Orders, storeFood: Uint16Array): Record<StoreKind, number> {
   const totals: Record<StoreKind, number> = { [StoreKind.None]: 0, [StoreKind.Common]: 0, [StoreKind.Home]: 0 };
   for (let store = 0; store < storeFood.length; store++) totals[storeKind(orders, store)] += storeFood[store]!;
   return totals;
+}
+
+/** How many living settlers hold a job and how many hold none, from each villager's state and workplace. */
+export function jobCounts(orders: Orders, states: Uint8Array, workplaces: Int16Array): { readonly withJob: number; readonly withoutJob: number } {
+  let withJob = 0;
+  let withoutJob = 0;
+  for (let id = 0; id < states.length; id++) {
+    if (states[id] === VillagerState.Dead) continue;
+    if (jobAt(orders.sites, workplaces[id]!) === Job.None) withoutJob++;
+    else withJob++;
+  }
+  return { withJob, withoutJob };
 }
 
 /** The units of each good on the stockpile tiles of a map. A stockpile takes no food, so food lying on one is not counted. */
@@ -34,7 +50,7 @@ export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, 
 /**
  * The panel that shows how much of each good the stockpiles hold, from the
  * main thread's copy of the map and the orders, and the food at the camp and
- * in homes, from the newest frame.
+ * in homes and the settlers with and without a job, from the newest frame.
  */
 export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders) {
   const panel = document.createElement('section');
@@ -54,6 +70,7 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
   };
   const values = SHOWN.map(row);
   const foodValues = FOOD_SHOWN.map(row);
+  const [withJob, withoutJob] = JOBS_SHOWN.map(row);
   panel.append(title, list);
   root.append(panel);
 
@@ -70,11 +87,18 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
     FOOD_SHOWN.forEach(({ kind }, index) => setText(foodValues[index]!, String(totals[kind])));
   };
 
+  const showJobs = ({ states, workplaces }: SimFrame) => {
+    const counts = jobCounts(orders, states, workplaces);
+    setText(withJob!, String(counts.withJob));
+    setText(withoutJob!, String(counts.withoutJob));
+  };
+
   return {
     /** Takes in a frame from the worker, after the world has applied its tile and order changes. */
     heard(data: SimFrame) {
       if (data.tiles.length > 0 || data.orders.claims.length > 0) show();
       showFood(data.storeFood);
+      showJobs(data);
     },
   };
 }

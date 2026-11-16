@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Building } from './buildings';
 import { TileKind, type TileMap, createTileMap } from './map';
 import { generateMap } from './mapgen';
 import {
@@ -52,12 +53,18 @@ function xy(map: TileMap, tile: number): [number, number] {
 const WHOLE = (map: TileMap): TileArea => ({ x0: 0, y0: 0, x1: map.size - 1, y1: map.size - 1 });
 const area = (x0: number, y0: number, x1 = x0, y1 = y0): TileArea => ({ x0, y0, x1, y1 });
 const mark = (order: AreaOrder, on: TileArea): OrderCommand => ({ kind: 'markArea', order, area: on });
-const house = (x: number, y: number): OrderCommand => ({ kind: 'placeHouse', x, y });
+const house = (x: number, y: number): OrderCommand => ({ kind: 'place', building: Building.House, x, y });
+const hut = (x: number, y: number): OrderCommand => ({ kind: 'place', building: Building.Hut, x, y });
 
 function nine(map: TileMap, x: number, y: number): number[] {
   const tiles: number[] = [];
   for (let ty = y - 1; ty <= y + 1; ty++) for (let tx = x - 1; tx <= x + 1; tx++) tiles.push(ty * map.size + tx);
   return tiles;
+}
+
+/** The four tiles of a hut anchored on (x, y): the anchor, the tile right of it, and the two below them. */
+function four(map: TileMap, x: number, y: number): number[] {
+  return [y * map.size + x, y * map.size + x + 1, (y + 1) * map.size + x, (y + 1) * map.size + x + 1];
 }
 
 function tilesWith(orders: Orders, claim: Claim): number[] {
@@ -74,7 +81,7 @@ function tilesWhere(map: TileMap, keep: (tile: number) => boolean): number[] {
 
 /** The first house center in the rectangle where a house fits. */
 function fit(map: TileMap, orders: Orders, x0: number, y0: number, x1: number, y1: number): [number, number] {
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (siteRefusal(map, orders, x, y) === null) return [x, y];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (siteRefusal(map, orders, Building.House, x, y) === null) return [x, y];
   throw new Error('no house fits in the rectangle');
 }
 
@@ -93,8 +100,10 @@ function stateOf({ claims, sites, siteOf }: Orders) {
     claims: claims.slice(),
     x: sites.x.slice(),
     y: sites.y.slice(),
+    kind: sites.kind.slice(),
     state: sites.state.slice(),
     work: sites.work.slice(),
+    places: sites.places.slice(),
     used: sites.used,
     siteOf: siteOf.slice(),
   };
@@ -236,8 +245,8 @@ describe('placing a house', () => {
     map.heights[5 * 20 + 5] = 1.5;
     map.heights[15 * 20 + 15] = 1.51;
     const orders = createOrders(map);
-    expect(siteRefusal(map, orders, 4, 4)).toBeNull();
-    expect(siteRefusal(map, orders, 14, 14)).toBe('uneven');
+    expect(siteRefusal(map, orders, Building.House, 4, 4)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 14, 14)).toBe('uneven');
   });
 
   type Setup = (map: TileMap, orders: Orders) => [number, number];
@@ -260,7 +269,7 @@ describe('placing a house', () => {
       'site',
       (map, orders) => {
         applyOrder(map, orders, house(4, 4));
-        orders.sites.state[slotAt(orders, 4, 4)] = SiteState.House;
+        orders.sites.state[slotAt(orders, 4, 4)] = SiteState.Built;
         return [5, 3];
       },
     ],
@@ -303,7 +312,7 @@ describe('placing a house', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
     const [x, y] = setup(map, orders);
-    expect(siteRefusal(map, orders, x, y)).toBe(refusal);
+    expect(siteRefusal(map, orders, Building.House, x, y)).toBe(refusal);
     const before = stateOf(orders);
     expect(applyOrder(map, orders, house(x, y))).toEqual({ ok: false, order: 'house', refusal });
     expect(stateOf(orders)).toEqual(before);
@@ -314,10 +323,10 @@ describe('placing a house', () => {
     paint(map, TileKind.Water, 21, 0, 23, 9);
     paint(map, TileKind.Water, 21, 11, 23, 29);
     const orders = createOrders(map);
-    expect(siteRefusal(map, orders, 19, 10)).toBe('divides');
-    expect(siteRefusal(map, orders, 25, 10)).toBe('divides');
-    expect(siteRefusal(map, orders, 4, 4)).toBeNull();
-    expect(siteRefusal(map, orders, 19, 13)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 19, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.House, 25, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.House, 4, 4)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 19, 13)).toBeNull();
   });
 
   it('counts spent rock as land: it opens a second way past a corridor, and a pocket of it must keep its walk', () => {
@@ -327,11 +336,11 @@ describe('placing a house', () => {
     paint(map, TileKind.Rock, 21, 20, 23, 20);
     paint(map, TileKind.Water, 21, 21, 23, 29);
     const orders = createOrders(map);
-    expect(siteRefusal(map, orders, 19, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.House, 19, 10)).toBe('divides');
     paint(map, TileKind.Bare, 21, 20, 23, 20);
-    expect(siteRefusal(map, orders, 19, 10)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 19, 10)).toBeNull();
     expect(applyOrder(map, orders, house(19, 10))).toMatchObject({ ok: true });
-    expect(siteRefusal(map, orders, 19, 20)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.House, 19, 20)).toBe('divides');
 
     const pocket = plainMap(24);
     paint(pocket, TileKind.Rock, 1, 1, 10, 1);
@@ -343,9 +352,9 @@ describe('placing a house', () => {
     paint(pocket, TileKind.Bare, 5, 5);
     paint(pocket, TileKind.Bare, 5, 6, 5, 7);
     const pocketOrders = createOrders(pocket);
-    expect(siteRefusal(pocket, pocketOrders, 5, 9)).toBe('divides');
+    expect(siteRefusal(pocket, pocketOrders, Building.House, 5, 9)).toBe('divides');
     paint(pocket, TileKind.Rock, 5, 5, 5, 7);
-    expect(siteRefusal(pocket, pocketOrders, 5, 9)).toBeNull();
+    expect(siteRefusal(pocket, pocketOrders, Building.House, 5, 9)).toBeNull();
   });
 
   it('is refused where it would seal a pocket, counting the sites already placed', () => {
@@ -356,14 +365,14 @@ describe('placing a house', () => {
     paint(map, TileKind.Rock, 8, 8, 10, 8);
     const orders = createOrders(map);
     expect(applyOrder(map, orders, house(3, 8))).toEqual({ ok: true, order: 'house', tiles: 9 });
-    expect(siteRefusal(map, orders, 6, 8)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.House, 6, 8)).toBe('divides');
 
-    orders.sites.state[slotAt(orders, 3, 8)] = SiteState.House;
-    expect(siteRefusal(map, orders, 6, 8)).toBe('divides');
+    orders.sites.state[slotAt(orders, 3, 8)] = SiteState.Built;
+    expect(siteRefusal(map, orders, Building.House, 6, 8)).toBe('divides');
 
     orders.sites.state[slotAt(orders, 3, 8)] = SiteState.Site;
     applyOrder(map, orders, mark('cancel', area(3, 8)));
-    expect(siteRefusal(map, orders, 6, 8)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 6, 8)).toBeNull();
   });
 
   it(`holds ${MAX_SITES} sites and refuses the next as full`, () => {
@@ -386,6 +395,123 @@ describe('placing a house', () => {
   }, 20_000);
 });
 
+describe('placing a hut', () => {
+  it('claims the four tiles from its anchor rightward and down, takes a slot, and is cancelled from any of them', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    expect(applyOrder(map, orders, hut(4, 5))).toEqual({ ok: true, order: 'hut', tiles: 4 });
+    const slot = slotAt(orders, 4, 5);
+    expect([orders.sites.kind[slot], orders.sites.state[slot]]).toEqual([Building.Hut, SiteState.Site]);
+    expect(tilesWith(orders, Claim.Site)).toEqual(four(map, 4, 5));
+    expect(tilesWhere(map, (tile) => orders.siteOf[tile] === slot)).toEqual(four(map, 4, 5));
+    expect(applyOrder(map, orders, mark('cancel', area(3, 3, 3, 8)))).toMatchObject({ ok: false, refusal: 'nothing-to-cancel' });
+    expect(applyOrder(map, orders, mark('cancel', area(5, 6)))).toEqual({ ok: true, order: 'cancel', tiles: 4 });
+    expect(tilesWhere(map, (tile) => orders.siteOf[tile] !== -1 || orders.claims[tile] !== Claim.None)).toEqual([]);
+  });
+
+  type Setup = (map: TileMap, orders: Orders) => [number, number];
+  /** Each problem lies on the bottom right tile of a hut anchored on (4, 4), or a hut is anchored so that tile meets it. */
+  const REFUSED: [string, Setup][] = [
+    ['trees', (map) => [...xy(map, forestTile(map, true, 5, 5, 5, 5))] as [number, number]],
+    [
+      'water',
+      (map) => {
+        paint(map, TileKind.Water, 5, 5);
+        return [4, 4];
+      },
+    ],
+    [
+      'rock',
+      (map) => {
+        paint(map, TileKind.Rock, 5, 5);
+        return [4, 4];
+      },
+    ],
+    [
+      'camp',
+      (map, orders) => {
+        const [x, y] = xy(map, orders.camp);
+        return [x - 1, y - 1];
+      },
+    ],
+    [
+      'site',
+      (map, orders) => {
+        applyOrder(map, orders, house(3, 3));
+        return [4, 4];
+      },
+    ],
+    [
+      'site',
+      (map, orders) => {
+        applyOrder(map, orders, hut(5, 5));
+        orders.sites.state[slotAt(orders, 5, 5)] = SiteState.Built;
+        return [4, 4];
+      },
+    ],
+    [
+      'stockpile',
+      (map, orders) => {
+        applyOrder(map, orders, mark('stockpile', area(5, 5)));
+        return [4, 4];
+      },
+    ],
+    [
+      'goods',
+      (map) => {
+        map.stackGood[5 * map.size + 5] = Good.Stone;
+        map.stackSize[5 * map.size + 5] = 1;
+        return [4, 4];
+      },
+    ],
+    [
+      'uneven',
+      (map) => {
+        map.heights[5 * map.size + 5] = 1.51;
+        return [4, 4];
+      },
+    ],
+    ['off-map', (map) => [map.size - 1, 4]],
+    ['off-map', (map) => [4, map.size - 1]],
+    ['off-map', () => [-1, 4]],
+  ];
+
+  it.each(REFUSED)('is refused with %s, by the same rules as a house', (refusal, setup) => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    const [x, y] = setup(map, orders);
+    expect(siteRefusal(map, orders, Building.Hut, x, y)).toBe(refusal);
+    const before = stateOf(orders);
+    expect(applyOrder(map, orders, hut(x, y))).toEqual({ ok: false, order: 'hut', refusal });
+    expect(stateOf(orders)).toEqual(before);
+  });
+
+  it('fits beside the same problems one tile outside its four tiles, and at the last row and column of the map', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    paint(map, TileKind.Water, 3, 4);
+    paint(map, TileKind.Rock, 6, 5);
+    forestTile(map, true, 4, 3, 4, 3);
+    applyOrder(map, orders, mark('stockpile', area(5, 6)));
+    map.heights[6 * map.size + 4] = 1.51;
+    expect(siteRefusal(map, orders, Building.Hut, 4, 4)).toBeNull();
+    expect(siteRefusal(map, orders, Building.Hut, map.size - 2, map.size - 2)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, 4, 4)).toBe('trees');
+  });
+
+  it('is refused where it would block a corridor one tile wide, and fits beside it', () => {
+    const map = plainMap(30);
+    paint(map, TileKind.Water, 21, 0, 23, 9);
+    paint(map, TileKind.Water, 21, 11, 23, 29);
+    const orders = createOrders(map);
+    expect(siteRefusal(map, orders, Building.Hut, 19, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.Hut, 19, 9)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.Hut, 24, 10)).toBe('divides');
+    expect(siteRefusal(map, orders, Building.Hut, 19, 11)).toBeNull();
+    expect(siteRefusal(map, orders, Building.Hut, 18, 9)).toBeNull();
+  });
+});
+
 describe('cancel', () => {
   it('removes marks, stockpile tiles, and unfinished sites it touches, and keeps houses', () => {
     const map = plainMap(20);
@@ -398,7 +524,7 @@ describe('cancel', () => {
     applyOrder(map, orders, house(4, 4));
     applyOrder(map, orders, house(15, 15));
     applyOrder(map, orders, house(2, 15));
-    orders.sites.state[slotAt(orders, 15, 15)] = SiteState.House;
+    orders.sites.state[slotAt(orders, 15, 15)] = SiteState.Built;
     const untouched = slotAt(orders, 2, 15);
 
     expect(applyOrder(map, orders, mark('cancel', area(5, 0, 19, 19)))).toEqual({
@@ -408,7 +534,7 @@ describe('cancel', () => {
     });
     expect(orders.claims[tree]).toBe(Claim.None);
     expect(slotAt(orders, 4, 4)).toBe(-1);
-    expect(orders.sites.state[slotAt(orders, 15, 15)]).toBe(SiteState.House);
+    expect(orders.sites.state[slotAt(orders, 15, 15)]).toBe(SiteState.Built);
     expect(orders.sites.state[untouched]).toBe(SiteState.Site);
     expect(tilesWith(orders, Claim.Site)).toEqual([...nine(map, 2, 15), ...nine(map, 15, 15)].sort((a, b) => a - b));
     expect(tilesWhere(map, (tile) => orders.claims[tile] !== Claim.None && orders.claims[tile] !== Claim.Site)).toEqual([]);
@@ -418,7 +544,7 @@ describe('cancel', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
     applyOrder(map, orders, house(15, 15));
-    orders.sites.state[slotAt(orders, 15, 15)] = SiteState.House;
+    orders.sites.state[slotAt(orders, 15, 15)] = SiteState.Built;
     const before = stateOf(orders);
     expect(applyOrder(map, orders, mark('cancel', area(10, 10, 19, 19)))).toEqual({
       ok: false,
@@ -469,6 +595,19 @@ describe('order changes', () => {
     sync();
   });
 
+  it("bring another copy to the same tiles when a hut takes a cancelled house's slot between two frames", () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    const mirror = createOrders(map);
+    applyOrder(map, orders, house(4, 4));
+    applyOrderChanges(mirror, takeOrderChanges(orders));
+    applyOrder(map, orders, mark('cancel', area(4, 4)));
+    expect(applyOrder(map, orders, hut(5, 5))).toMatchObject({ ok: true });
+    applyOrderChanges(mirror, takeOrderChanges(orders));
+    expect(stateOf(mirror)).toEqual(stateOf(orders));
+    expect(tilesWhere(map, (tile) => mirror.siteOf[tile] === 0)).toEqual(four(map, 5, 5));
+  });
+
   it('keep one past the highest slot ever placed, through a cancel, on both copies', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
@@ -491,17 +630,20 @@ describe('order changes', () => {
     expect([orders.sites.used, mirror.sites.used]).toEqual([4, 4]);
   });
 
-  it('list each changed site once as a slot, its center, its state, and its work', () => {
+  it('list each changed site once as a slot, its anchor, its state, its work, its kind, and its places', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
     applyOrder(map, orders, house(4, 4));
-    applyOrder(map, orders, house(12, 12));
-    expect(Array.from(takeOrderChanges(orders).sites)).toEqual([0, 4, 4, SiteState.Site, 0, 1, 12, 12, SiteState.Site, 0]);
+    applyOrder(map, orders, hut(12, 12));
+    expect(Array.from(takeOrderChanges(orders).sites)).toEqual([
+      0, 4, 4, SiteState.Site, 0, Building.House, 0,
+      1, 12, 12, SiteState.Site, 0, Building.Hut, 0,
+    ]);
     setSiteWork(orders, 1, 7);
     setSiteWork(orders, 1, 8);
     const { claims, sites } = takeOrderChanges(orders);
-    expect([claims.length, Array.from(sites)]).toEqual([0, [1, 12, 12, SiteState.Site, 8]]);
-    expect(SITE_CHANGE_STRIDE).toBe(5);
+    expect([claims.length, Array.from(sites)]).toEqual([0, [1, 12, 12, SiteState.Site, 8, Building.Hut, 0]]);
+    expect(SITE_CHANGE_STRIDE).toBe(7);
   });
 
   it('list nothing after a refused order', () => {
@@ -520,9 +662,9 @@ describe('the camp', () => {
     const map = plainMap(20);
     const orders = createOrders(map);
     const [x, y] = xy(map, orders.camp);
-    expect(siteRefusal(map, orders, x + 3, y)).toBe('camp');
-    expect(siteRefusal(map, orders, x + 3, y + 2)).toBe('camp');
-    expect(siteRefusal(map, orders, x + 4, y)).toBeNull();
-    expect(siteRefusal(map, orders, x + 3, y + 3)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, x + 3, y)).toBe('camp');
+    expect(siteRefusal(map, orders, Building.House, x + 3, y + 2)).toBe('camp');
+    expect(siteRefusal(map, orders, Building.House, x + 4, y)).toBeNull();
+    expect(siteRefusal(map, orders, Building.House, x + 3, y + 3)).toBeNull();
   });
 });
