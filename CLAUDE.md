@@ -68,7 +68,7 @@ Two kinds of pull request always wait for the owner.
 
 Feedback after a merge becomes a fix pull request with before and after captures.
 
-Remind the owner about `/pr-diary` once per stage, when the stage ends. This replaces the reminder on every pull request. Never run `/pr-diary` yourself.
+This project needs no `/pr-diary` reminder. Do not remind the owner about it, and never run `/pr-diary` yourself.
 
 ## Proof in every pull request
 
