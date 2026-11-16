@@ -1,0 +1,75 @@
+/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel. */
+.selection {
+  position: fixed;
+  left: var(--edge-gap);
+  bottom: calc(var(--edge-gap) + 44px);
+  width: 220px;
+  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 140px);
+  overflow: hidden;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 14px/1.5 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.selection[hidden],
+.selection [hidden] {
+  display: none;
+}
+
+.selection h2 {
+  margin: 0 24px 2px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.selection p {
+  margin: 0;
+}
+
+.selection dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 16px;
+  margin: 0;
+}
+
+.selection dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.selection button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: 16px/1 var(--ui-font);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.selection button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.selection button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
