@@ -4,7 +4,7 @@ import { Building } from '../sim/buildings';
 import { CAMP_RADIUS } from '../sim/camp';
 import { applyOrder, createOrders, SiteState } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
-import { VillagerState } from '../sim/villagers';
+import { VillagerState } from '../sim/villagerState';
 import { CAMP_LAYOUT } from './camp';
 import { CameraRig } from './cameraRig';
 import { SETTLER_HEIGHT, pickSelection } from './pickSelection';

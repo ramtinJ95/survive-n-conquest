@@ -13,9 +13,10 @@ import { type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
 import { CAMP_STORE, STORES } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
-import { NO_TASK, TASK_KINDS, type TaskKind } from '../sim/tasks';
+import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { at, mapFrom } from '../sim/testMaps';
-import { VillagerState, die } from '../sim/villagers';
+import { die } from '../sim/villagers';
+import { NO_TASK, VillagerState } from '../sim/villagerState';
 import { type Facts, type Panels, type Selection, keepSelection, markPlace, readPanel } from './selection';
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;

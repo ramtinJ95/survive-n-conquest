@@ -6,9 +6,8 @@ import { type TileArea, clip } from './orders';
 import type { Sim } from './sim';
 import { STOCKING } from './stocking';
 import { SUPPLYING } from './supplying';
+import { NO_TASK } from './villagerState';
 
-/** A villager column value for no task. Any other value is one more than the kind's index in `TASK_KINDS`. */
-export const NO_TASK = 0;
 
 /**
  * One kind of task, such as gathering. A task belongs to one villager from

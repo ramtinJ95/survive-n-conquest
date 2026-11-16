@@ -18,7 +18,7 @@ import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
-import { VillagerState } from './villagers';
+import { VillagerState } from './villagerState';
 
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const BUILD = TASK_KINDS.indexOf(BUILDING) + 1;

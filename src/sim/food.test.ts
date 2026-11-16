@@ -11,9 +11,10 @@ import { type Sex, nameOf } from './names';
 import { SETTLERS, type Sim, applyCommand, createSim, populationFor, step, ticksPerSecond } from './sim';
 import { STOCKING } from './stocking';
 import { CAMP_FOOD, CAMP_STORE } from './stores';
-import { NO_TASK, TASK_KINDS } from './tasks';
+import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { VillagerState, die } from './villagers';
+import { die } from './villagers';
+import { NO_TASK, VillagerState } from './villagerState';
 
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const GATHER = TASK_KINDS.indexOf(GATHERING) + 1;

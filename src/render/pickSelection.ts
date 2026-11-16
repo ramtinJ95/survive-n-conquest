@@ -3,7 +3,7 @@ import manifest from '../../assets/models.json';
 import { CAMP_LAYOUT } from './camp';
 import { type TileMap, heightAt } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
-import { VillagerState } from '../sim/villagers';
+import { VillagerState } from '../sim/villagerState';
 
 /** What the player can select. A building is a site or a house, by its slot in the sites table and its center tile. */
 export type Selection =

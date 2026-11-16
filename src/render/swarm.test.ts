@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Good } from '../sim/goods';
 import { heightAt } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
-import { VillagerState } from '../sim/villagers';
+import { VillagerState } from '../sim/villagerState';
 import { primitiveShapes } from './shapes';
 import { type UnitFrame, createSwarm } from './swarm';
 

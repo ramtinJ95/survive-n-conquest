@@ -1,10 +1,10 @@
+import { nearestDoor } from './building';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME } from './households';
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, foodLimit, freeFood } from './stores';
 import type { TaskKind } from './tasks';
-import { nearestDoor } from './villagers';
 
 /**
  * The units of food a household's home lacks to hold its living members'

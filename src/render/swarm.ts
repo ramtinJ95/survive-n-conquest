@@ -15,7 +15,7 @@ import { Good } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
-import { VillagerState } from '../sim/villagers';
+import { VillagerState } from '../sim/villagerState';
 import { type Shapes, colored, foodShape, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */

@@ -1,4 +1,4 @@
-import { kindOf, siteX0, siteY0 } from './buildings';
+import { nearestDoor } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
@@ -10,7 +10,8 @@ import { dine, eat, missMeal, storeOf, wanting } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
-import { NO_TASK, endTask, loseTasks, takeTask, taskKind } from './tasks';
+import { endTask, loseTasks, takeTask, taskKind } from './tasks';
+import { NO_TASK, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -23,18 +24,6 @@ const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
 const SPOT_CHECKS = 16;
 
-/**
- * What a villager is doing. By day it is idle near the camp, or walks its route
- * to a task and works it there. A villager whose task just ended waits where it
- * stands until it next looks for work, so it does not wander off between two
- * tasks at the same place. By night a villager whose household has a home is
- * going in: it stands until its think tick, plans its route to a door of the
- * house, walks it, and is inside until dawn, standing on the door tile. One
- * whose household has none walks the flow field to the camp center, then out
- * to its spot, where it stays until dawn. A dead villager is on the map no more.
- */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7, Dead: 8 } as const;
-export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
 const NAME_SALT = 0x2a3e_5b07;
@@ -252,35 +241,6 @@ function goToCamp(sim: Sim, id: number): void {
 
 function atNight(state: number): boolean {
   return state === VillagerState.GoingToCamp || state === VillagerState.Settling || state === VillagerState.GoingIn || state === VillagerState.Inside;
-}
-
-/**
- * The tile beside one of the building's tiles, sharing a side with it, that
- * has a walk to the camp and lies nearest a point in a straight line, or -1.
- * Equally near tiles go to the lowest.
- */
-export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
-  const { size } = sim.map;
-  const { sites } = sim.orders;
-  const { side } = kindOf(sites, slot);
-  const x0 = siteX0(sites, slot);
-  const y0 = siteY0(sites, slot);
-  let best = -1;
-  let bestDistance = Infinity;
-  for (let dy = -1; dy <= side; dy++) {
-    for (let dx = -1; dx <= side; dx++) {
-      if ((dx === -1 || dx === side) === (dy === -1 || dy === side)) continue;
-      const x = x0 + dx;
-      const y = y0 + dy;
-      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
-      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
-      if (distance < bestDistance) {
-        best = y * size + x;
-        bestDistance = distance;
-      }
-    }
-  }
-  return best;
 }
 
 /**

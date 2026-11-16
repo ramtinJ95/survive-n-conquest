@@ -155,6 +155,35 @@ export function finishBuilding(sim: Sim, slot: number): void {
   refreshSite(sim, slot);
 }
 
+/**
+ * The tile beside one of the building's tiles, sharing a side with it, that
+ * has a walk to the camp and lies nearest a point in a straight line, or -1.
+ * Equally near tiles go to the lowest.
+ */
+export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
+  const { size } = sim.map;
+  const { sites } = sim.orders;
+  const { side } = kindOf(sites, slot);
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let dy = -1; dy <= side; dy++) {
+    for (let dx = -1; dx <= side; dx++) {
+      if ((dx === -1 || dx === side) === (dy === -1 || dy === side)) continue;
+      const x = x0 + dx;
+      const y = y0 + dy;
+      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
+      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
+      if (distance < bestDistance) {
+        best = y * size + x;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
 function cornerTile(orders: Orders, slot: number, corner: number): number {
   const { sites, size } = orders;
   const last = kindOf(sites, slot).side - 1;
