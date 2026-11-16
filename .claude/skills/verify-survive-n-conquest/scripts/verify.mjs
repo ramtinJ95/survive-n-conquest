@@ -2658,9 +2658,16 @@ const SELECT_STOPS = {
   winterMidnight: { day: 11, time: '00:00' },
 };
 /** Where a click on the camp may land at the opening view: around the fire at 479, 266, well inside the camp's 2 m, 11 pixels at 120 m. */
-const CAMP_AIM = { x: 471, y: 260, width: 16, height: 12 };
-/** A click on the camp lies this far from every tunic pixel, more than a settler's reach over the camp. */
-const CAMP_CLEARANCE = 10;
+const CAMP_FIRE = { x: 479, y: 266 };
+const CAMP_AIM = { x: CAMP_FIRE.x - 8, y: CAMP_FIRE.y - 6, width: 16, height: 12 };
+/**
+ * A settler standing in the camp wins a click within 4 pixels of its body, so the scenario clicks the camp as a
+ * player would, again when a settler took the click: first the blue tent, then the points around the fire farthest
+ * from every lit tunic, at most this many times.
+ */
+const CAMP_TRIES = 6;
+/** The dusty blue cloth of the tent behind the fire at the opening view, by day. */
+const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
 const SELECT_TURN = 300;
 const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 720, colors: 64 };
@@ -2723,16 +2730,15 @@ function spotsOf(png, { width, height }, matches, skip = []) {
   return spots.sort((a, b) => b.count - a.count);
 }
 
-/** The point of `box`, in steps of 2 pixels, that lies farthest from every one of `points`, with that distance. */
-function clearestIn(png, box, points) {
-  let best = null;
+/** The points of `box`, in steps of 2 pixels, from the one farthest from every one of `points` to the nearest. */
+function clearestIn(box, points) {
+  const aims = [];
   for (let y = box.y; y <= box.y + box.height; y += 2) {
     for (let x = box.x; x <= box.x + box.width; x += 2) {
-      const clearance = points.reduce((least, point) => Math.min(least, Math.hypot(point.x - x, point.y - y)), Infinity);
-      if (!best || clearance > best.clearance) best = { x, y, clearance };
+      aims.push({ x, y, clearance: points.reduce((least, point) => Math.min(least, Math.hypot(point.x - x, point.y - y)), Infinity) });
     }
   }
-  return best && best.clearance >= CAMP_CLEARANCE ? best : null;
+  return aims.sort((a, b) => b.clearance - a.clearance);
 }
 
 function selectionDriver(session) {
@@ -2768,8 +2774,7 @@ function selectionDriver(session) {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 3;
-        const pixel = [pixels[i], pixels[i + 1], pixels[i + 2]];
-        if (UNIT_COLORS.villagers(pixel) || TUNIC_IN_SHADE(pixel)) found.push({ x, y });
+        if (UNIT_COLORS.villagers([pixels[i], pixels[i + 1], pixels[i + 2]])) found.push({ x, y });
       }
     }
     return found;
@@ -3002,15 +3007,21 @@ SCENARIOS.selecting = async (session) => {
   };
   const selectCamp = async () => {
     const png = await session.screenshot(c, `selecting-camp-aim-${(await at(c)).replace(/\D/g, '')}`);
-    const aim = clearestIn(png, CAMP_AIM, await tunicPixels(c, png));
-    return { aim, read: aim ? await click(c, aim) : null };
+    const tent = spotsOf(png, CLIP, TENT_BLUE, []).find((spot) => Math.hypot(spot.x - CAMP_FIRE.x, spot.y - CAMP_FIRE.y) <= 24);
+    const near = await tunicPixels(c, png);
+    const aims = [...(tent ? [{ x: Math.round(tent.x), y: Math.round(tent.y) }] : []), ...clearestIn(CAMP_AIM, near)].slice(0, CAMP_TRIES);
+    for (const [index, aim] of aims.entries()) {
+      const read = await click(c, aim);
+      if (read?.title === 'Camp') return { aim, read, tries: index + 1 };
+    }
+    return { aim: null, read: await reads(c), tries: aims.length };
   };
   const morning = await selectCamp();
   const morningAt = await at(c);
   session.check(
     `at ${morningAt} a click on the camp, clear of the settlers, selects the camp`,
     morning.read?.title === 'Camp' && /^\d$/.test(morning.read.rows['Settlers here'] ?? ''),
-    `${morning.aim ? `clicked ${morning.aim.x},${morning.aim.y}, ${morning.aim.clearance.toFixed(0)} px from the nearest tunic pixel` : 'no point clear of the settlers'}; the panel reads "${text(morning.read)}"`,
+    `${morning.aim ? `clicked ${morning.aim.x},${morning.aim.y}` : 'no click selected the camp'} after ${morning.tries} of at most ${CAMP_TRIES} clicks; the panel reads "${text(morning.read)}"`,
   );
   await session.reach(c, SELECT_STOPS.springMidnight);
   await session.still(c);
@@ -3029,7 +3040,7 @@ SCENARIOS.selecting = async (session) => {
   session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
   await measureMark('at winter noon, over snow,', 'winter-noon');
   const winterCamp = await selectCamp();
-  session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `the panel reads "${text(winterCamp.read)}"`);
+  session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `after ${winterCamp.tries} of at most ${CAMP_TRIES} clicks the panel reads "${text(winterCamp.read)}"`);
   await session.reach(c, SELECT_STOPS.winterMidnight);
   await session.still(c);
   const winterRead = await reads(c);

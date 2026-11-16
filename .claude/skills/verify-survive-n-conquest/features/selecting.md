@@ -45,7 +45,7 @@ Preconditions:
 - **Cancel a selected site.** The second page takes `BUILD_VIEW`, places a house at `BUILD_SPOTS.house`, and clicks it. It presses H and clicks the site, then presses Escape once.
   - `with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection` reads the refusal in the status line and the site's panel throughout.
   - It presses Delete and drags over the site. `cancelling the selected site clears the selection` reads `Orders removed` and no panel.
-- **The camp, and the mark by night and on snow.** The third page opens at noon and stays at the opening view. It clicks the point of `CAMP_AIM`, around the fire, that lies farthest from every tunic pixel in sun or in shade, at least `CAMP_CLEARANCE` pixels.
+- **The camp, and the mark by night and on snow.** The third page opens at noon and stays at the opening view. It clicks the camp as a player would, and again when a settler standing in the camp took the click: first the blue tent behind the fire, then the points of `CAMP_AIM` farthest from every lit tunic, at most `CAMP_TRIES` clicks.
   - `a click on the camp, clear of the settlers, selects the camp` reads `Camp` and a count of `Settlers here`.
   - `the camp stays selected until midnight, and its panel then counts all 8 settlers there` reads `Settlers here 8` at spring midnight without another click.
   - Each mark check takes the frame with the selection, presses Escape, and takes the same paused frame without it. They run at spring midnight on the camp, at winter noon over snow on a settler, and at winter midnight on the camp, which it selects again at winter noon.
@@ -60,6 +60,6 @@ Preconditions:
 - The clock's pressed speed button has the accent color, so pixel searches leave out the interface boxes.
 - The `Doing` values the follow sees depend on which settler the click took and on the run. The check asks for kinds of value, not for an order.
 - At the farthest zoom of 243 m a settler is less than a pixel of tunic by day, so no scenario can aim at one there. At night the 8 settlers stand within a settler's reach of the fire, so a click on the camp selects a settler, and the camp can be selected only from nearer.
-- A settler that stands in front of the fire covers it, so a click on the flame selects that settler. At 08:00 several settlers still stand in the camp, many in the tents' shade, so the scenario aims at the camp at noon, clear of every tunic in sun or in shade.
+- A settler that stands in front of the fire covers it, so a click on the flame selects that settler. At 08:00 several settlers still stand in the camp, many in the tents' shade, so the scenario clicks the camp at noon, and clicks again when a settler took the click.
 - A settler behind a house, hidden by its walls, still wins a click within its reach. The picker does not test what hides a settler.
 - The winter stops run the clock to day 10, which takes several minutes in a browser that draws on the CPU.
