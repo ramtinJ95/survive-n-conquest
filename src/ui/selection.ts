@@ -39,9 +39,18 @@ interface PanelSelections {
 
 export type PanelKind = keyof PanelSelections;
 
+/** A button beside a row's value. A row with buttons is a control, such as the filled places of a workplace. */
+interface Button<S> {
+  readonly text: string;
+  /** The button's accessible name. */
+  readonly name: string;
+  readonly press: (facts: Facts, selection: S) => void;
+}
+
 interface Row<S> {
   readonly label: string;
   readonly read: (facts: Facts, selection: S) => string;
+  readonly buttons?: readonly Button<S>[];
 }
 
 interface Panel<S> {
@@ -50,11 +59,18 @@ interface Panel<S> {
   readonly rows: readonly Row<S>[];
 }
 
+/** Every panel kind's title, note, rows, and controls. */
+export type Panels = { readonly [K in PanelKind]: Panel<PanelSelections[K]> };
+
 export interface PanelText {
   readonly kind: PanelKind;
   readonly title: string;
   readonly note?: string;
-  readonly rows: readonly { readonly label: string; readonly value: string }[];
+  readonly rows: readonly {
+    readonly label: string;
+    readonly value: string;
+    readonly buttons?: readonly { readonly text: string; readonly name: string; readonly press: () => void }[];
+  }[];
 }
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
@@ -111,8 +127,8 @@ const settlersAtCamp = ({ map, camp, frame }: Facts) => {
   return count;
 };
 
-/** Every panel. A row added here shows in the panel of its kind. */
-const PANELS: { readonly [K in PanelKind]: Panel<PanelSelections[K]> } = {
+/** Every panel. A row or a control added here shows in the panel of its kind. */
+const PANELS: Panels = {
   villager: {
     title: 'Settler',
     rows: [
@@ -139,13 +155,17 @@ const PANELS: { readonly [K in PanelKind]: Panel<PanelSelections[K]> } = {
   camp: { title: 'Camp', rows: [{ label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) }] },
 };
 
-function show<K extends PanelKind>(kind: K, selection: PanelSelections[K], facts: Facts): PanelText {
-  const panel: Panel<PanelSelections[K]> = PANELS[kind];
+function show<K extends PanelKind>(panels: Panels, kind: K, selection: PanelSelections[K], facts: Facts): PanelText {
+  const panel: Panel<PanelSelections[K]> = panels[kind];
   return {
     kind,
     title: panel.title,
     ...(panel.note === undefined ? {} : { note: panel.note }),
-    rows: panel.rows.map(({ label, read }) => ({ label, value: read(facts, selection) })),
+    rows: panel.rows.map(({ label, read, buttons }) => ({
+      label,
+      value: read(facts, selection),
+      ...(buttons && { buttons: buttons.map(({ text, name, press }) => ({ text, name, press: () => press(facts, selection) })) }),
+    })),
   };
 }
 
@@ -158,14 +178,14 @@ export function keepSelection(selection: Selection | null, orders: Orders): Sele
 }
 
 /** What the panel of a standing selection says. */
-export function readPanel(selection: Selection, facts: Facts): PanelText {
+export function readPanel(selection: Selection, facts: Facts, panels: Panels = PANELS): PanelText {
   switch (selection.kind) {
     case 'villager':
-      return show('villager', selection, facts);
+      return show(panels, 'villager', selection, facts);
     case 'building':
-      return show(facts.orders.sites.state[selection.slot] === SiteState.House ? 'house' : 'site', selection, facts);
+      return show(panels, facts.orders.sites.state[selection.slot] === SiteState.House ? 'house' : 'site', selection, facts);
     case 'camp':
-      return show('camp', selection, facts);
+      return show(panels, 'camp', selection, facts);
   }
 }
 
@@ -197,6 +217,7 @@ interface SelectionSetup {
   readonly mark: ReturnType<typeof createSelectionMark>;
   /** True while no order tool is active. Only then does a click select. */
   readonly mainButtonPans: () => boolean;
+  readonly panels?: Panels;
 }
 
 /**
@@ -205,7 +226,7 @@ interface SelectionSetup {
  * and what it is doing. A click on bare ground, the close button, or Escape
  * clears the selection.
  */
-export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, camera, mark, mainButtonPans }: SelectionSetup) {
+export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, camera, mark, mainButtonPans, panels = PANELS }: SelectionSetup) {
   const panel = document.createElement('section');
   panel.className = 'selection';
   panel.setAttribute('role', 'region');
@@ -216,6 +237,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
   const list = document.createElement('dl');
   const close = document.createElement('button');
   close.type = 'button';
+  close.className = 'close';
   close.setAttribute('aria-label', 'Close selection');
   close.textContent = '×';
   panel.append(close, title, note, list);
@@ -225,6 +247,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
   let frame: SimFrame | null = null;
   let shown: PanelKind | null = null;
   let values: HTMLElement[] = [];
+  let text: PanelText | null = null;
 
   const facts = (): Facts | null => (frame ? { map, orders, camp, frame } : null);
 
@@ -235,15 +258,31 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
       panel.hidden = true;
       return;
     }
-    const text = readPanel(selection, known);
+    text = readPanel(selection, known, panels);
     if (text.kind !== shown) {
       shown = text.kind;
-      values = text.rows.map(() => document.createElement('dd'));
+      values = text.rows.map(() => document.createElement('span'));
       list.replaceChildren(
-        ...text.rows.flatMap(({ label }, index) => {
+        ...text.rows.flatMap(({ label, buttons = [] }, row) => {
           const name = document.createElement('dt');
           name.textContent = label;
-          return [name, values[index]!];
+          const value = document.createElement('dd');
+          value.append(
+            values[row]!,
+            ...buttons.map(({ text: face, name: accessible }, index) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.textContent = face;
+              button.setAttribute('aria-label', accessible);
+              button.addEventListener('mousedown', (event) => event.preventDefault());
+              button.addEventListener('click', () => {
+                text?.rows[row]?.buttons?.[index]?.press();
+                refresh();
+              });
+              return button;
+            }),
+          );
+          return [name, value];
         }),
       );
       list.hidden = text.rows.length === 0;

@@ -48,7 +48,7 @@
   text-align: right;
 }
 
-.selection button {
+.selection .close {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -72,4 +72,16 @@
 .selection button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.selection dd button {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
 }

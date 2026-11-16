@@ -11,7 +11,7 @@ import { SUPPLYING } from '../sim/supplying';
 import { NO_TASK, TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { at, mapFrom } from '../sim/testMaps';
 import { VillagerState } from '../sim/villagers';
-import { type Facts, type Selection, keepSelection, readPanel } from './selection';
+import { type Facts, type Panels, type Selection, keepSelection, readPanel } from './selection';
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
 
@@ -198,6 +198,41 @@ describe('a building panel', () => {
     const { map, camp, orders, frame } = siteFacts();
     const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5, 14.4, 12.5, 10.2, 11.1, 15.5, 12.5, 3.5, 3.5], [0, 0, 0, 0, 0], [-1, -1, -1, -1, -1]) };
     expect(readPanel({ kind: 'camp' }, facts)).toEqual({ kind: 'camp', title: 'Camp', rows: [{ label: 'Settlers here', value: '3' }] });
+  });
+});
+
+describe('a control', () => {
+  it('is declared in one panel entry, reads its value, and presses its buttons on the selection', () => {
+    const { map, camp, orders, frame, slot, building: house } = siteFacts();
+    const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5], [0], [-1]) };
+    const places = new Map<number, number>();
+    const filled = (center: number) => places.get(center) ?? 0;
+    const panels: Panels = {
+      villager: { title: 'Settler', rows: [] },
+      site: { title: 'House site', rows: [] },
+      house: {
+        title: 'House',
+        rows: [
+          {
+            label: 'Places',
+            read: (_, { center }) => String(filled(center)),
+            buttons: [
+              { text: '−', name: 'Fewer places', press: (_, { center }) => places.set(center, filled(center) - 1) },
+              { text: '+', name: 'More places', press: (_, { center }) => places.set(center, filled(center) + 1) },
+            ],
+          },
+        ],
+      },
+      camp: { title: 'Camp', rows: [] },
+    };
+    orders.sites.state[slot] = SiteState.House;
+
+    const before = readPanel(house, facts, panels);
+    expect(before.rows).toMatchObject([{ label: 'Places', value: '0', buttons: [{ text: '−', name: 'Fewer places' }, { text: '+', name: 'More places' }] }]);
+    before.rows[0]!.buttons![1]!.press();
+    before.rows[0]!.buttons![1]!.press();
+    expect(readPanel(house, facts, panels).rows[0]).toMatchObject({ value: '2' });
+    expect(readPanel(house, facts).rows).toEqual([]);
   });
 });
 
