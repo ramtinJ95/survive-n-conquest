@@ -1,7 +1,8 @@
 import type { PerspectiveCamera } from 'three';
 import { type Selection, pickSelection } from '../render/pickSelection';
 import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
-import { BUILDING, HOUSE_NEEDS } from '../sim/building';
+import { BUILDING } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { GATHERING } from '../sim/gathering';
@@ -197,8 +198,8 @@ const PANELS: Panels = {
   site: {
     title: 'House site',
     rows: [
-      { label: 'Logs', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[0]}/${HOUSE_NEEDS[Good.Log - 1]}` },
-      { label: 'Stone', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[1]}/${HOUSE_NEEDS[Good.Stone - 1]}` },
+      { label: 'Logs', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[0]}/${BUILDINGS[Building.House].needs[Good.Log - 1]}` },
+      { label: 'Stone', read: ({ map, orders }, { slot }) => `${siteProgress(map, orders, slot).arrived[1]}/${BUILDINGS[Building.House].needs[Good.Stone - 1]}` },
       {
         label: 'Work',
         read: ({ map, orders }, { slot }) => {
@@ -254,7 +255,7 @@ export function readPanel(selection: Selection, facts: Facts, panels: Panels = P
     case 'villager':
       return show(panels, 'villager', selection, facts);
     case 'building':
-      return show(panels, facts.orders.sites.state[selection.slot] === SiteState.House ? 'house' : 'site', selection, facts);
+      return show(panels, facts.orders.sites.state[selection.slot] === SiteState.Built ? 'house' : 'site', selection, facts);
     case 'camp':
       return show(panels, 'camp', selection, facts);
   }

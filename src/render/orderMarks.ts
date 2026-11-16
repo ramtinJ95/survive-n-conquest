@@ -264,7 +264,7 @@ export function createOrderMarks(
       let count = 0;
       for (let tile = 0; tile < size * size; tile++) {
         const claim = orders.claims[tile]!;
-        const built = claim === Claim.Site && orders.sites.state[orders.siteOf[tile]!] === SiteState.House;
+        const built = claim === Claim.Site && orders.sites.state[orders.siteOf[tile]!] === SiteState.Built;
         texels[tile * 4] = built ? Claim.None : claim;
         if (claim === Claim.Chop && treeTop(tile, pose.position)) {
           pose.position.y += PIN_FLOAT;

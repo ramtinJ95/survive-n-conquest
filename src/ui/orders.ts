@@ -1,6 +1,7 @@
 import type { PerspectiveCamera } from 'three';
 import { ORDER_COLORS, type OrderMarks, Preview } from '../render/orderMarks';
 import { createPicker, type PickedTile } from '../render/pick';
+import { Building } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import {
   MAX_SITES,
@@ -94,11 +95,12 @@ const WHOLE_SITE: ReadonlySet<Refusal> = new Set(['off-map', 'uneven', 'divides'
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-const DONE: Readonly<Record<ToolId, (tiles: number) => string>> = {
+const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> = {
   chop: (tiles) => `${plural(tiles, 'tree', 'trees')} marked for felling.`,
   quarry: (tiles) => `${plural(tiles, 'rock tile', 'rock tiles')} marked for quarrying.`,
   stockpile: (tiles) => `${plural(tiles, 'tile joins', 'tiles join')} the stockpile zone.`,
   house: () => 'House site placed.',
+  hut: () => "Forager's hut site placed.",
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 
@@ -234,7 +236,7 @@ export function mountOrders(
       if (drag) line = PENDING[tool.id](count);
       marks.showArea(corners, color);
     } else if (tool?.id === 'house' && hovered?.onMap && !sameTile(placed, hovered)) {
-      const refusal = siteRefusal(map, orders, hovered.x, hovered.y);
+      const refusal = siteRefusal(map, orders, Building.House, hovered.x, hovered.y);
       for (let y = hovered.y - 1; y <= hovered.y + 1; y++) {
         for (let x = hovered.x - 1; x <= hovered.x + 1; x++) {
           if (x < 0 || y < 0 || x >= map.size || y >= map.size) continue;
@@ -312,7 +314,7 @@ export function mountOrders(
     if (!tool || pressed?.pointer !== event.pointerId || pressed.tool !== tool) return;
     const at = pickAt(event.clientX, event.clientY);
     if (tool.id === 'house') {
-      if (at.onMap) send({ kind: 'placeHouse', x: at.x, y: at.y });
+      if (at.onMap) send({ kind: 'place', building: Building.House, x: at.x, y: at.y });
     } else {
       send({ kind: 'markArea', order: tool.id, area: area(pressed.from, at) });
     }

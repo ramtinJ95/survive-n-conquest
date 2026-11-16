@@ -1,3 +1,4 @@
+import { kindOf, siteX0, siteY0 } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
@@ -61,7 +62,7 @@ export interface Villagers {
   readonly taskTile: Int32Array;
   /** The tile the villager stands on to work its task, or -1. A villager going in holds its door here, or -1 when it stays where it stands. */
   readonly workTile: Int32Array;
-  /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's center, or -1. */
+  /** The tile a carrying or supplying task takes its unit to, a stockpile place or a site's anchor, or -1. */
   readonly destination: Int32Array;
   /** The `Good` of the unit each villager carries, or `Good.None`. */
   readonly carried: Uint8Array;
@@ -254,20 +255,23 @@ function atNight(state: number): boolean {
 }
 
 /**
- * The tile beside one of the house's nine tiles, sharing a side with it, that
+ * The tile beside one of the building's tiles, sharing a side with it, that
  * has a walk to the camp and lies nearest a point in a straight line, or -1.
  * Equally near tiles go to the lowest.
  */
 export function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
   const { size } = sim.map;
   const { sites } = sim.orders;
+  const { side } = kindOf(sites, slot);
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
   let best = -1;
   let bestDistance = Infinity;
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      if ((Math.abs(dx) === 2) === (Math.abs(dy) === 2)) continue;
-      const x = sites.x[slot]! + dx;
-      const y = sites.y[slot]! + dy;
+  for (let dy = -1; dy <= side; dy++) {
+    for (let dx = -1; dx <= side; dx++) {
+      if ((dx === -1 || dx === side) === (dy === -1 || dy === side)) continue;
+      const x = x0 + dx;
+      const y = y0 + dy;
       if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
       const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
       if (distance < bestDistance) {

@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
+import { Building } from '../sim/buildings';
 import { CAMP_RADIUS } from '../sim/camp';
 import { applyOrder, createOrders, SiteState } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
@@ -69,9 +70,9 @@ describe('pickSelection', () => {
 
   it.each([0, 1.6, 3.2, 4.8])('takes a settler standing in front of a house when its body is clicked, and the house over its roof, at yaw %d', (yaw) => {
     const world = setting(yaw, NEAREST);
-    expect(applyOrder(world.map, world.orders, { kind: 'placeHouse', x: 32, y: 32 })).toMatchObject({ ok: true });
+    expect(applyOrder(world.map, world.orders, { kind: 'place', building: Building.House, x: 32, y: 32 })).toMatchObject({ ok: true });
     const slot = world.orders.siteOf[at(world.map, 32, 32)]!;
-    world.orders.sites.state[slot] = SiteState.House;
+    world.orders.sites.state[slot] = SiteState.Built;
     const front = { x: 32.5 + 1.9 * Math.sin(yaw), y: 32.5 + 1.9 * Math.cos(yaw) };
     const villagers = [front.x, front.y];
     const house = { kind: 'building', slot, center: at(world.map, 32, 32) };
@@ -83,9 +84,9 @@ describe('pickSelection', () => {
 
   it.each([0, 1.6, 3.2, 4.8])('takes the house, not a settler hidden behind its walls, at yaw %d', (yaw) => {
     const world = setting(yaw, NEAREST);
-    expect(applyOrder(world.map, world.orders, { kind: 'placeHouse', x: 32, y: 32 })).toMatchObject({ ok: true });
+    expect(applyOrder(world.map, world.orders, { kind: 'place', building: Building.House, x: 32, y: 32 })).toMatchObject({ ok: true });
     const slot = world.orders.siteOf[at(world.map, 32, 32)]!;
-    world.orders.sites.state[slot] = SiteState.House;
+    world.orders.sites.state[slot] = SiteState.Built;
     const behind = { x: 32.5 - 1.9 * Math.sin(yaw), y: 32.5 - 1.9 * Math.cos(yaw) };
     const house = { kind: 'building', slot, center: at(world.map, 32, 32) };
 
@@ -94,9 +95,9 @@ describe('pickSelection', () => {
 
   it.each([0, 1.6, 3.2, 4.8])('takes the house or the ground where a settler went inside or died, never the settler, at yaw %d', (yaw) => {
     const world = setting(yaw, NEAREST);
-    expect(applyOrder(world.map, world.orders, { kind: 'placeHouse', x: 32, y: 32 })).toMatchObject({ ok: true });
+    expect(applyOrder(world.map, world.orders, { kind: 'place', building: Building.House, x: 32, y: 32 })).toMatchObject({ ok: true });
     const slot = world.orders.siteOf[at(world.map, 32, 32)]!;
-    world.orders.sites.state[slot] = SiteState.House;
+    world.orders.sites.state[slot] = SiteState.Built;
     const door = { x: 32.5 + 2 * Math.sin(yaw), y: 32.5 + 2 * Math.cos(yaw) };
     const villagers = [door.x, door.y, 12.5, 50.5, 50.5, 12.5];
     const { Walking, Inside, Dead } = VillagerState;

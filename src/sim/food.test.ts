@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING, finishHouse } from './building';
+import { BUILDING, finishBuilding } from './building';
+import { Building } from './buildings';
 import { TICKS_PER_DAY, dateAt } from './calendar';
 import { isDawn, isNight } from './daylight';
 import { GATHERING } from './gathering';
@@ -51,9 +52,9 @@ function foodOnGround(sim: Sim): number {
 
 /** A house finished at (x, y) at once, the home of the next household without one. Returns its slot. */
 function finishedHouse(sim: Sim, x: number, y: number): number {
-  expect(applyCommand(sim, { kind: 'placeHouse', x, y })).toMatchObject({ ok: true });
+  expect(applyCommand(sim, { kind: 'place', building: Building.House, x, y })).toMatchObject({ ok: true });
   const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
-  finishHouse(sim, slot);
+  finishBuilding(sim, slot);
   return slot;
 }
 
@@ -213,7 +214,7 @@ describe('hunger', () => {
         map.stackSize[at(map, x, y)] = size;
       }
       const sim = createSim(map, { villagers: 1, monsters: 0 });
-      expect(applyCommand(sim, { kind: 'placeHouse', x: 7, y: 7 })).toMatchObject({ ok: true });
+      expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 7, y: 7 })).toMatchObject({ ok: true });
       sim.villagers.missedMeals[0] = missedMeals;
       const slot = sim.orders.siteOf[at(sim.map, 7, 7)]!;
       runUntil(sim, () => sim.villagers.task[0] === BUILD && sim.villagers.state[0] === VillagerState.Working, 1300);
@@ -410,7 +411,7 @@ describe('seed 7 with no orders', () => {
       const cy = Math.floor(sim.camp / size);
       applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: cx - 14, y0: cy - 14, x1: cx + 14, y1: cy + 14 } });
       applyCommand(sim, { kind: 'markArea', order: 'quarry', area: { x0: cx - 24, y0: cy - 24, x1: cx + 24, y1: cy + 24 } });
-      for (let r = 4; r < 12 && sim.orders.sites.used === 0; r++) applyCommand(sim, { kind: 'placeHouse', x: cx + r, y: cy + r });
+      for (let r = 4; r < 12 && sim.orders.sites.used === 0; r++) applyCommand(sim, { kind: 'place', building: Building.House, x: cx + r, y: cy + r });
       const dawns: unknown[] = [];
       runUntil(sim, () => sim.over, TICKS_PER_DAY * 10, () => {
         if (!isDawn(sim.tick - 1)) return;

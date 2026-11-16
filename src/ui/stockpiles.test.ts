@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import { SiteState, applyOrder, createOrders } from '../sim/orders';
 import { CAMP_STORE, STORES, StoreKind } from '../sim/stores';
@@ -35,11 +36,11 @@ describe('foodTotals', () => {
   it('counts the camp as one total and the houses as another, and no food in a site that is not a house', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
     const orders = createOrders(map);
-    for (const x of [2, 6]) expect(applyOrder(map, orders, { kind: 'placeHouse', x, y: 2 })).toMatchObject({ ok: true });
-    expect(applyOrder(map, orders, { kind: 'placeHouse', x: 2, y: 8 })).toMatchObject({ ok: true });
+    for (const x of [2, 6]) expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x, y: 2 })).toMatchObject({ ok: true });
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 2, y: 8 })).toMatchObject({ ok: true });
     const [first, second, site] = [at(map, 2, 2), at(map, 6, 2), at(map, 2, 8)].map((tile) => orders.siteOf[tile]!);
-    orders.sites.state[first!] = SiteState.House;
-    orders.sites.state[second!] = SiteState.House;
+    orders.sites.state[first!] = SiteState.Built;
+    orders.sites.state[second!] = SiteState.Built;
     const storeFood = new Uint16Array(STORES);
     storeFood[CAMP_STORE] = 17;
     storeFood[first!] = 6;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOUSE_WORK_TICKS } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
 import { generateMap } from '../sim/mapgen';
 import { SiteState, createOrders } from '../sim/orders';
 import { primitiveShapes } from './shapes';
@@ -24,23 +24,23 @@ describe('sites and houses', () => {
     expect(houses.count).toBe(0);
     expect(scaffolds.count).toBe(0);
 
-    orders.sites.work[3] = HOUSE_WORK_TICKS / 4;
+    orders.sites.work[3] = BUILDINGS[Building.House].workTicks / 4;
     show(orders);
     expect(houses.count).toBe(1);
     expect(scaffolds.count).toBe(1);
     expect(scaffolds.instanceMatrix.array.slice(0, 16)).toEqual(houses.instanceMatrix.array.slice(0, 16));
     const quarter = rise();
     expect(quarter).toBeGreaterThan(0);
-    orders.sites.work[3] = HOUSE_WORK_TICKS / 2;
+    orders.sites.work[3] = BUILDINGS[Building.House].workTicks / 2;
     show(orders);
     const half = rise();
     expect(half).toBeGreaterThan(quarter);
     expect(half).toBeLessThan(roofTop / 2);
-    orders.sites.work[3] = HOUSE_WORK_TICKS;
+    orders.sites.work[3] = BUILDINGS[Building.House].workTicks;
     show(orders);
     expect(rise()).toBeCloseTo(roofTop);
 
-    orders.sites.state[3] = SiteState.House;
+    orders.sites.state[3] = SiteState.Built;
     show(orders);
     expect(houses.count).toBe(1);
     expect(scaffolds.count).toBe(0);
@@ -53,7 +53,7 @@ describe('sites and houses', () => {
     const { houses, show } = createSites(map, primitiveShapes());
     orders.sites.x[0] = 20;
     orders.sites.y[0] = 30;
-    orders.sites.state[0] = SiteState.House;
+    orders.sites.state[0] = SiteState.Built;
     for (let y = 29; y <= 31; y++) for (let x = 19; x <= 21; x++) map.heights[y * SIZE + x] = 5;
     map.heights[31 * SIZE + 21] = 6.5;
     show(orders);

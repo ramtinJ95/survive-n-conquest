@@ -1,6 +1,7 @@
 import { fullGC } from 'bun:jsc';
 import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
 import { BUILDING } from '../src/sim/building';
+import { Building } from '../src/sim/buildings';
 import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
@@ -128,7 +129,7 @@ function setUp(size: number): { sim: Sim; sites: number } {
     for (let ty = y - 1; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x - 1, ty * size + x + 2);
   }
   const sim = createSim(map, BENCHMARK_POPULATION);
-  const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'placeHouse', x, y })!.ok).length;
+  const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.House, x, y })!.ok).length;
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: size - 1, y1: size - 1 } });
   return { sim, sites };
 }

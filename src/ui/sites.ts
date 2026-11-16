@@ -1,5 +1,6 @@
 import { type PerspectiveCamera, Vector3 } from 'three';
-import { HOUSE_NEEDS, HOUSE_WORK_TICKS, arrived } from '../sim/building';
+import { arrived } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
@@ -24,8 +25,8 @@ export interface SiteProgress {
 /** What has arrived at a site and how far its building work is, from the main thread's copy of the map and the orders. */
 export function siteProgress(map: TileMap, orders: Orders, slot: number): SiteProgress {
   const units = SHOWN.map(({ good }) => arrived(map, orders, slot, good));
-  const supplied = SHOWN.every(({ good }, index) => units[index]! >= HOUSE_NEEDS[good - 1]!);
-  const percent = supplied ? Math.floor((orders.sites.work[slot]! * 100) / HOUSE_WORK_TICKS) : null;
+  const supplied = SHOWN.every(({ good }, index) => units[index]! >= BUILDINGS[Building.House].needs[good - 1]!);
+  const percent = supplied ? Math.floor((orders.sites.work[slot]! * 100) / BUILDINGS[Building.House].workTicks) : null;
   return { arrived: units, percent };
 }
 
@@ -49,7 +50,7 @@ function createLabel(map: TileMap, orders: Orders, slot: number): Label {
     const name = document.createElement('dt');
     name.textContent = label;
     const value = document.createElement('dd');
-    value.dataset.needs = String(HOUSE_NEEDS[good - 1]);
+    value.dataset.needs = String(BUILDINGS[Building.House].needs[good - 1]);
     list.append(name, value);
     return value;
   });

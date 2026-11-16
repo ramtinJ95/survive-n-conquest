@@ -160,7 +160,7 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       stopFallenTasks(sim);
       return outcome;
     }
-    case 'placeHouse': {
+    case 'place': {
       const outcome = applyOrder(sim.map, sim.orders, command);
       if (outcome.ok) resetSite(sim, sim.orders.siteOf[command.y * sim.map.size + command.x]!);
       return outcome;

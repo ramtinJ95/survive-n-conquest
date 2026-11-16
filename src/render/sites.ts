@@ -10,7 +10,7 @@ import {
   RGBADepthPacking,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { HOUSE_WORK_TICKS } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
 import { type Shapes, colored, shapeMaterial } from './shapes';
@@ -123,7 +123,7 @@ export function createSites(map: TileMap, shapes: Shapes) {
       pose.position.set(cx + 0.5 - half, highest, cy + 0.5 - half);
       pose.updateMatrix();
       houses.setMatrixAt(count, pose.matrix);
-      rise.setX(count, state === SiteState.House ? aboveTheRoof : heightShareAt(Math.min(work, HOUSE_WORK_TICKS) / HOUSE_WORK_TICKS) * max.y);
+      rise.setX(count, state === SiteState.Built ? aboveTheRoof : heightShareAt(Math.min(work, BUILDINGS[Building.House].workTicks) / BUILDINGS[Building.House].workTicks) * max.y);
       count++;
       if (state === SiteState.Site) scaffolds.setMatrixAt(underWork++, pose.matrix);
     }

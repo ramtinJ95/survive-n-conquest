@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOUSE_WORK_TICKS } from '../sim/building';
+import { BUILDINGS, Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import { applyOrder, createOrders } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
@@ -11,7 +11,7 @@ describe('siteProgress', () => {
   it('counts the units on the nine tiles of a site only, and shows the work once all of them have arrived', () => {
     const map = mapFrom(ROWS);
     const orders = createOrders(map, at(map, 10, 10));
-    expect(applyOrder(map, orders, { kind: 'placeHouse', x: 4, y: 4 })).toMatchObject({ ok: true });
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 4, y: 4 })).toMatchObject({ ok: true });
     const slot = orders.siteOf[at(map, 4, 4)]!;
     const stack = (x: number, y: number, good: Good, size: number) => {
       map.stackGood[at(map, x, y)] = good;
@@ -28,7 +28,7 @@ describe('siteProgress', () => {
     stack(5, 5, Good.Stone, 6);
     expect(siteProgress(map, orders, slot)).toEqual({ arrived: [12, 6], percent: 0 });
 
-    orders.sites.work[slot] = HOUSE_WORK_TICKS - 1;
+    orders.sites.work[slot] = BUILDINGS[Building.House].workTicks - 1;
     expect(siteProgress(map, orders, slot)).toEqual({ arrived: [12, 6], percent: 99 });
   });
 });
