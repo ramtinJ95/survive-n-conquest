@@ -183,7 +183,7 @@ function setAside(sim: Sim, slot: number): void {
 
 function reopen(sim: Sim): void {
   const { setAside } = sim.siteTasks;
-  for (let slot = 0; slot < MAX_SITES; slot++) {
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) {
     if (setAside[slot] === 0) continue;
     setAside[slot] = 0;
     refreshSite(sim, slot);

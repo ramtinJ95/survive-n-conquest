@@ -95,6 +95,7 @@ function stateOf({ claims, sites, siteOf }: Orders) {
     y: sites.y.slice(),
     state: sites.state.slice(),
     work: sites.work.slice(),
+    used: sites.used,
     siteOf: siteOf.slice(),
   };
 }
@@ -466,6 +467,28 @@ describe('order changes', () => {
     setSiteWork(orders, 0, 900);
     finishSite(orders, 0);
     sync();
+  });
+
+  it('keep one past the highest slot ever placed, through a cancel, on both copies', () => {
+    const map = plainMap(20);
+    const orders = createOrders(map);
+    const mirror = createOrders(map);
+    const sync = () => applyOrderChanges(mirror, takeOrderChanges(orders));
+    expect(orders.sites.used).toBe(0);
+    applyOrder(map, orders, house(3, 3));
+    applyOrder(map, orders, house(9, 3));
+    applyOrder(map, orders, house(15, 3));
+    sync();
+    expect([orders.sites.used, mirror.sites.used]).toEqual([3, 3]);
+    applyOrder(map, orders, mark('cancel', area(14, 2, 16, 4)));
+    sync();
+    expect(orders.sites.state[2]).toBe(SiteState.Free);
+    expect([orders.sites.used, mirror.sites.used]).toEqual([3, 3]);
+    applyOrder(map, orders, house(15, 15));
+    applyOrder(map, orders, house(3, 15));
+    applyOrder(map, orders, mark('cancel', area(2, 14, 4, 16)));
+    sync();
+    expect([orders.sites.used, mirror.sites.used]).toEqual([4, 4]);
   });
 
   it('list each changed site once as a slot, its center, its state, and its work', () => {

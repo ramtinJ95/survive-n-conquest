@@ -1,6 +1,6 @@
 import { deliver, lacking, siteCenter } from './building';
 import { GOOD_KINDS, Good, pickUp, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
-import { MAX_SITES, SiteState } from './orders';
+import { SiteState } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import type { TaskKind } from './tasks';
@@ -29,7 +29,7 @@ function nearestSite(sim: Sim, px: number, py: number, good: Good): number {
   const { sites, size } = sim.orders;
   let best = -1;
   let bestDistance = Infinity;
-  for (let slot = 0; slot < MAX_SITES; slot++) {
+  for (let slot = 0; slot < sites.used; slot++) {
     if (sites.state[slot] !== SiteState.Site) continue;
     const x = sites.x[slot]!;
     const y = sites.y[slot]!;
