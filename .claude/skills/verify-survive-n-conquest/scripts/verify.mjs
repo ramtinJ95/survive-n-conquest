@@ -1646,7 +1646,7 @@ const HAUL_STOPS = {
  * differed from the bare map in 324 pixels at 21:00. After dawn the carriers lift the dropped units between 06:00 and
  * 09:00 while the low sun brightens, so a reading then catches the scene in motion: in a pylon the route read 149, 1,
  * 33, 10, and 32 more log pixels than the bare map at 06:00, 06:30, 07:00, 07:30, and 09:00, and 20 at 07:00 with the
- * scenario's own stops. By 11:00 the route is clear again. With the dropped units never carried on it held 35 log
+ * scenario's own stops. By 11:00 the route is clear again, and it and the bare map both read 1. With the dropped units never carried on it held 35 log
  * pixels at 11:00 against 1 on the bare map.
  */
 const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 50, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150 };
