@@ -2633,6 +2633,468 @@ SCENARIOS.orders = async (session) => {
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
+/**
+ * The `selecting` scenario selects what a player can read: a settler at work, a house site, the house it becomes, and
+ * the camp. Settlers are found the way a player finds them, by the yellow of their tunics in a paused screenshot, and
+ * the camp by its flame at night. The mark is the accent `#ffd27a` over the edge `#1b1f26`, drawn without light, so
+ * both are counted by their exact colors, as what a selection adds to the same paused frame.
+ */
+const MARK_ACCENT = ([r, g, b]) => r >= 243 && Math.abs(g - 210) <= 12 && Math.abs(b - 122) <= 14;
+const MARK_EDGE = ([r, g, b]) => Math.abs(r - 27) <= 8 && Math.abs(g - 31) <= 8 && Math.abs(b - 38) <= 8;
+/** A click this far beside a settler's tunic still selects it. The game's reach is 16 pixels from the body. */
+const SELECT_OFFSET = 10;
+/** Pixels a press may travel before it is a drag. The game's limit is 5. */
+const SELECT_DRAG = 80;
+/** A click here is at least this far from every tunic, so it lands on bare ground. */
+const BARE_CLEARANCE = 90;
+/**
+ * The follow runs at 4× from 08:15, when the marks go down, until the settler has done this many different things or
+ * the clock reaches the stop, and reads the panel every `FOLLOW_POLL_MS`.
+ */
+const FOLLOW = { distinct: 5, until: { day: 1, time: '11:20' }, pollMs: 120 };
+const SELECT_STOPS = {
+  springMidnight: { day: 2, time: '00:00' },
+  winterNoon: { day: 10, time: '12:00' },
+  winterMidnight: { day: 11, time: '00:00' },
+};
+/** Where a click on the camp may land at the opening view: around the fire at 479, 266, well inside the camp's 2 m, 11 pixels at 120 m. */
+const CAMP_FIRE = { x: 479, y: 266 };
+const CAMP_AIM = { x: CAMP_FIRE.x - 8, y: CAMP_FIRE.y - 6, width: 16, height: 12 };
+/**
+ * A settler standing in the camp wins a click within 4 pixels of its body, so the scenario clicks the camp as a
+ * player would, again when a settler took the click: first the blue tent, then the points around the fire farthest
+ * from every lit tunic, at most this many times.
+ */
+const CAMP_TRIES = 6;
+/** The dusty blue cloth of the tent behind the fire at the opening view, by day. */
+const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
+/** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
+const SELECT_TURN = 300;
+const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
+/**
+ * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
+ * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
+ * side. Tents, settlers, and the house hide part of it. On rj-firebat it added 144 and 164 by day on grass, 100 and
+ * 100 on snow, 65 and 80 on the camp at spring midnight, and 65 and 77 on the camp at winter midnight.
+ */
+const MARK_LEAST = { accent: 40, edge: 40 };
+/** The mark's center lies this near a tunic: it rings the selected settler. */
+const MARK_ON_SETTLER = 30;
+/** The mark's center moves at least this far while the settler walks to its work. */
+const MARK_MOVES = 15;
+
+/** Clusters of the pixels that `matches` accepts, in cells of 12 pixels, leaving out the `skip` boxes. Largest first. */
+function spotsOf(png, { width, height }, matches, skip = []) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const cell = 12;
+  const columns = Math.ceil(width / cell);
+  const cells = new Map();
+  const skipped = (x, y) => skip.some((box) => box && x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 3;
+      if (!matches([pixels[i], pixels[i + 1], pixels[i + 2]]) || skipped(x, y)) continue;
+      const key = Math.floor(y / cell) * columns + Math.floor(x / cell);
+      const found = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      found.count += 1;
+      found.x += x;
+      found.y += y;
+      cells.set(key, found);
+    }
+  }
+  const spots = [];
+  const seen = new Set();
+  for (const start of cells.keys()) {
+    if (seen.has(start)) continue;
+    const spot = { count: 0, x: 0, y: 0 };
+    const open = [start];
+    seen.add(start);
+    while (open.length > 0) {
+      const key = open.pop();
+      const found = cells.get(key);
+      spot.count += found.count;
+      spot.x += found.x;
+      spot.y += found.y;
+      for (const dy of [-1, 0, 1]) {
+        for (const dx of [-1, 0, 1]) {
+          const next = key + dy * columns + dx;
+          if (cells.has(next) && !seen.has(next) && Math.abs((next % columns) - (key % columns)) <= 1) {
+            seen.add(next);
+            open.push(next);
+          }
+        }
+      }
+    }
+    spots.push({ count: spot.count, x: spot.x / spot.count, y: spot.y / spot.count });
+  }
+  return spots.sort((a, b) => b.count - a.count);
+}
+
+/** The points of `box`, in steps of 2 pixels, from the one farthest from every one of `points` to the nearest. */
+function clearestIn(box, points) {
+  const aims = [];
+  for (let y = box.y; y <= box.y + box.height; y += 2) {
+    for (let x = box.x; x <= box.x + box.width; x += 2) {
+      aims.push({ x, y, clearance: points.reduce((least, point) => Math.min(least, Math.hypot(point.x - x, point.y - y)), Infinity) });
+    }
+  }
+  return aims.sort((a, b) => b.clearance - a.clearance);
+}
+
+function selectionDriver(session) {
+  const panel = (page) => page.getByRole('region', { name: 'Selection' });
+  /** The panel as one round trip, so a frame from the worker cannot change it between two reads. */
+  const reads = async (page) => {
+    const found = await panel(page).evaluateAll((nodes) => {
+      const node = nodes.find((candidate) => !candidate.hidden);
+      if (!node) return null;
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { title: node.querySelector('h2')?.textContent.trim() ?? '', note: node.querySelector('p')?.textContent.trim() ?? null, rows };
+    });
+    return found;
+  };
+  const text = (read) => (read ? [read.title, read.note, ...Object.entries(read.rows).map(([name, value]) => `${name}: ${value}`)].filter(Boolean).join('; ') : 'no panel');
+  const boxOf = async (locator) => ((await locator.count()) > 0 && (await locator.first().isVisible()) ? locator.first().boundingBox() : null);
+  /** The interface boxes that pixel searches leave out and that the panel must not cover. */
+  const uiBoxes = async (page) => ({
+    clock: await boxOf(page.getByRole('region', { name: 'Clock' })),
+    toolbar: await boxOf(page.getByRole('toolbar', { name: 'Orders' })),
+    stockpiles: await boxOf(page.getByRole('status', { name: 'Stockpiles' })),
+    hints: await boxOf(page.getByRole('complementary', { name: 'Camera controls' })),
+    status: await boxOf(page.getByRole('status', { name: 'Order' })),
+    selection: await boxOf(panel(page)),
+  });
+  const skipOf = (boxes) => Object.values(boxes).filter(Boolean);
+  const tunics = async (page, png) => spotsOf(png, page.viewportSize(), UNIT_COLORS.villagers, skipOf(await uiBoxes(page)));
+  const tunicPixels = async (page, png) => {
+    const { width, height } = page.viewportSize();
+    const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+    const found = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 3;
+        if (UNIT_COLORS.villagers([pixels[i], pixels[i + 1], pixels[i + 2]])) found.push({ x, y });
+      }
+    }
+    return found;
+  };
+  const markOf = (page, png, boxes) => {
+    const skip = skipOf(boxes);
+    const accent = spotsOf(png, page.viewportSize(), MARK_ACCENT, skip);
+    const count = accent.reduce((sum, spot) => sum + spot.count, 0);
+    const center = count > 0 ? { x: accent.reduce((sum, s) => sum + s.x * s.count, 0) / count, y: accent.reduce((sum, s) => sum + s.y * s.count, 0) / count } : null;
+    const edge = spotsOf(png, page.viewportSize(), MARK_EDGE, skip).reduce((sum, spot) => sum + spot.count, 0);
+    return { accent: count, edge, center };
+  };
+  /** Clicks without moving between press and release, as a player clicks. */
+  const click = async (page, at) => {
+    await page.mouse.click(at.x, at.y);
+    await session.still(page);
+    return reads(page);
+  };
+  /** Selects the settler whose tunic shows most, clicking `offset` pixels to its right, from a paused frame. */
+  const clickSettler = async (page, label, offset = SELECT_OFFSET) => {
+    const png = await session.screenshot(page, label);
+    const spots = await tunics(page, png);
+    if (spots.length === 0) return { spot: null, read: null, png };
+    const spot = spots[0];
+    return { spot, read: await click(page, { x: spot.x + offset, y: spot.y }), png };
+  };
+  /** A point of the world far from every tunic and from every interface box. */
+  const bareSpot = async (page, png) => {
+    const spots = await tunics(page, png);
+    const boxes = skipOf(await uiBoxes(page));
+    const { width, height } = page.viewportSize();
+    for (const at of [{ x: width / 2, y: height * 0.22 }, { x: width * 0.3, y: height * 0.3 }, { x: width * 0.7, y: height * 0.3 }, { x: width * 0.3, y: height * 0.75 }, { x: width * 0.7, y: height * 0.75 }]) {
+      const clear = spots.every((spot) => Math.hypot(spot.x - at.x, spot.y - at.y) >= BARE_CLEARANCE);
+      const free = boxes.every((box) => at.x < box.x - 20 || at.x > box.x + box.width + 20 || at.y < box.y - 20 || at.y > box.y + box.height + 20);
+      if (clear && free) return at;
+    }
+    return null;
+  };
+  const apart = (boxes) => {
+    const { selection, ...rest } = boxes;
+    const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    const others = Object.entries(rest).filter(([, box]) => box);
+    const ok = Boolean(selection) && others.every(([, box]) => disjoint(selection, box));
+    const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
+    return { ok, detail: [`panel ${describe(selection)}`, ...others.map(([name, box]) => `${name} ${describe(box)}`)].join('; ') };
+  };
+  return { panel, reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart };
+}
+
+SCENARIOS.selecting = async (session) => {
+  const seen = [];
+  const sites = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart } = selectionDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const fitsApart = async (page, what) => {
+    const { ok, detail } = apart(await uiBoxes(page));
+    session.check(`at 960x540 the ${what} panel covers no other panel`, ok, detail);
+  };
+  const markAdded = (page, before, after, boxes) => {
+    const was = markOf(page, before, boxes);
+    const now = markOf(page, after, boxes);
+    return { accent: now.accent - was.accent, edge: now.edge - was.edge, center: now.center };
+  };
+  const expectMark = (where, mark) =>
+    session.check(
+      `${where} the mark shows in both of its colors`,
+      mark.accent >= MARK_LEAST.accent && mark.edge >= MARK_LEAST.edge,
+      `the selection adds ${mark.accent} accent and ${mark.edge} edge pixels, needs ${MARK_LEAST.accent} and ${MARK_LEAST.edge}`,
+    );
+
+  // A settler at work, a site, and the house it becomes, on one recorded page.
+  const work = await session.open(CLIP, { record: true, clock: 'paused' });
+  const { page } = work;
+  await session.reach(page, BUILD_STOPS.marked);
+  for (const { name, pattern, line } of await sites.markWork(page)) {
+    session.check(`a ${name} drag marks its tiles`, pattern.test(line), `the status line reads "${line}"`);
+  }
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, BUILD_CLOSER);
+  await session.still(page);
+  const followFrom = work.since();
+  const unselected = await session.screenshot(page, 'selecting-before');
+  const picked = await clickSettler(page, 'selecting-settler-aim');
+  session.check(
+    `at ${await at(page)} a click ${SELECT_OFFSET} px beside a settler selects it`,
+    picked.read?.title === 'Settler',
+    `${picked.spot ? `tunic at ${picked.spot.x.toFixed(0)},${picked.spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(picked.read)}"`,
+  );
+  const firstBoxes = await uiBoxes(page);
+  const firstShot = await session.screenshot(page, 'selecting-settler-start');
+  const firstMark = markAdded(page, unselected, firstShot, firstBoxes);
+  const firstTunics = await tunics(page, firstShot);
+  const ringed = (mark, spots) => (mark.center ? Math.min(...spots.map((spot) => Math.hypot(spot.x - mark.center.x, spot.y - mark.center.y))) : Infinity);
+  expectMark(`at ${await at(page)}, by day over the grass,`, firstMark);
+  session.check(
+    'the mark rings the selected settler',
+    ringed(firstMark, firstTunics) <= MARK_ON_SETTLER,
+    `the mark's center lies ${ringed(firstMark, firstTunics).toFixed(0)} px from the nearest tunic, needs at most ${MARK_ON_SETTLER}`,
+  );
+
+  const readings = [];
+  await page.keyboard.press('3');
+  const deadline = Date.now() + 240_000;
+  const stopAt = clockMinutes(FOLLOW.until);
+  for (;;) {
+    const read = await reads(page);
+    const doing = read?.rows.Doing;
+    if (doing && readings.at(-1)?.doing !== doing) readings.push({ doing, carries: read.rows.Carries });
+    const distinct = new Set(readings.map((reading) => reading.doing)).size;
+    if (distinct >= FOLLOW.distinct || (await session.gameMinutes(page)) >= stopAt || Date.now() > deadline || !read) break;
+    await page.waitForTimeout(FOLLOW.pollMs);
+  }
+  await session.pause(page);
+  await session.still(page);
+  const followTo = work.since();
+  const followShot = await session.screenshot(page, 'selecting-settler');
+  const followRead = await reads(page);
+  const followBoxes = await uiBoxes(page);
+  const followMark = markOf(page, followShot, followBoxes);
+  const doings = readings.map((reading) => reading.doing);
+  session.check(
+    'the settler panel follows what the settler does',
+    new Set(doings).size >= 3 && doings.some((doing) => /^Walking to /.test(doing)) && doings.some((doing) => /^(Chopping a tree|Quarrying stone|Building a house)$/.test(doing)),
+    `it read, in order: ${doings.join(' > ') || 'nothing'}`,
+  );
+  const carriesMatch = ({ doing, carries }) => {
+    const held = /^Carrying (a log|stone) /.exec(doing);
+    return held ? carries === (held[1] === 'a log' ? '1 log' : '1 stone') : carries === 'Nothing';
+  };
+  session.check(
+    'the Carries row agrees with what the settler is doing at every reading',
+    readings.length > 0 && readings.every(carriesMatch),
+    readings.map((reading) => `${reading.doing} / ${reading.carries}`).join(', ') || 'no readings',
+  );
+  const followTunics = await tunics(page, followShot);
+  const moved = followMark.center && firstMark.center ? Math.hypot(followMark.center.x - firstMark.center.x, followMark.center.y - firstMark.center.y) : 0;
+  session.check(
+    `at ${await at(page)} the mark has followed the settler`,
+    moved >= MARK_MOVES && ringed(followMark, followTunics) <= MARK_ON_SETTLER,
+    `the mark moved ${moved.toFixed(0)} px, needs ${MARK_MOVES}; its center lies ${ringed(followMark, followTunics).toFixed(0)} px from the nearest tunic, needs at most ${MARK_ON_SETTLER}`,
+  );
+  await page.waitForTimeout(1000);
+  const pausedRead = await reads(page);
+  session.check('while paused the settler panel holds still', text(pausedRead) === text(followRead), `"${text(followRead)}" then "${text(pausedRead)}"`);
+  await fitsApart(page, 'settler');
+
+  await session.reach(page, BUILD_STOPS.placed);
+  const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);
+  session.check('a House click places the site and leaves the selection alone', /^House site placed/.test(placed.line) && (await reads(page))?.title === 'Settler', `the status line reads "${placed.line}"; the panel reads "${text(await reads(page))}"`);
+  const siteRead = await click(page, BUILD_SPOTS.closerHouse);
+  session.check(
+    `at ${await at(page)} a click on the site selects it and its panel reads what has arrived`,
+    siteRead?.title === 'House site' && siteRead.rows.Logs === '0/12' && siteRead.rows.Stone === '0/6' && siteRead.rows.Work === 'Waiting for materials' && siteRead.rows.Builders === '0',
+    `the panel reads "${text(siteRead)}"`,
+  );
+  await sites.runUntil(page, 'got half its work done', (label) => label?.percent >= 50);
+  const siteFrom = work.since();
+  await session.screenshot(page, 'selecting-site');
+  const half = { label: await sites.reads(page), read: await reads(page) };
+  const builders = Number(half.read?.rows.Builders);
+  session.check(
+    `at ${await at(page)} the site panel agrees with the site's label and counts the builders`,
+    half.read?.title === 'House site' && half.read.rows.Logs === '12/12' && half.read.rows.Stone === '6/6' && half.read.rows.Work === `${half.label?.percent}%` && builders >= 1 && builders <= 4,
+    `the label reads "${half.label?.text ?? 'nothing'}"; the panel reads "${text(half.read)}"`,
+  );
+  await fitsApart(page, 'site');
+  await sites.runUntil(page, 'was finished', (label) => label === null);
+  const houseShot = await session.screenshot(page, 'selecting-house');
+  const houseRead = await reads(page);
+  session.check(
+    `at ${await at(page)} the selected site has become a house in the panel`,
+    houseRead?.title === 'House' && houseRead.note === 'A finished house.',
+    `the panel reads "${text(houseRead)}"`,
+  );
+  const houseMark = markOf(page, houseShot, await uiBoxes(page));
+  session.check(
+    'the mark rings the house',
+    houseMark.accent >= MARK_LEAST.accent && houseMark.center && Math.hypot(houseMark.center.x - BUILD_SPOTS.closerHouse.x, houseMark.center.y - BUILD_SPOTS.closerHouse.y) <= 40,
+    `${houseMark.accent} accent pixels centered at ${houseMark.center ? `${houseMark.center.x.toFixed(0)},${houseMark.center.y.toFixed(0)}` : 'nowhere'}, the house at ${BUILD_SPOTS.closerHouse.x},${BUILD_SPOTS.closerHouse.y}`,
+  );
+  await page.keyboard.press('Escape');
+  await session.still(page);
+  const cleared = await reads(page);
+  session.check('Escape clears the selection', cleared === null, `the panel reads "${text(cleared)}"`);
+  const reclicked = await click(page, BUILD_SPOTS.closerHouse);
+  session.check('a click on the finished house selects the house', cleared === null && reclicked?.title === 'House', `after Escape the panel reads "${text(cleared)}", after the click "${text(reclicked)}"`);
+  const siteTo = work.since() + 1;
+  await page.waitForTimeout(1000);
+  await session.finishClips(work.context, page, [
+    { label: 'selecting-settler', from: followFrom, to: followTo, ...SELECT_CLIP },
+    { label: 'selecting-site-to-house', from: siteFrom, to: siteTo, ...SELECT_CLIP },
+  ]);
+  seen.push(...work.errors);
+
+  // A cancelled site clears its selection, and one Escape puts a tool away before the next clears the selection.
+  const cancel = await session.open(CLIP, { clock: 'paused' });
+  await takeView(session, cancel.page, BUILD_VIEW);
+  await sites.placeHouse(cancel.page, BUILD_SPOTS.house);
+  const chosen = await click(cancel.page, BUILD_SPOTS.house);
+  await cancel.page.keyboard.press('KeyH');
+  await cancel.page.mouse.click(BUILD_SPOTS.house.x, BUILD_SPOTS.house.y);
+  const refused = await sites.said(cancel.page, /Another house stands in the way/);
+  const withTool = await reads(cancel.page);
+  await cancel.page.keyboard.press('Escape');
+  const afterOneEscape = await reads(cancel.page);
+  session.check(
+    'with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection',
+    chosen?.title === 'House site' && /Another house stands in the way/.test(refused) && withTool?.title === 'House site' && afterOneEscape?.title === 'House site' && !(await cancel.page.getByRole('button', { name: 'House', pressed: true }).count()),
+    `selected "${text(chosen)}"; the status line read "${refused}"; with the tool "${text(withTool)}"; after Escape "${text(afterOneEscape)}"`,
+  );
+  await cancel.page.keyboard.press('Delete');
+  await session.drag(cancel.page, { x: BUILD_SPOTS.house.x - 25, y: BUILD_SPOTS.house.y - 25 }, { x: BUILD_SPOTS.house.x + 25, y: BUILD_SPOTS.house.y + 25 });
+  const removed = await sites.said(cancel.page, /^Orders removed/);
+  await cancel.page.keyboard.press('Escape');
+  await session.still(cancel.page);
+  session.check('cancelling the selected site clears the selection', /^Orders removed/.test(removed) && (await reads(cancel.page)) === null, `the status line read "${removed}"; the panel reads "${text(await reads(cancel.page))}"`);
+  await cancel.context.close();
+  seen.push(...cancel.errors);
+
+  // The camp, chosen at noon, when the settlers have wandered off it, and kept to midnight, and the mark by day, at night, and on snow, from the opening view.
+  const camp = await session.open(CLIP);
+  const c = camp.page;
+  const measureMark = async (where, label) => {
+    const withMark = await session.screenshot(c, `selecting-${label}`);
+    const boxes = await uiBoxes(c);
+    await c.keyboard.press('Escape');
+    await session.still(c);
+    const without = await session.screenshot(c, `selecting-${label}-unselected`);
+    expectMark(where, markAdded(c, without, withMark, boxes));
+  };
+  const selectCamp = async () => {
+    const png = await session.screenshot(c, `selecting-camp-aim-${(await at(c)).replace(/\D/g, '')}`);
+    const tent = spotsOf(png, CLIP, TENT_BLUE, []).find((spot) => Math.hypot(spot.x - CAMP_FIRE.x, spot.y - CAMP_FIRE.y) <= 24);
+    const near = await tunicPixels(c, png);
+    const aims = [...(tent ? [{ x: Math.round(tent.x), y: Math.round(tent.y) }] : []), ...clearestIn(CAMP_AIM, near)].slice(0, CAMP_TRIES);
+    for (const [index, aim] of aims.entries()) {
+      const read = await click(c, aim);
+      if (read?.title === 'Camp') return { aim, read, tries: index + 1 };
+    }
+    return { aim: null, read: await reads(c), tries: aims.length };
+  };
+  const morning = await selectCamp();
+  const morningAt = await at(c);
+  session.check(
+    `at ${morningAt} a click on the camp selects the camp`,
+    morning.read?.title === 'Camp' && /^\d$/.test(morning.read.rows['Settlers here'] ?? ''),
+    `${morning.aim ? `clicked ${morning.aim.x},${morning.aim.y}` : 'no click selected the camp'} after ${morning.tries} of at most ${CAMP_TRIES} clicks; the panel reads "${text(morning.read)}"`,
+  );
+  await session.reach(c, SELECT_STOPS.springMidnight);
+  await session.still(c);
+  const springRead = await reads(c);
+  session.check(
+    'the camp stays selected until midnight, and its panel then counts all 8 settlers there',
+    springRead?.title === 'Camp' && springRead.rows['Settlers here'] === '8',
+    `selected at ${morningAt}; at ${await at(c)} the panel reads "${text(springRead)}"`,
+  );
+  await fitsApart(c, 'camp');
+  await measureMark('at spring midnight', 'camp');
+
+  await session.reach(c, SELECT_STOPS.winterNoon);
+  await session.still(c);
+  const snowPick = await clickSettler(c, 'selecting-winter-aim');
+  session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
+  await measureMark('at winter noon, over snow,', 'winter-noon');
+  const winterCamp = await selectCamp();
+  session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `after ${winterCamp.tries} of at most ${CAMP_TRIES} clicks the panel reads "${text(winterCamp.read)}"`);
+  await session.reach(c, SELECT_STOPS.winterMidnight);
+  await session.still(c);
+  const winterRead = await reads(c);
+  session.check('at winter midnight the camp panel counts all 8 settlers there', winterRead?.title === 'Camp' && winterRead.rows['Settlers here'] === '8', `the panel reads "${text(winterRead)}"`);
+  await measureMark('at winter midnight', 'winter-midnight');
+
+  await c.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await c.mouse.wheel(0, READ_WHEELS.far);
+  await session.still(c);
+  const farPng = await session.screenshot(c, 'selecting-pick-farthest');
+  const firelit = spotsOf(farPng, CLIP, FIRELIT, skipOf(await uiBoxes(c)))[0];
+  const farRead = firelit ? await click(c, firelit) : null;
+  session.check(
+    'at the farthest zoom a click on the firelit camp selects one of the settlers ringed there',
+    farRead?.title === 'Settler',
+    `${firelit ? `firelit ground of ${firelit.count} px at ${firelit.x.toFixed(0)},${firelit.y.toFixed(0)}` : 'no firelit ground found'}; the panel reads "${text(farRead)}"`,
+  );
+  await camp.context.close();
+  seen.push(...camp.errors);
+
+  // Picking at the opening view and at the nearest zoom turned, a bare click, and a drag.
+  const views = await session.open(CLIP, { clock: 'paused' });
+  const v = views.page;
+  const pickIn = async (name) => {
+    const { spot, read, png } = await clickSettler(v, `selecting-pick-${name.replace(' ', '-')}`);
+    session.check(
+      `at the ${name} view a click ${SELECT_OFFSET} px beside a settler selects it`,
+      read?.title === 'Settler',
+      `${spot ? `tunic of ${spot.count} px at ${spot.x.toFixed(0)},${spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(read)}"`,
+    );
+    const bare = await bareSpot(v, png);
+    const cleared = bare ? await click(v, bare) : 'no bare spot';
+    session.check(`at the ${name} view a click on bare ground clears the selection`, cleared === null, bare ? `clicked ${bare.x.toFixed(0)},${bare.y.toFixed(0)}; the panel reads "${text(cleared)}"` : 'no spot lies 90 px from every tunic');
+    return spot;
+  };
+  const opening = await pickIn('opening');
+  if (opening) {
+    const before = await session.screenshot(v, 'selecting-drag-before');
+    await session.drag(v, opening, { x: opening.x + SELECT_DRAG, y: opening.y + SELECT_DRAG / 2 });
+    await session.still(v);
+    const after = await session.screenshot(v, 'selecting-drag-after');
+    session.check('a drag that starts on a settler moves the camera and selects nothing', (await reads(v)) === null && difference(before, after) > 2, `the panel reads "${text(await reads(v))}"; mean pixel difference ${difference(before, after).toFixed(2)}`);
+  }
+  await v.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await v.mouse.wheel(0, READ_WHEELS.near);
+  await session.still(v);
+  await session.drag(v, { x: CLIP.width / 2 - SELECT_TURN / 2, y: CLIP.height / 2 }, { x: CLIP.width / 2 + SELECT_TURN / 2, y: CLIP.height / 2 }, 'right');
+  await session.still(v);
+  await pickIn('nearest turned');
+  await views.context.close();
+  seen.push(...views.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
   if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);

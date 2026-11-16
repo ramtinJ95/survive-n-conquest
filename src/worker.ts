@@ -19,6 +19,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly carried: Uint8Array;
   /** One `VillagerState` per villager in id order. */
   readonly states: Uint8Array;
+  /** One task column value per villager in id order: `NO_TASK`, or one more than its kind's index in `TASK_KINDS`. */
+  readonly tasks: Uint8Array;
+  /** The tile of each villager's task in id order, or -1. */
+  readonly taskTiles: Int32Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -45,11 +49,13 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
   const monsters = positions(sim.monsters);
   const carried = sim.villagers.carried.slice();
   const states = sim.villagers.state.slice();
+  const tasks = sim.villagers.task.slice();
+  const taskTiles = sim.villagers.taskTile.slice();
   const tiles = takeTileChanges(sim);
   const orders = takeOrderChanges(sim.orders);
   self.postMessage(
-    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, carried, states, tiles, orders, outcome } satisfies SimFrame,
-    { transfer: [villagers.buffer, monsters.buffer, carried.buffer, states.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
+    { tick: sim.tick, speed: sim.speed, paused: sim.paused, villagers, monsters, carried, states, tasks, taskTiles, tiles, orders, outcome } satisfies SimFrame,
+    { transfer: [villagers.buffer, monsters.buffer, carried.buffer, states.buffer, tasks.buffer, taskTiles.buffer, tiles.buffer, orders.claims.buffer, orders.sites.buffer] },
   );
 }
 
