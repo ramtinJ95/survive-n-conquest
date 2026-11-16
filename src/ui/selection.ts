@@ -6,7 +6,9 @@ import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
+import { NO_HOME } from '../sim/households';
 import { TileKind, type TileMap, tileAt } from '../sim/map';
+import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
@@ -22,7 +24,7 @@ export interface Facts {
   readonly map: TileMap;
   readonly orders: Orders;
   readonly camp: number;
-  readonly frame: Pick<SimFrame, 'villagers' | 'carried' | 'states' | 'tasks' | 'taskTiles'>;
+  readonly frame: Pick<SimFrame, 'villagers' | 'carried' | 'states' | 'tasks' | 'taskTiles' | 'names' | 'sexes' | 'households' | 'homes'>;
 }
 
 type VillagerSelection = Extract<Selection, { kind: 'villager' }>;
@@ -54,7 +56,7 @@ interface Row<S> {
 }
 
 interface Panel<S> {
-  readonly title: string;
+  readonly title: string | ((facts: Facts, selection: S) => string);
   readonly note?: string;
   readonly rows: readonly Row<S>[];
 }
@@ -99,11 +101,19 @@ function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, 
   return `Walking ${fetch} ${GOOD_NAMES[map.stackGood[frame.taskTiles[id]!] as Good]}${purpose}`;
 }
 
+/** What a villager does by night, by its state, whatever task it holds. */
+const NIGHT_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
+  [VillagerState.GoingToCamp]: 'Walking to the camp',
+  [VillagerState.Settling]: 'Resting at the camp',
+  [VillagerState.GoingIn]: 'Walking home',
+  [VillagerState.Inside]: 'At home',
+};
+
 /** What a villager is doing, in words. */
 function doing(facts: Facts, id: number): string {
-  const state = facts.frame.states[id]!;
-  if (state === VillagerState.GoingToCamp) return 'Walking to the camp';
-  if (state === VillagerState.Settling) return 'Resting at the camp';
+  const state = facts.frame.states[id]! as VillagerState;
+  const night = NIGHT_WORDS[state];
+  if (night) return night;
   const words = TASK_WORDS[facts.frame.tasks[id]!];
   if (!words || (state !== VillagerState.Walking && state !== VillagerState.Working)) return 'Idle';
   return words(facts, id, state === VillagerState.Working);
@@ -122,18 +132,48 @@ const builders = ({ frame }: Facts, center: number) => {
 const settlersAtCamp = ({ map, camp, frame }: Facts) => {
   let count = 0;
   for (let id = 0; id * 2 < frame.villagers.length; id++) {
-    if (underCamp(map, camp, tileAt(map, frame.villagers[id * 2]!, frame.villagers[id * 2 + 1]!))) count++;
+    if (frame.states[id] !== VillagerState.Inside && underCamp(map, camp, tileAt(map, frame.villagers[id * 2]!, frame.villagers[id * 2 + 1]!))) count++;
   }
   return count;
 };
 
+const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
+
+const nameOfSettler = ({ frame }: Facts, id: number) => nameOf(frame.sexes[id] as Sex, frame.names[id]!);
+
+/** The names of a household's members in id order, leaving out villager `except`. */
+function members(facts: Facts, household: number, except = -1): string {
+  const names: string[] = [];
+  facts.frame.households.forEach((of, id) => {
+    if (of === household && id !== except) names.push(nameOfSettler(facts, id));
+  });
+  return names.join(' and ');
+}
+
+function householdOf(facts: Facts, id: number): string {
+  const household = facts.frame.households[id]!;
+  const others = members(facts, household, id);
+  return others ? `Household ${household + 1}, with ${others}` : `Household ${household + 1}`;
+}
+
+function livingIn(facts: Facts, slot: number): string {
+  const household = facts.frame.homes.indexOf(slot);
+  return household < 0 ? 'Nobody' : `Household ${household + 1}: ${members(facts, household)}`;
+}
+
 /** Every panel. A row or a control added here shows in the panel of its kind. */
 const PANELS: Panels = {
   villager: {
-    title: 'Settler',
+    title: (facts, { id }) => nameOfSettler(facts, id),
     rows: [
       { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
       { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
+      { label: 'Sex', read: ({ frame }, { id }) => SEX_WORDS[frame.sexes[id] as Sex] },
+      { label: 'Household', read: (facts, { id }) => householdOf(facts, id) },
+      {
+        label: 'Home',
+        read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
+      },
     ],
   },
   site: {
@@ -151,7 +191,7 @@ const PANELS: Panels = {
       { label: 'Builders', read: (facts, { center }) => String(builders(facts, center)) },
     ],
   },
-  house: { title: 'House', note: 'A finished house.', rows: [] },
+  house: { title: 'House', note: 'A finished house.', rows: [{ label: 'Household', read: (facts, { slot }) => livingIn(facts, slot) }] },
   camp: { title: 'Camp', rows: [{ label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) }] },
 };
 
@@ -159,7 +199,7 @@ function show<K extends PanelKind>(panels: Panels, kind: K, selection: PanelSele
   const panel: Panel<PanelSelections[K]> = panels[kind];
   return {
     kind,
-    title: panel.title,
+    title: typeof panel.title === 'string' ? panel.title : panel.title(facts, selection),
     ...(panel.note === undefined ? {} : { note: panel.note }),
     rows: panel.rows.map(({ label, read, buttons }) => ({
       label,
@@ -189,10 +229,11 @@ export function readPanel(selection: Selection, facts: Facts, panels: Panels = P
   }
 }
 
-/** Where the mark of a standing selection goes on the map. */
-export function markPlace(selection: Selection, { map, orders, camp, frame }: Facts): MarkPlace {
+/** Where the mark of a standing selection goes on the map, or null while a selected settler is inside its house. */
+export function markPlace(selection: Selection, { map, orders, camp, frame }: Facts): MarkPlace | null {
   switch (selection.kind) {
     case 'villager':
+      if (frame.states[selection.id] === VillagerState.Inside) return null;
       return { x: frame.villagers[selection.id * 2]!, y: frame.villagers[selection.id * 2 + 1]!, radius: 0.55 };
     case 'building':
       return { x: orders.sites.x[selection.slot]! + 0.5, y: orders.sites.y[selection.slot]! + 0.5, radius: 2.3 };
