@@ -61,5 +61,5 @@ Preconditions:
 - The `Doing` values the follow sees depend on which settler the click took and on the run. The check asks for kinds of value, not for an order.
 - At the farthest zoom of 243 m a settler is less than a pixel of tunic by day, so no scenario can aim at one there. At night the 8 settlers stand within a settler's reach of the fire, so a click on the camp selects a settler, and the camp can be selected only from nearer.
 - A settler that stands in front of the fire covers it, so a click on the flame selects that settler. At 08:00 several settlers still stand in the camp, many in the tents' shade, so the scenario clicks the camp at noon, and clicks again when a settler took the click.
-- A settler behind a house, hidden by its walls, still wins a click within its reach. The picker does not test what hides a settler.
+- Over a house, a site, or the camp, a settler wins only when the box the picker draws around that building does not hide it. The box is coarser than the models, so a settler just past a roof can lose the click to the building.
 - The winter stops run the clock to day 10, which takes several minutes in a browser that draws on the CPU.

@@ -73,6 +73,17 @@ describe('pickSelection', () => {
     expect(pick(world, villagers, besideSettler(world, front.x, front.y, 6))).toEqual(house);
   });
 
+  it.each([0, 1.6, 3.2, 4.8])('takes the house, not a settler hidden behind its walls, at yaw %d', (yaw) => {
+    const world = setting(yaw, NEAREST);
+    expect(applyOrder(world.map, world.orders, { kind: 'placeHouse', x: 32, y: 32 })).toMatchObject({ ok: true });
+    const slot = world.orders.siteOf[at(world.map, 32, 32)]!;
+    world.orders.sites.state[slot] = SiteState.House;
+    const behind = { x: 32.5 - 1.9 * Math.sin(yaw), y: 32.5 - 1.9 * Math.cos(yaw) };
+    const house = { kind: 'building', slot, center: at(world.map, 32, 32) };
+
+    expect(pick(world, [behind.x, behind.y], screen(world, behind.x, GROUND + SETTLER_HEIGHT / 2, behind.y))).toEqual(house);
+  });
+
   it('takes the camp for a click on the fire between the settlers ringed around it', () => {
     const world = setting(FIRST_YAW, NEAREST, 32, 32);
     const villagers = Array.from({ length: 8 }, (_, id) => {

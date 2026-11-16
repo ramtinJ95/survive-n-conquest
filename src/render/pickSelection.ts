@@ -1,4 +1,4 @@
-import { Box3, type PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
+import { Box3, type PerspectiveCamera, Ray, Raycaster, Vector2, Vector3 } from 'three';
 import manifest from '../../assets/models.json';
 import { CAMP_LAYOUT } from './camp';
 import { type TileMap, heightAt } from '../sim/map';
@@ -37,6 +37,10 @@ const head = new Vector3();
 const view = new Vector3();
 const hit = new Vector3();
 const box = new Box3();
+const under = new Box3();
+const chest = new Vector3();
+const sight = new Ray();
+const eye = new Vector3();
 const pointer = new Vector2();
 const ray = new Raycaster();
 
@@ -55,8 +59,21 @@ function segmentDistance(px: number, py: number, a: Vector3, b: Vector3): number
   return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
 }
 
-/** The pixels from a click to the nearest settler's body, and that settler, or Infinity and -1. */
-function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, y: number, width: number, height: number) {
+/**
+ * Whether the box of the building under the click stands between the camera and
+ * a settler. A settler inside the box, such as a builder on its site or a settler
+ * at the fire, counts as seen.
+ */
+function hiddenBy(cover: Box3 | null, camera: PerspectiveCamera): boolean {
+  if (!cover || cover.containsPoint(chest)) return false;
+  eye.setFromMatrixPosition(camera.matrixWorld);
+  sight.origin.copy(eye);
+  sight.direction.subVectors(chest, eye).normalize();
+  return sight.intersectBox(cover, hit) !== null && hit.distanceTo(eye) < chest.distanceTo(eye);
+}
+
+/** The pixels from a click to the nearest settler's body that `cover` does not hide, and that settler, or Infinity and -1. */
+function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, y: number, width: number, height: number, cover: Box3 | null) {
   const { map, villagers } = scene;
   const half = map.size / 2;
   const focal = height / (2 * Math.tan((camera.fov * Math.PI) / 360));
@@ -69,6 +86,8 @@ function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, 
     feet.set(mapX - half, ground, mapY - half);
     const depth = -view.copy(feet).applyMatrix4(camera.matrixWorldInverse).z;
     if (depth <= camera.near) continue;
+    chest.set(feet.x, ground + SETTLER_HEIGHT / 2, feet.z);
+    if (hiddenBy(cover, camera)) continue;
     head.set(feet.x, ground + SETTLER_HEIGHT, feet.z);
     if (!toScreen(feet, camera, width, height) || !toScreen(head, camera, width, height)) continue;
     const distance = Math.max(segmentDistance(x, y, feet, head) - (SETTLER_HALF_WIDTH * focal) / depth, 0);
@@ -114,6 +133,7 @@ function nearestBuilding(scene: PickScene): { distance: number; selection: Selec
     const distance = rayDistance();
     if (distance < best) {
       best = distance;
+      under.copy(box);
       selection = { kind: 'building', slot, center: cy * size + cx };
     }
   }
@@ -128,6 +148,7 @@ function nearestBuilding(scene: PickScene): { distance: number; selection: Selec
   const distance = rayDistance();
   if (distance < best) {
     best = distance;
+    under.copy(box);
     selection = { kind: 'camp' };
   }
   return { distance: best, selection };
@@ -137,7 +158,8 @@ function nearestBuilding(scene: PickScene): { distance: number; selection: Selec
  * What a click at a point of the viewport, in pixels from its top left,
  * selects: the nearest settler within reach of its body, else the nearest
  * building or the camp under the click, or null for bare ground. Over a
- * building or the camp a settler wins only when the click is almost on it.
+ * building or the camp a settler wins only when the click is almost on it and
+ * the building does not hide it.
  */
 export function pickSelection(
   scene: PickScene,
@@ -148,10 +170,10 @@ export function pickSelection(
   height: number,
 ): Selection | null {
   camera.updateMatrixWorld();
-  const settler = nearestSettler(scene, camera, x, y, width, height);
   pointer.set((x / width) * 2 - 1, 1 - (y / height) * 2);
   ray.setFromCamera(pointer, camera);
   const building = nearestBuilding(scene);
+  const settler = nearestSettler(scene, camera, x, y, width, height, building.selection ? under : null);
   const reach = building.selection ? SETTLER_OVER_BUILDING_PX : SETTLER_REACH_PX;
   if (settler.distance <= reach) return { kind: 'villager', id: settler.id };
   return building.selection;
