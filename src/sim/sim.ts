@@ -177,12 +177,13 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
 export function step(sim: Sim): void {
   if (sim.over) return;
   const night = isNight(sim.tick);
-  if (isDawn(sim.tick)) {
+  const dawn = isDawn(sim.tick);
+  if (dawn) {
     sim.dawns += 1;
     spoilFood(sim);
     reopenTasks(sim);
   }
-  moveVillagers(sim, night);
+  moveVillagers(sim, night, dawn);
   if (sim.flow.gainedCount > 0) reachTasks(sim);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;

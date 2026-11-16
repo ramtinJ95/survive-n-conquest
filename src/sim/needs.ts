@@ -42,10 +42,9 @@ export function storeOf(sim: Sim, id: number): number {
   return home === NO_HOME ? CAMP_STORE : home;
 }
 
-/** Takes one meal from the villager's store, when it holds one no carrier has spoken for. Returns whether it ate. */
-export function eat(sim: Sim, id: number): boolean {
+/** Takes one meal from the store the villager came home to, when it holds one no carrier has spoken for. Returns whether it ate. */
+export function eat(sim: Sim, id: number, store: number): boolean {
   const { stores } = sim;
-  const store = storeOf(sim, id);
   if (freeFood(stores, store) <= 0) return false;
   stores.food[store] = stores.food[store]! - 1;
   meetNeed(sim, id, HUNGER);
@@ -54,8 +53,8 @@ export function eat(sim: Sim, id: number): boolean {
 }
 
 /** The villager's meal of the day: it eats, or misses the meal. */
-export function dine(sim: Sim, id: number): void {
-  if (!eat(sim, id)) missMeal(sim, id);
+export function dine(sim: Sim, id: number, store: number): void {
+  if (!eat(sim, id, store)) missMeal(sim, id);
 }
 
 export function missMeal(sim: Sim, id: number): void {

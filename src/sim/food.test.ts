@@ -133,6 +133,35 @@ describe('meals', () => {
     expect(missed(sim)).toEqual([0, 0, 0, 0]);
   });
 
+  it('are taken at dawn before any settler sets out to stock its home with the same food', () => {
+    const sim = createSim(mapFrom(open(32)), { villagers: 4, monsters: 0, campFood: 0 });
+    const slot = finishedHouse(sim, 6, 6);
+    dusk(sim);
+    lateNight(sim);
+    expect(missed(sim)).toEqual([1, 1, 1, 1]);
+    sim.stores.food[CAMP_STORE] = 2;
+    step(sim);
+    expect(missed(sim)).toEqual([1, 1, 0, 0]);
+    expect([campFood(sim), sim.stores.outbound[CAMP_STORE], sim.stores.inbound[slot]]).toEqual([0, 0, 0]);
+  });
+
+  it('of a settler that walks to the camp come from the camp, though its household gains a house in the night', () => {
+    const sim = createSim(mapFrom(open(32)), { villagers: 4, monsters: 0 });
+    runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY);
+    const slot = finishedHouse(sim, 6, 6);
+    sim.villagers.missedMeals.fill(2, 0, 2);
+    for (const id of [2, 3]) {
+      sim.villagers.x[id] = 30.5;
+      sim.villagers.y[id] = 30.5;
+    }
+    const campAtDusk = campFood(sim);
+    lateNight(sim);
+    expect(states(sim)).toEqual([VillagerState.Dead, VillagerState.Dead, VillagerState.Settling, VillagerState.Settling]);
+    expect(Array.from(sim.households.home)).toEqual([NO_HOME, slot]);
+    expect(missed(sim).slice(2)).toEqual([0, 0]);
+    expect(campFood(sim)).toBe(campAtDusk - 2);
+  });
+
   it('are missed by a settler with no walk to the camp, counted at dawn though the camp has food', () => {
     const rows = open(24);
     for (let y = 1; y <= 5; y++) rows[y] = '.~~~~~' + '.'.repeat(18);
