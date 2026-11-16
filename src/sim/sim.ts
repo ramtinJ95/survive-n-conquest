@@ -32,8 +32,15 @@ export interface Population {
   readonly campFood?: number;
 }
 
-/** The load the performance budget is set for: a full city at work under a late assault. */
-export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true };
+/**
+ * The load the performance budget is set for: a full city at work under a late
+ * assault. The camp's food lasts the benchmark's dusks of days 1 to 3 and the
+ * stocking of its homes, and runs out at the dusk of day 4, the last one the
+ * benchmark measures, so some villagers go hungry there. On seed 7 a camp with
+ * plenty had given out 4,785 units on the 256 map and 4,099 on the 512 map
+ * before that dusk, and 5,997 and 5,092 by the end of the measured ticks.
+ */
+export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true, campFood: 4900 };
 /** A new game: a few settlers at the camp and nothing else. */
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
