@@ -1633,7 +1633,6 @@ const HAUL_STOPS = {
   afterDusk: { day: 1, time: '19:30' },
   night: { day: 1, time: '21:00' },
   beforeDawn: { day: 2, time: '04:30' },
-  morning: { day: 2, time: '07:00' },
   carried: { day: 2, time: '11:00' },
 };
 /**
@@ -1643,19 +1642,20 @@ const HAUL_STOPS = {
  * `GOOD_COLORS.logs` matches none of it. There the grove box held 91 pixels of `LOGS_IN_A_CLEARED_GROVE_BY_DAY` at
  * 17:00 and 100 at 10:00 on day 2, about 12 for each log, 332 with all 24 logs at 13:30, and 0 in the emptied grove
  * at 17:30. Before the far stockpile the route held 31 log pixels, all of them pink flowers that the bare map shows
- * too, and differed from the bare map in 0 pixels. It differed in 193 at 19:05 and in 143 at 21:00. At 07:00 on day 2
- * the sun is low, and the two stacks that the carriers put down held 33 pixels of `LOGS_IN_DIM_LIGHT` more than the
- * bare map, and the route none more at 11:00. The camp box differed from the bare map in 324 pixels at 21:00.
+ * too, and differed from the bare map in 0 pixels. It differed in 193 at 19:05 and in 143 at 21:00. The camp box
+ * differed from the bare map in 324 pixels at 21:00. After dawn the carriers lift the dropped units between 06:00 and
+ * 09:00 while the low sun brightens, so a reading then catches the scene in motion: in a pylon the route read 149, 1,
+ * 33, 10, and 32 more log pixels than the bare map at 06:00, 06:30, 07:00, 07:30, and 09:00, and 20 at 07:00 with the
+ * scenario's own stops. By 11:00 the route is clear again, and it and the bare map both read 1. With the dropped units never carried on it held 35 log
+ * pixels at 11:00 against 1 on the bare map.
  */
-const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 50, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
-const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, emptyGrove: 5, routeBefore: 20, routeCarried: 0.5 };
+const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 50, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150 };
+const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, emptyGrove: 5, routeBefore: 20 };
 /**
  * The wood of a log in the sun or in the blue shade under a crown. Blossom, flowers, and the forest in the evening
  * match it too, so it reads logs only in a grove that is felled, by day, and beside a reading of the same grove empty.
  */
 const LOGS_IN_A_CLEARED_GROVE_BY_DAY = ([r, g, b]) => r > 90 && g > 0.72 * r && g < 1.02 * r && b > 0.45 * r && b < 0.84 * r;
-/** The wood of `GOOD_COLORS.logs` under a low sun, which lights it too little for that predicate. */
-const LOGS_IN_DIM_LIGHT = paleWood(105);
 /** A log put down at night differs from the bare ground by about 25 in its brightest channel, too little for `SETTLER_THRESHOLD`. */
 const NIGHT_THRESHOLD = 12;
 
@@ -1769,7 +1769,6 @@ SCENARIOS.hauling = async (session) => {
   const afterDusk = await at(walk.page, HAUL_STOPS.afterDusk);
   const night = await at(walk.page, HAUL_STOPS.night, 'hauling-dusk-after');
   const beforeDawn = await at(walk.page, HAUL_STOPS.beforeDawn);
-  const morning = await at(walk.page, HAUL_STOPS.morning, 'hauling-dawn-lying');
   const carried = await at(walk.page, HAUL_STOPS.carried, 'hauling-dawn-carried');
   await walk.context.close();
   seen.push(...walk.errors);
@@ -1777,7 +1776,7 @@ SCENARIOS.hauling = async (session) => {
   const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
   await takeView(session, bare.page, GATHER_VIEWS.grove);
   const empty = {};
-  for (const stop of ['farMarked', 'beforeDusk', 'night', 'morning', 'carried']) empty[stop] = (await at(bare.page, HAUL_STOPS[stop], `hauling-bare-${stop}`)).png;
+  for (const stop of ['farMarked', 'beforeDusk', 'night', 'carried']) empty[stop] = (await at(bare.page, HAUL_STOPS[stop], `hauling-bare-${stop}`)).png;
   await bare.context.close();
   seen.push(...bare.errors);
 
@@ -1807,12 +1806,11 @@ SCENARIOS.hauling = async (session) => {
     nightTotals.every((logs) => logs === nightTotals[0]) && beforeDusk.totals.logs <= nightTotals[0],
     `Logs ${beforeDusk.totals.logs} at ${when('beforeDusk')}, then ${nightTotals.join(', ')}`,
   );
-  const dimLogsIn = (png) => pixelsIn(png, CLIP.width, HAUL_BOXES.route, LOGS_IN_DIM_LIGHT).count;
-  const routeLogs = { morning: dimLogsIn(morning.png) - dimLogsIn(empty.morning), carried: dimLogsIn(carried.png) - dimLogsIn(empty.carried) };
+  const routeLogs = { carried: logsIn(carried.png, HAUL_BOXES.route), bare: logsIn(empty.carried, HAUL_BOXES.route) };
   session.check(
     `after dawn the settlers carry the dropped units on by ${when('carried')}`,
-    routeLogs.morning >= HAUL_LEAST.droppedAtDawn && routeLogs.carried <= routeLogs.morning * HAUL_MOST.routeCarried && carried.totals.logs > nightTotals[0],
-    `${routeLogs.morning} more log pixels on the route than on the bare map at ${when('morning')} and ${routeLogs.carried} more at ${when('carried')}, needs ${HAUL_LEAST.droppedAtDawn} and then at most ${HAUL_MOST.routeCarried * 100}% of them; Logs ${nightTotals[0]} at night and ${carried.totals.logs} at ${when('carried')}`,
+    routeLogs.carried - routeLogs.bare <= HAUL_MOST.goodsBefore && carried.totals.logs > nightTotals[0],
+    `${routeLogs.carried} log pixels on the route and ${routeLogs.bare} on the bare map at ${when('carried')}, needs at most ${HAUL_MOST.goodsBefore} more; Logs ${nightTotals[0]} at night and ${carried.totals.logs} at ${when('carried')}`,
   );
 
   const layout = await session.open(WIDE);
