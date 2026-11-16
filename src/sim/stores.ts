@@ -13,6 +13,12 @@ export const CAMP_FOOD_LIMIT = 40;
 export const HOUSE_FOOD_LIMIT = 16;
 /** A household keeps this many days of meals for its living members at home, when it can get them. */
 export const DAYS_KEPT_AT_HOME = 3;
+/**
+ * Settlers without a job keep this many days of meals at the camp for the
+ * households that eat there, from the barns. One day leaves the rest in the
+ * barns, so the camp holds the next meal and draws no more.
+ */
+export const DAYS_KEPT_AT_CAMP = 1;
 export const MEALS_PER_DAY = 1;
 
 /**

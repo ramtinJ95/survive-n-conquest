@@ -83,7 +83,7 @@ describe('the first year on seed 7 with a barn', () => {
   it('has two foragers pick more with the barn beside the hut than with it far away, where the camp stays nearer every tree', () => {
     const beside = yearWith(FIRST_YEAR_BARNS.beside);
     const far = yearWith(FIRST_YEAR_BARNS.far);
-    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([102, 37, 0, 8]);
+    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([102, 53, 0, 8]);
     expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([71, 0, 1, 8]);
   });
 });

@@ -5,7 +5,7 @@ import { NO_HOME } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { CAMP_STORE, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, foodLimit, nearestCommonStore } from './stores';
+import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, foodLimit, nearestCommonStore } from './stores';
 import type { TaskKind } from './tasks';
 
 /**
@@ -21,13 +21,13 @@ export function lacks(sim: Sim, household: number): number {
 }
 
 /**
- * The units of food the camp lacks to hold `DAYS_KEPT_AT_HOME` of meals for the
+ * The units of food the camp lacks to hold `DAYS_KEPT_AT_CAMP` of meals for the
  * living members of the households with no home, who eat there, up to what
  * the camp holds, counting the units on their way in.
  */
 export function campLacks(sim: Sim): number {
   const { stores } = sim;
-  const wanted = Math.min(DAYS_KEPT_AT_HOME * MEALS_PER_DAY * sim.households.atCamp, stores.campLimit);
+  const wanted = Math.min(DAYS_KEPT_AT_CAMP * MEALS_PER_DAY * sim.households.atCamp, stores.campLimit);
   return wanted - stores.food[CAMP_STORE]! - stores.inbound[CAMP_STORE]!;
 }
 

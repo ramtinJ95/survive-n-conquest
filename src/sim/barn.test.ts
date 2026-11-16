@@ -159,10 +159,10 @@ describe('a household that fetches its food', () => {
     runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY, () => {
       for (let id = 0; id < 4; id++) if (sim.villagers.task[id] === STOCK && !taken.includes(id)) taken.push(id);
     });
-    expect([food(sim, CAMP_STORE), food(sim, barn), sim.tally.toCamp]).toEqual([12, BARN_FOOD_LIMIT - 12, 12]);
+    expect([food(sim, CAMP_STORE), food(sim, barn), sim.tally.toCamp]).toEqual([4, BARN_FOOD_LIMIT - 4, 4]);
     expect(taken.length).toBeGreaterThan(0);
     runUntil(sim, () => isDawn(sim.tick), TICKS_PER_DAY);
-    expect([sim.tally.meals, sim.tally.missed, food(sim, CAMP_STORE)]).toEqual([4, 0, 8]);
+    expect([sim.tally.meals, sim.tally.missed, food(sim, CAMP_STORE)]).toEqual([4, 0, 0]);
   });
 
   it('leaves the camp to settlers without a job: a forager never carries food from a barn to the camp', () => {
