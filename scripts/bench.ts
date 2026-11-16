@@ -185,6 +185,12 @@ function measure(size: number): boolean {
   const { task, taskTile, destination } = sim.villagers;
   const heldTask = new Uint8Array(task.length);
   const lastTask = Uint8Array.from(task);
+  const { state, workplace, x: villagerX, y: villagerY } = sim.villagers;
+  const lastWorkplace = Int16Array.from(workplace);
+  const lastState = Uint8Array.from(state);
+  const campX = (sim.flow.goal % size) + 0.5;
+  const campY = Math.floor(sim.flow.goal / size) + 0.5;
+  const deaths = { away: 0, atStore: 0, foragers: 0, farthest: 0 };
   const toStockpile: Trips = { count: 0, length: 0 };
   const toSite: Trips = { count: 0, length: 0 };
   let dayVillagerTicks = 0;
@@ -209,9 +215,20 @@ function measure(size: number): boolean {
       turnCount[turn]++;
       turnLeft = TURN_TICKS;
     }
+    const dawnTick = isDawn(sim.tick);
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
+    for (let id = 0; id < state.length; id++) {
+      if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
+        if (dawnTick) deaths.away++;
+        else deaths.atStore++;
+        if (lastWorkplace[id]! >= 0) deaths.foragers++;
+        deaths.farthest = Math.max(deaths.farthest, Math.hypot(villagerX[id]! - campX, villagerY[id]! - campY));
+      }
+      lastState[id] = state[id]!;
+      lastWorkplace[id] = workplace[id]!;
+    }
     if (turn && turnLeft-- > 0) turns[turn][turnCount[turn] - 1] = Math.max(turns[turn][turnCount[turn] - 1]!, samples[tick]!);
     if (tickOfDay(sim.tick) === 0) {
       insideAtMidnight[nights] = inside(sim);
@@ -274,6 +291,10 @@ function measure(size: number): boolean {
     `  food in the measured ticks: ${fed.meals} meals eaten, ${fed.missed} meals missed, ${fed.carriedHome} units carried home, ` +
       `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
       `${sim.stores.food[CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start`,
+  );
+  console.log(
+    `  deaths in the measured ticks: ${deaths.away} at a dawn, by a third meal missed away from home, and ${deaths.atStore} at a dusk, by a third meal missed at an empty store; ` +
+      `${deaths.foragers} of them foragers; the farthest ${deaths.farthest.toFixed(0)} tiles from the camp center`,
   );
   console.log(
     `  house sites: ${sites} placed on a grid of ${SITE_GRID} by ${SITE_GRID}, ${housesBefore} built in the warm-up ticks, ` +
