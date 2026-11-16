@@ -1,11 +1,11 @@
 # Seasons
 
-The ground and the trees change with the season. Spring is light green with pink blossom on the broadleaf trees. Summer is deep green with dry meadows. Autumn turns the broadleaf trees orange and the grass brown. Winter covers the ground and the trees in snow. The night is 40% of the day in spring and autumn, 30% in summer, and 55% in winter. A season lasts three days and a year lasts twelve.
+The ground and the trees change with the season. Spring is light green with groves of trees in pink blossom and flowers in the grass. Summer is deep green with dry meadows. Autumn turns the oaks, the blossom trees, and the birches orange and the grass brown. Winter covers the ground and the trees in snow, and the flowers are gone. The night is 40% of the day in spring and autumn, 30% in summer, and 55% in winter. A season lasts three days and a year lasts twelve.
 
 ## Sub-features
 
 - `seasons-ground` colors the grass, the meadows, the forest floor, and the high rock for the season.
-- `seasons-trees` colors the broadleaf trees for the season and puts snow on the pines in winter.
+- `seasons-trees` colors the oaks, the blossom trees, and the birches for the season and puts snow on the pines in winter.
 - `seasons-turn` changes the look from one season to the next over the last afternoon and evening of a season.
 - `seasons-night` sets dusk at 19:12 in spring and autumn, 20:24 in summer, and 17:24 in winter. Dawn is as long after midnight as dusk is before it.
 - `seasons-sun` raises the noon sun highest in summer and keeps it lowest in winter.
@@ -24,8 +24,8 @@ Preconditions:
 
 - **Open the game.** Load `?swarm=off` at 1280 by 720 with `clock: 'running'`. The camera never moves, so every screenshot has the same view.
 - **Stop at noon of each season.** `reach` pauses at 12:00 on days 1, 4, 7, and 10. `season-1-spring-noon.png`, `season-2-summer-noon.png`, `season-3-autumn-noon.png`, and `season-4-winter-noon.png` show the four looks. The checks `the date reads <Season> at day <n> 12:00` read the date.
-- **Read the colors.** The checks `<Season> colors the map at noon` read the lower 65% of each noon screenshot against `SEASON_LOOKS`. Spring needs green plants and pink blossom. Summer needs green plants and no blossom. Autumn needs orange leaves and few green plants. Winter needs snow and no green plants. The checks `<Season> looks different from the season before it` compare each noon with the last one.
-- **Stop in the evening.** `reach` pauses at 18:30 on the same days. `season-<n>-<season>-evening.png` shows each. The check `at 18:30 it is still day in summer and already night in winter` compares each evening's brightness with its own noon.
+- **Read the colors.** The checks `<Season> colors the map at noon` read the lower 65% of each noon screenshot against `SEASON_LOOKS`. Spring and summer need green plants. Autumn needs orange leaves and few green plants. Winter needs snow and no green plants. These shares are read on a probe picture of 160 by 90 pixels. The blossom trees grow in groves and a crown is smaller than a probe pixel, so the checks `Spring is in blossom at noon` and `nothing is in blossom at noon in <Season>` count the blossom pixels of the full screenshot below the horizon. Spring needs 0.6% and the other seasons may show 0.15%. On seed 7 spring read 1.03% and the others 0.03% to 0.06%. The checks `<Season> looks different from the season before it` compare each noon with the last one.
+- **Stop in the evening.** `reach` pauses at 18:30 on the same days. `season-<n>-<season>-evening.png` shows each. The check `at 18:30 it is still day in summer and already night in winter` places each evening by color, as [Daylight](./daylight.md) places the night. An evening is day when it has less blue for each part of red than halfway between the noon and the midnight of its season. The summer evening must be day and the winter evening night, and the summer evening must keep more of its noon brightness than the winter evening. On seed 7 the summer evening read 0.95 against a halfway of 1.21, and the winter evening 1.75 against 1.60. The low sun now lights the land warm and strong until it sets, so the summer evening keeps 65% of its noon brightness and the winter evening 51%, too close for a check on brightness alone.
 - **Stop at midnight.** `reach` pauses at 00:00 on days 2, 5, 8, and 11. `season-<n>-<season>-midnight.png` shows each. The checks `midnight in <Season> is dark, cold, and light enough to see the map` pass when the screenshot is under 60% of the noon brightness, is at least 20 on a scale of 255, and has more than 1.5 times as much blue for its red as the noon screenshot has.
 - **Proof.** Run `$V run seasons`. The evidence folder holds twelve screenshots and `result.json` with every check, including `no page errors`.
 

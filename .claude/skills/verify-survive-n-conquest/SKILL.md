@@ -154,7 +154,9 @@ SwiftShader renders every frame on the CPU, so a run's length depends on the mac
 
 Headless Chromium starts the next animation frame before SwiftShader has drawn the last one, so about 30 frames wait in a queue and a screenshot waits behind all of them. At 1280 by 720 on rj-firebat a frame takes 220 to 300 ms to draw, and a screenshot of a paused page took 6.6 to 8.4 s. On a 2 CPU pylon a frame took about 1.8 s and a screenshot 29 to 67 s.
 
-The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-firebat and on the owner's Mac. On a 2 CPU pylon a held key draws only one or two frames, so the camera stops short and its limit checks can fail for a reason that has nothing to do with the camera.
+The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-firebat and on the owner's Mac. On a 2 CPU pylon a held key draws only one or two frames, so the camera stops short and its limit checks can fail for a reason that has nothing to do with the camera. The scenario reaches the nearest zoom with the wheel, which does not depend on the frame time: the world of pull request 2.6 has half again as many triangles, a frame takes longer, and 5 seconds of a held `Z` stopped short of the nearest view of 14 meters.
+
+The scenarios take about 1.2 to 1.4 times as long as before that pull request. On the owner's Mac `camera` took 3 minutes 47 seconds against 2 minutes 38, and `hauling` 7 minutes 38 against 6 minutes 1.
 
 ## The frame pacer
 
