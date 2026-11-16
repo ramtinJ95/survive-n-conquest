@@ -360,7 +360,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
     if (event.button !== 0 || pressed?.pointer !== event.pointerId || !mainButtonPans() || !frame) return;
     const travel = pressed.travel + Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y);
     if (travel > CLICK_TRAVEL_PX) return;
-    const scene = { map, orders, camp, villagers: frame.villagers };
+    const scene = { map, orders, camp, villagers: frame.villagers, states: frame.states };
     select(pickSelection(scene, camera, event.clientX, event.clientY, canvas.clientWidth, canvas.clientHeight));
   });
   canvas.addEventListener('pointercancel', () => {
