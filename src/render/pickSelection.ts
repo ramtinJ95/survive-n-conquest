@@ -3,6 +3,7 @@ import manifest from '../../assets/models.json';
 import { CAMP_LAYOUT } from './camp';
 import { type TileMap, heightAt } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
+import { VillagerState } from '../sim/villagers';
 
 /** What the player can select. A building is a site or a house, by its slot in the sites table and its center tile. */
 export type Selection =
@@ -16,6 +17,8 @@ export interface PickScene {
   readonly camp: number;
   /** Villager positions as the worker publishes them: pairs of map x and y in tiles, in id order. */
   readonly villagers: Float32Array;
+  /** One `VillagerState` per villager in id order. A villager inside its house cannot be picked. */
+  readonly states: Uint8Array;
 }
 
 /** A settler's height in meters, feet to the top of its hair. */
@@ -72,14 +75,15 @@ function hiddenBy(cover: Box3 | null, camera: PerspectiveCamera): boolean {
   return sight.intersectBox(cover, hit) !== null && hit.distanceTo(eye) < chest.distanceTo(eye);
 }
 
-/** The pixels from a click to the nearest settler's body that `cover` does not hide, and that settler, or Infinity and -1. */
+/** The pixels from a click to the nearest settler's body, out of its house, that `cover` does not hide, and that settler, or Infinity and -1. */
 function nearestSettler(scene: PickScene, camera: PerspectiveCamera, x: number, y: number, width: number, height: number, cover: Box3 | null) {
-  const { map, villagers } = scene;
+  const { map, villagers, states } = scene;
   const half = map.size / 2;
   const focal = height / (2 * Math.tan((camera.fov * Math.PI) / 360));
   let best = Infinity;
   let id = -1;
   for (let villager = 0; villager * 2 < villagers.length; villager++) {
+    if (states[villager] === VillagerState.Inside) continue;
     const mapX = villagers[villager * 2]!;
     const mapY = villagers[villager * 2 + 1]!;
     const ground = heightAt(map, mapX, mapY);

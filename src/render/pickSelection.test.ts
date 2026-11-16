@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CAMP_RADIUS } from '../sim/camp';
 import { applyOrder, createOrders, SiteState } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
+import { VillagerState } from '../sim/villagers';
 import { CAMP_LAYOUT } from './camp';
 import { CameraRig } from './cameraRig';
 import { SETTLER_HEIGHT, pickSelection } from './pickSelection';
@@ -45,8 +46,15 @@ function besideSettler(world: Setting, mapX: number, mapY: number, pixels: numbe
   return { x: edge.x + pixels, y: middle.y };
 }
 
-const pick = (world: Setting, villagers: number[], click: { x: number; y: number }) =>
-  pickSelection({ map: world.map, orders: world.orders, camp: world.camp, villagers: Float32Array.from(villagers) }, world.camera, click.x, click.y, WIDTH, HEIGHT);
+const pick = (world: Setting, villagers: number[], click: { x: number; y: number }, states: number[] = Array(villagers.length / 2).fill(VillagerState.Walking)) =>
+  pickSelection(
+    { map: world.map, orders: world.orders, camp: world.camp, villagers: Float32Array.from(villagers), states: Uint8Array.from(states) },
+    world.camera,
+    click.x,
+    click.y,
+    WIDTH,
+    HEIGHT,
+  );
 
 describe('pickSelection', () => {
   describe.each([NEAREST, FARTHEST])('at a camera distance of %d m', (distance) => {
@@ -82,6 +90,21 @@ describe('pickSelection', () => {
     const house = { kind: 'building', slot, center: at(world.map, 32, 32) };
 
     expect(pick(world, [behind.x, behind.y], screen(world, behind.x, GROUND + SETTLER_HEIGHT / 2, behind.y))).toEqual(house);
+  });
+
+  it.each([0, 1.6, 3.2, 4.8])('takes the house or the ground where a settler went inside, never the settler, at yaw %d', (yaw) => {
+    const world = setting(yaw, NEAREST);
+    expect(applyOrder(world.map, world.orders, { kind: 'placeHouse', x: 32, y: 32 })).toMatchObject({ ok: true });
+    const slot = world.orders.siteOf[at(world.map, 32, 32)]!;
+    world.orders.sites.state[slot] = SiteState.House;
+    const door = { x: 32.5 + 2 * Math.sin(yaw), y: 32.5 + 2 * Math.cos(yaw) };
+    const villagers = [door.x, door.y, 12.5, 50.5, 50.5, 12.5];
+    const { Walking, Inside } = VillagerState;
+    const body = screen(world, door.x, GROUND + SETTLER_HEIGHT / 2, door.y);
+
+    expect(pick(world, villagers, body, [Walking, Walking, Walking])).toEqual({ kind: 'villager', id: 0 });
+    expect(pick(world, villagers, body, [Inside, Walking, Walking])).toEqual({ kind: 'building', slot, center: at(world.map, 32, 32) });
+    expect(pick(world, villagers, screen(world, 12.5, GROUND + SETTLER_HEIGHT / 2, 50.5), [Walking, Inside, Walking])).toBeNull();
   });
 
   it('takes the camp for a click on the fire between the settlers ringed around it', () => {

@@ -96,13 +96,15 @@ export interface UnitFrame {
 
 /**
  * Draws the units standing on the ground, each group as one instanced mesh.
- * A villager is a body, two arms, and two legs: villager `id` has the limbs
- * `2 * id` on its right and `2 * id + 1` on its left. It turns the way it
- * walks, steps and swings its arms against its legs as it goes, swings both
- * arms over its head and down as it works, and holds what it carries up on
- * both hands. At its spot for the night it faces the camp `camp`. The motion
- * follows the tick, so the units hold still while the clock is paused. They
- * take the light of the scene, and they cast and take its shadows.
+ * A villager is a body, two arms, and two legs: the villager drawn `n`th has
+ * the body `n` and the limbs `2 * n` on its right and `2 * n + 1` on its left,
+ * so villagers that are not drawn leave no gap. It turns the way it walks,
+ * steps and swings its arms against its legs as it goes, swings both arms over
+ * its head and down as it works, and holds what it carries up on both hands.
+ * At its spot for the night it faces the camp `camp`, and inside its house it
+ * is not drawn. The motion follows the tick, so the units hold still while the
+ * clock is paused. They take the light of the scene, and they cast and take
+ * its shadows.
  */
 export function createSwarm(map: TileMap, population: Population, shapes: Shapes, camp: number) {
   const half = map.size / 2;
@@ -157,6 +159,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     const count = positions.length / 2;
     const stepped = tick !== shown;
     for (const mesh of carriedMeshes) mesh.count = 0;
+    let drawn = 0;
     for (let id = 0; id < count; id++) {
       const mapX = positions[id * 2]!;
       const mapY = positions[id * 2 + 1]!;
@@ -169,6 +172,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
         last[id * 2] = mapX;
         last[id * 2 + 1] = mapY;
       }
+      if (states[id] === VillagerState.Inside) continue;
 
       const walks = walking[id] === 1;
       const works = states[id] === VillagerState.Working;
@@ -182,7 +186,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
       const turn = facing[id]!;
       const lean = works ? STROKE.lean * (1 - stroke) : 0;
       const both = load ? HELD_UP : works ? STROKE.middle - STROKE.reach * stroke : null;
-      put(villagers, id, x, ground, z, lean, turn, size);
+      put(villagers, drawn, x, ground, z, lean, turn, size);
       const forward = Math.sin(lean) * SHOULDER_HEIGHT * size;
       const shoulder = ground + Math.cos(lean) * SHOULDER_HEIGHT * size;
       const acrossX = Math.cos(turn) * size;
@@ -192,7 +196,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
         const swing = side * stride;
         put(
           arms,
-          id * 2 + left,
+          drawn * 2 + left,
           x + Math.sin(turn) * forward + side * ARM_SIDE * acrossX,
           shoulder,
           z + Math.cos(turn) * forward + side * ARM_SIDE * acrossZ,
@@ -200,12 +204,13 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
           turn,
           size,
         );
-        put(legs, id * 2 + left, x + side * LEG_SIDE * acrossX, ground + HIP_HEIGHT * size, z + side * LEG_SIDE * acrossZ, -LEG_STRIDE * swing, turn, size);
+        put(legs, drawn * 2 + left, x + side * LEG_SIDE * acrossX, ground + HIP_HEIGHT * size, z + side * LEG_SIDE * acrossZ, -LEG_STRIDE * swing, turn, size);
       }
       if (load) put(load, load.count++, x, ground + CARRY_HEIGHT * size, z, 0, turn, 1);
+      drawn += 1;
     }
-    villagers.count = count;
-    arms.count = legs.count = count * 2;
+    villagers.count = drawn;
+    arms.count = legs.count = drawn * 2;
     for (const mesh of posed) mesh.instanceMatrix.needsUpdate = true;
   };
 

@@ -8,7 +8,7 @@ export type Claim = (typeof Claim)[keyof typeof Claim];
 export const SiteState = { Free: 0, Site: 1, House: 2 } as const;
 export type SiteState = (typeof SiteState)[keyof typeof SiteState];
 
-export const MAX_SITES = 256;
+export const MAX_SITES = 1024;
 /** The most that the highest of a site's nine tiles may stand above the lowest, in meters. */
 export const MAX_SITE_RISE = 1.5;
 
@@ -19,6 +19,8 @@ export interface Sites {
   readonly state: Uint8Array;
   /** Ticks of building work done on each site. Work on a cancelled site is lost. */
   readonly work: Uint16Array;
+  /** One past the highest slot ever placed, so no site or house lies at or above it. It never shrinks. */
+  used: number;
 }
 
 export interface Orders {
@@ -108,6 +110,7 @@ export function createOrders(map: TileMap, camp: number = campTile(map)): Orders
       y: new Int16Array(MAX_SITES),
       state: new Uint8Array(MAX_SITES),
       work: new Uint16Array(MAX_SITES),
+      used: 0,
     },
     siteOf: new Int16Array(tiles).fill(-1),
     changes: { listed: new Uint8Array(tiles), tiles: new Int32Array(tiles), tileCount: 0, slots: new Uint8Array(MAX_SITES) },
@@ -144,6 +147,7 @@ function setSite(orders: Orders, slot: number, x: number, y: number, state: Site
   orders.sites.state[slot] = state;
   orders.sites.work[slot] = 0;
   orders.changes.slots[slot] = 1;
+  orders.sites.used = Math.max(orders.sites.used, slot + 1);
   pointNine(orders, x, y, state === SiteState.Free ? -1 : slot);
 }
 
@@ -237,7 +241,7 @@ export function areaEffect(
   if (order !== 'cancel') return count;
 
   const { sites } = orders;
-  for (let slot = 0; slot < MAX_SITES; slot++) {
+  for (let slot = 0; slot < sites.used; slot++) {
     if (sites.state[slot] !== SiteState.Site || !siteTouches(sites, slot, bounds)) continue;
     for (let y = sites.y[slot]! - 1; y <= sites.y[slot]! + 1; y++) {
       for (let x = sites.x[slot]! - 1; x <= sites.x[slot]! + 1; x++) visit?.(y * size + x);
@@ -351,7 +355,7 @@ export function applyOrder(map: TileMap, orders: Orders, command: OrderCommand):
   if (tiles === 0) return { ok: false, order, refusal: rule.refusal };
   if (order === 'cancel') {
     const bounds = clip(map, area);
-    for (let slot = 0; slot < MAX_SITES; slot++) {
+    for (let slot = 0; slot < orders.sites.used; slot++) {
       if (orders.sites.state[slot] === SiteState.Site && siteTouches(orders.sites, slot, bounds)) {
         setSite(orders, slot, orders.sites.x[slot]!, orders.sites.y[slot]!, SiteState.Free);
       }
@@ -372,9 +376,9 @@ export function takeOrderChanges(orders: Orders): OrderChanges {
   }
   changes.tileCount = 0;
   let slots = 0;
-  for (let slot = 0; slot < MAX_SITES; slot++) slots += changes.slots[slot]!;
+  for (let slot = 0; slot < sites.used; slot++) slots += changes.slots[slot]!;
   const changed = new Int32Array(slots * SITE_CHANGE_STRIDE);
-  for (let slot = 0, at = 0; slot < MAX_SITES; slot++) {
+  for (let slot = 0, at = 0; slot < sites.used; slot++) {
     if (!changes.slots[slot]) continue;
     changed[at] = slot;
     changed[at + 1] = sites.x[slot]!;
@@ -404,6 +408,7 @@ export function applyOrderChanges(orders: Orders, { claims, sites }: OrderChange
     orders.sites.y[slot] = sites[i + 2]!;
     orders.sites.state[slot] = sites[i + 3]!;
     orders.sites.work[slot] = sites[i + 4]!;
+    orders.sites.used = Math.max(orders.sites.used, slot + 1);
     if (sites[i + 3] !== SiteState.Free) pointNine(orders, sites[i + 1]!, sites[i + 2]!, slot);
   }
 }

@@ -1,6 +1,7 @@
 import { TICKS_PER_SECOND } from './calendar';
 import { closeFlowTiles } from './flowField';
 import { GOOD_KINDS, Good, STACK_LIMIT } from './goods';
+import { moveInto } from './households';
 import { TileKind, type TileMap } from './map';
 import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './orders';
 import { planPath } from './paths';
@@ -124,9 +125,10 @@ export function deliver(sim: Sim, slot: number, good: Good): void {
 }
 
 /**
- * Turns a site whose work is done into a house. Its materials are used up, its
- * nine tiles stop walkers, and the routes are brought up to date in place. The
- * villagers leave the land it closed once the work that finished it ends.
+ * Turns a site whose work is done into a house, and the home of a household
+ * that has none. Its materials are used up, its nine tiles stop walkers, and
+ * the routes are brought up to date in place. The villagers leave the land it
+ * closed once the work that finished it ends.
  */
 export function finishHouse(sim: Sim, slot: number): void {
   const { map, orders, siteTasks } = sim;
@@ -139,6 +141,7 @@ export function finishHouse(sim: Sim, slot: number): void {
     siteTasks.closing[index] = tile;
   }
   finishSite(orders, slot);
+  moveInto(sim.households, slot);
   closeFlowTiles(map, sim.flow, siteTasks.closing, 9);
   sim.tally.built += 1;
   refreshSite(sim, slot);
@@ -180,7 +183,7 @@ function setAside(sim: Sim, slot: number): void {
 
 function reopen(sim: Sim): void {
   const { setAside } = sim.siteTasks;
-  for (let slot = 0; slot < MAX_SITES; slot++) {
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) {
     if (setAside[slot] === 0) continue;
     setAside[slot] = 0;
     refreshSite(sim, slot);

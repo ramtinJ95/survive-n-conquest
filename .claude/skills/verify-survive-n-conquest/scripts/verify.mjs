@@ -2366,6 +2366,166 @@ const MARKS_AT_LEAST = { mid: 20, near: 50, far: 10 };
  */
 const REFUSED_AT_LEAST = { rock: 60, forest: 50 };
 
+
+/**
+ * Two house sites go down at 08:15 on day 1, above and left of the camp, with 26 trees and 136 rock tiles marked and a
+ * 4-tile stockpile, so that the settlers have the 24 logs and 12 stone the two need. In the pylon both stood at 14:44
+ * and 14:45 on day 2, so households 0 and 1 have homes at the dusk of day 2 and households 2 and 3 do not.
+ */
+const HOME_ORDERS = [
+  ['KeyC', /^26 trees marked for felling/, { x: 590, y: 220 }, { x: 730, y: 360 }],
+  ['KeyM', /^136 rock tiles marked for quarrying/, { x: 340, y: 150 }, { x: 470, y: 240 }],
+  ['KeyP', /^4 tiles join the stockpile zone/, BUILD_SPOTS.stockpile[0], BUILD_SPOTS.stockpile[1]],
+];
+const HOME_SPOTS = [BUILD_SPOTS.house, { x: 400, y: 330 }];
+/** The closer view is zoomed in toward this point of the building view, between the two houses and the camp. */
+const HOME_FOCUS = { x: 450, y: 300 };
+/**
+ * The stops after the clip fall on day 4, the first day of summer, whose dawn is at 03:36. 03:40 is 4 game minutes,
+ * about 8 ticks, after it, so a settler that came out of a house has walked at most about a tile and a half from its
+ * door, while the camp lies 4 tiles and more from either house.
+ */
+const HOME_STOPS = {
+  dusk: { day: 2, time: '19:00' },
+  walked: { day: 2, time: '19:50' },
+  night: { day: 3, time: '04:35' },
+  dawn: { day: 3, time: '05:05' },
+  midnight: { day: 4, time: '00:00' },
+  beforeDawn: { day: 4, time: '03:30' },
+  afterDawn: { day: 4, time: '03:40' },
+};
+
+/**
+ * In clip pixels of the closer view: the camp's ring and fire, and the land beside each house, which leaves out the
+ * camp. The settlers walk home from the quarry above, so they go in, and come out, on the near sides of the houses.
+ */
+const HOME_BOXES = {
+  camp: { x: 395, y: 315, width: 130, height: 110 },
+  upperHouse: { x: 420, y: 190, width: 160, height: 125 },
+  leftHouse: { x: 240, y: 285, width: 150, height: 170 },
+};
+/**
+ * In the pylon the camp box differed from the bare map at midnight in 882 pixels with two households at home and in
+ * 1632 with all 8 settlers at the camp, a share of 0.54, in both of two runs. At 03:30 the land beside the upper and
+ * the left house held 0 and 0 tunic pixels, and at 03:40 they held 97 and 102 to 104. The same boxes of the page with
+ * no houses held 0 and 15 to 17 at 03:40, where those of the left box are the bare ground's.
+ */
+const HOME_LIMITS = { campShare: [0.3, 0.75], tunicsBefore: 5, tunicsAfter: 40, tunicsWithoutHomes: 30 };
+const HOME_CLIP = { crop: { x: 180, y: 0, width: 480, height: 455 }, width: 480, colors: 64 };
+
+SCENARIOS.households = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const sites = (page) => page.getByRole('status', { name: 'House site' });
+  const closer = async (page) => {
+    await page.mouse.move(HOME_FOCUS.x, HOME_FOCUS.y);
+    await page.mouse.wheel(0, BUILD_CLOSER);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+  };
+  const runAt = async (page, key, when) => {
+    await page.keyboard.press(key);
+    const wanted = clockMinutes(when);
+    const deadline = Date.now() + 240_000;
+    while ((await session.gameMinutes(page)) < wanted) {
+      if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in four minutes`);
+      await page.waitForTimeout(100);
+    }
+  };
+  const stops = ['midnight', 'beforeDawn', 'afterDawn'];
+  const visit = async (page, label) => {
+    const shots = {};
+    for (const name of stops) {
+      await session.reach(page, HOME_STOPS[name]);
+      await session.still(page);
+      shots[name] = await session.screenshot(page, `${label}-${name}`);
+    }
+    return shots;
+  };
+
+  const town = await session.open(CLIP, { record: true, clock: 'paused' });
+  const { page } = town;
+  await takeView(session, page, BUILD_VIEW);
+  await session.reach(page, BUILD_STOPS.marked);
+  for (const [key, pattern, from, to] of HOME_ORDERS) {
+    await page.keyboard.press(key);
+    await session.drag(page, from, to);
+    const line = await said(page, pattern);
+    session.check(`the ${key.slice(3)} order is given`, pattern.test(line), `the status line reads "${line}"`);
+    await page.keyboard.press('Escape');
+  }
+  await page.keyboard.press('KeyH');
+  for (const [index, spot] of HOME_SPOTS.entries()) {
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    const line = await said(page, /House site placed/);
+    session.check(`house site ${index + 1} is placed`, /^House site placed/.test(line), `the status line reads "${line}"`);
+    await page.mouse.move(spot.x + 200, spot.y + 150);
+    await session.settle(page);
+  }
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await page.keyboard.press('4');
+  const deadline = Date.now() + 600_000;
+  while ((await sites(page).count()) > 0) {
+    if (Date.now() > deadline) fail('the two houses were not finished in ten minutes at 8×');
+    await page.waitForTimeout(500);
+  }
+  await session.pause(page);
+  const finished = await session.gameMinutes(page);
+  session.check(
+    'both houses are finished before the dusk of day 2',
+    finished < clockMinutes(HOME_STOPS.dusk),
+    `the last site label went at ${clockText(finished)}`,
+  );
+  await closer(page);
+  await session.screenshot(page, 'households-homes');
+  await session.reach(page, HOME_STOPS.dusk);
+  const from = town.since();
+  await runAt(page, '1', HOME_STOPS.walked);
+  await runAt(page, '4', HOME_STOPS.night);
+  await runAt(page, '1', HOME_STOPS.dawn);
+  await session.pause(page);
+  const to = town.since();
+  const homes = await visit(page, 'households');
+  await session.finishClips(town.context, page, [{ label: 'households-dusk-and-dawn', from, to, ...HOME_CLIP }]);
+  seen.push(...town.errors);
+
+  const others = {};
+  for (const [label, search] of [['plain', ''], ['bare', '?swarm=off']]) {
+    const opened = await session.open(CLIP, { search, clock: 'paused' });
+    await takeView(session, opened.page, BUILD_VIEW);
+    await closer(opened.page);
+    others[label] = await visit(opened.page, label);
+    await opened.context.close();
+    seen.push(...opened.errors);
+  }
+  const housed = changedIn(homes.midnight, others.bare.midnight, CLIP.width, HOME_BOXES.camp);
+  const everyone = changedIn(others.plain.midnight, others.bare.midnight, CLIP.width, HOME_BOXES.camp);
+  const share = housed / everyone;
+  session.check(
+    'at midnight the two households without a home stand at the camp, and the two with one do not',
+    share >= HOME_LIMITS.campShare[0] && share <= HOME_LIMITS.campShare[1],
+    `the camp differs from the bare map in ${housed} pixels with two households at home and in ${everyone} with all 8 settlers there, ` +
+      `a share of ${share.toFixed(2)}, needs ${HOME_LIMITS.campShare.join(' to ')}`,
+  );
+  const tunics = (png, box) => pixelsIn(png, CLIP.width, box, TUNIC_IN_SHADE).count;
+  for (const house of ['upperHouse', 'leftHouse']) {
+    const before = tunics(homes.beforeDawn, HOME_BOXES[house]);
+    const after = tunics(homes.afterDawn, HOME_BOXES[house]);
+    const without = tunics(others.plain.afterDawn, HOME_BOXES[house]);
+    session.check(
+      `at dawn the household of the ${house === 'upperHouse' ? 'upper' : 'left'} house comes out beside it`,
+      before <= HOME_LIMITS.tunicsBefore && after >= HOME_LIMITS.tunicsAfter && without <= HOME_LIMITS.tunicsWithoutHomes,
+      `${before} tunic pixels beside the house at ${clockText(clockMinutes(HOME_STOPS.beforeDawn))} and ${after} at ` +
+        `${clockText(clockMinutes(HOME_STOPS.afterDawn))}, and ${without} in the same box on the page with no houses; needs at most ` +
+        `${HOME_LIMITS.tunicsBefore}, at least ${HOME_LIMITS.tunicsAfter}, and at most ${HOME_LIMITS.tunicsWithoutHomes}`,
+    );
+  }
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
 SCENARIOS.orders = async (session) => {
   const seen = [];
   const spot = (viewport, [fx, fy]) => ({ x: Math.round(fx * viewport.width), y: Math.round(fy * viewport.height) });
@@ -2822,6 +2982,13 @@ function selectionDriver(session) {
   return { panel, reads, text, uiBoxes, skipOf, tunics, tunicPixels, markOf, click, clickSettler, bareSpot, apart };
 }
 
+/**
+ * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and
+ * Household rows. Before households the title was the word Settler.
+ */
+const settlerPanel = (read) =>
+  Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
+
 SCENARIOS.selecting = async (session) => {
   const seen = [];
   const sites = siteDriver(session);
@@ -2858,7 +3025,7 @@ SCENARIOS.selecting = async (session) => {
   const picked = await clickSettler(page, 'selecting-settler-aim');
   session.check(
     `at ${await at(page)} a click ${SELECT_OFFSET} px beside a settler selects it`,
-    picked.read?.title === 'Settler',
+    settlerPanel(picked.read),
     `${picked.spot ? `tunic at ${picked.spot.x.toFixed(0)},${picked.spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(picked.read)}"`,
   );
   const firstBoxes = await uiBoxes(page);
@@ -2921,7 +3088,7 @@ SCENARIOS.selecting = async (session) => {
 
   await session.reach(page, BUILD_STOPS.placed);
   const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);
-  session.check('a House click places the site and leaves the selection alone', /^House site placed/.test(placed.line) && (await reads(page))?.title === 'Settler', `the status line reads "${placed.line}"; the panel reads "${text(await reads(page))}"`);
+  session.check('a House click places the site and leaves the selection alone', /^House site placed/.test(placed.line) && settlerPanel(await reads(page)), `the status line reads "${placed.line}"; the panel reads "${text(await reads(page))}"`);
   const siteRead = await click(page, BUILD_SPOTS.closerHouse);
   session.check(
     `at ${await at(page)} a click on the site selects it and its panel reads what has arrived`,
@@ -3035,7 +3202,7 @@ SCENARIOS.selecting = async (session) => {
   await session.reach(c, SELECT_STOPS.winterNoon);
   await session.still(c);
   const snowPick = await clickSettler(c, 'selecting-winter-aim');
-  session.check('at winter noon a click beside a settler selects it', snowPick.read?.title === 'Settler', `the panel reads "${text(snowPick.read)}"`);
+  session.check('at winter noon a click beside a settler selects it', settlerPanel(snowPick.read), `the panel reads "${text(snowPick.read)}"`);
   await measureMark('at winter noon, over snow,', 'winter-noon');
   const winterCamp = await selectCamp();
   session.check('at winter noon a click on the camp selects it again', winterCamp.read?.title === 'Camp', `after ${winterCamp.tries} of at most ${CAMP_TRIES} clicks the panel reads "${text(winterCamp.read)}"`);
@@ -3053,7 +3220,7 @@ SCENARIOS.selecting = async (session) => {
   const farRead = firelit ? await click(c, firelit) : null;
   session.check(
     'at the farthest zoom a click on the firelit camp selects one of the settlers ringed there',
-    farRead?.title === 'Settler',
+    settlerPanel(farRead),
     `${firelit ? `firelit ground of ${firelit.count} px at ${firelit.x.toFixed(0)},${firelit.y.toFixed(0)}` : 'no firelit ground found'}; the panel reads "${text(farRead)}"`,
   );
   await camp.context.close();
@@ -3066,7 +3233,7 @@ SCENARIOS.selecting = async (session) => {
     const { spot, read, png } = await clickSettler(v, `selecting-pick-${name.replace(' ', '-')}`);
     session.check(
       `at the ${name} view a click ${SELECT_OFFSET} px beside a settler selects it`,
-      read?.title === 'Settler',
+      settlerPanel(read),
       `${spot ? `tunic of ${spot.count} px at ${spot.x.toFixed(0)},${spot.y.toFixed(0)}` : 'no tunic found'}; the panel reads "${text(read)}"`,
     );
     const bare = await bareSpot(v, png);

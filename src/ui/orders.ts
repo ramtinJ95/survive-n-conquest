@@ -3,6 +3,7 @@ import { ORDER_COLORS, type OrderMarks, Preview } from '../render/orderMarks';
 import { createPicker, type PickedTile } from '../render/pick';
 import type { TileMap } from '../sim/map';
 import {
+  MAX_SITES,
   type AreaOrder,
   type OrderCommand,
   type OrderOutcome,
@@ -85,7 +86,7 @@ const REFUSALS: Readonly<Record<Refusal, string>> = {
   goods: 'Goods lie on the site.',
   uneven: 'The ground is too steep. Its nine tiles may differ by 1.5 m at most.',
   divides: 'The house would cut land off from the camp.',
-  full: 'The map holds 256 houses and sites at most.',
+  full: `The map holds ${MAX_SITES} houses and sites at most.`,
 };
 
 /** Refusals that belong to the whole site rather than to some of its tiles. */

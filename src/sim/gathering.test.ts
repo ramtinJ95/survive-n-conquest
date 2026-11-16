@@ -376,7 +376,7 @@ describe('a task', () => {
       },
     );
     expect(workedAtDusk).toBe(true);
-    expect(tickAfterDusk).toEqual([0, VillagerState.GoingHome, 0]);
+    expect(tickAfterDusk).toEqual([0, VillagerState.GoingToCamp, 0]);
     expect(ticks).toBe(200);
     expect(isNight(sim.tick)).toBe(false);
     expect(sim.tick).toBeGreaterThan(2600);
