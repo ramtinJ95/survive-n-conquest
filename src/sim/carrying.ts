@@ -1,3 +1,4 @@
+import { Job } from './buildings';
 import { GOOD_KINDS, Good, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { Claim } from './orders';
 import { planPath } from './paths';
@@ -140,4 +141,4 @@ function release(sim: Sim, id: number): void {
 }
 
 /** Carrying one unit from the ground to a stockpile place. */
-export const CARRYING: TaskKind = { take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };
+export const CARRYING: TaskKind = { job: Job.None, take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };

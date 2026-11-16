@@ -1,7 +1,8 @@
-import { Building, MAX_SIDE, kindOf, siteX0, siteY0 } from './buildings';
+import { Building, Job, MAX_SIDE, kindOf, siteX0, siteY0 } from './buildings';
 import { closeFlowTiles } from './flowField';
 import { GOOD_KINDS, Good, STACK_LIMIT } from './goods';
 import { moveInto } from './households';
+import { openWorkplace } from './jobs';
 import { TileKind, type TileMap } from './map';
 import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './orders';
 import { planPath } from './paths';
@@ -135,7 +136,8 @@ export function deliver(sim: Sim, slot: number, good: Good): void {
  * Turns a site whose work is done into a building. Its materials are used up,
  * its tiles stop walkers, and the routes are brought up to date in place. The
  * villagers leave the land it closed once the work that finished it ends. A
- * house becomes the home of a household that has none.
+ * house becomes the home of a household that has none, and a workplace asks
+ * for all its places and fills them.
  */
 export function finishBuilding(sim: Sim, slot: number): void {
   const { map, orders, siteTasks } = sim;
@@ -153,6 +155,7 @@ export function finishBuilding(sim: Sim, slot: number): void {
   closeFlowTiles(map, sim.flow, siteTasks.closing, tiles);
   sim.tally.built += 1;
   refreshSite(sim, slot);
+  if (kindOf(orders.sites, slot).places > 0) openWorkplace(sim, slot);
 }
 
 /**
@@ -289,4 +292,4 @@ function refresh(sim: Sim, tile: number): void {
 }
 
 /** Building work at a site that has all its materials, the most urgent kind of task after stocking a home. */
-export const BUILDING: TaskKind = { take, holds, work, release, refresh, reopen };
+export const BUILDING: TaskKind = { job: Job.None, take, holds, work, release, refresh, reopen };

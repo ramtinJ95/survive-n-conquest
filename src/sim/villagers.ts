@@ -3,6 +3,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME, loseMember } from './households';
+import { loseWorker } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
@@ -10,7 +11,7 @@ import { dine, eat, missMeal, storeOf, wanting } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
-import { endTask, loseTasks, takeTask, taskKind } from './tasks';
+import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
 import { NO_TASK, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
@@ -69,6 +70,10 @@ export interface Villagers {
   readonly household: Int16Array;
   /** The meals each villager missed in a row. */
   readonly missedMeals: Uint8Array;
+  /** The site slot of the workplace where each villager holds a place, or -1. Its job is the job of that building's kind. */
+  readonly workplace: Int16Array;
+  /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
+  readonly hired: Uint32Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -141,6 +146,8 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     sex: new Uint8Array(count),
     household: new Int16Array(count),
     missedMeals: new Uint8Array(count),
+    workplace: new Int16Array(count).fill(-1),
+    hired: new Uint32Array(count),
   };
   const names = [shuffledNames(map.seed, Sex.Woman), shuffledNames(map.seed, Sex.Man)] as const;
   const campX = (camp.goal % map.size) + 0.5;
@@ -363,11 +370,11 @@ function stopTask(sim: Sim, id: number): void {
   villagers.targetY[id] = villagers.y[id]!;
 }
 
-/** Ends at once every task that no longer stands, as an order cancelled under it does not. */
+/** Ends at once every task that no longer stands, as one under a cancelled order or one a new job does not allow. */
 export function stopFallenTasks(sim: Sim): void {
   const { task } = sim.villagers;
   for (let id = 0; id < task.length; id++) {
-    if (task[id] !== NO_TASK && !taskKind(sim, id).holds(sim, id)) stopTask(sim, id);
+    if (task[id] !== NO_TASK && !stands(sim, id)) stopTask(sim, id);
   }
 }
 
@@ -439,7 +446,7 @@ function leaveClosedLand(sim: Sim): void {
     }
     if (villagers.task[id] === NO_TASK) continue;
     const workTile = villagers.workTile[id]!;
-    if (!taskKind(sim, id).holds(sim, id) || flow.next[workTile] === -1) stopTask(sim, id);
+    if (!stands(sim, id) || flow.next[workTile] === -1) stopTask(sim, id);
     else if ((moved || !routeStands(map, villagers, id)) && !planPath(sim, id, workTile)) stopTask(sim, id);
   }
   for (let id = 0; id < monsters.x.length; id++) standOnReach(sim, monsters.x, monsters.y, id);
@@ -448,8 +455,7 @@ function leaveClosedLand(sim: Sim): void {
 /** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */
 function doTask(sim: Sim, id: number): void {
   const { villagers } = sim;
-  const kind = taskKind(sim, id);
-  if (!kind.holds(sim, id)) {
+  if (!stands(sim, id)) {
     stopTask(sim, id);
     return;
   }
@@ -464,7 +470,7 @@ function doTask(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Working;
   // A wanting villager works at half the rate: on even ticks only.
   if (wanting(villagers, id) && (sim.tick & 1) === 1) return;
-  if (!kind.work(sim, id)) return;
+  if (!taskKind(sim, id).work(sim, id)) return;
   stopTask(sim, id);
   if (sim.flow.lostCount > 0) leaveClosedLand(sim);
 }
@@ -501,7 +507,8 @@ export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
 /**
  * Removes the villager from the map for good. It gives its task up, as a
  * cancelled one, and puts down what it carries. Its row stays, so ids and
- * households hold. When it was its household's last member, the house goes to
+ * households hold. Its place at a workplace opens to the nearest villager
+ * without a job. When it was its household's last member, the house goes to
  * the next household without one. When it was the last villager, the
  * settlement has died out.
  */
@@ -512,6 +519,7 @@ export function die(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Dead;
   sim.tally.died += 1;
   sim.living -= 1;
+  loseWorker(sim, id);
   loseMember(sim.households, villagers.household[id]!);
   if (sim.living === 0) sim.over = true;
 }

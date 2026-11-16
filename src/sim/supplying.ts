@@ -1,5 +1,5 @@
 import { deliver, lacking, siteAnchor } from './building';
-import { siteMidX, siteMidY } from './buildings';
+import { Job, siteMidX, siteMidY } from './buildings';
 import { GOOD_KINDS, Good, pickUp, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { SiteState } from './orders';
 import { planPath } from './paths';
@@ -162,4 +162,4 @@ function release(sim: Sim, id: number): void {
 }
 
 /** Carrying one unit to a site that lacks it, from the ground or from a stockpile. */
-export const SUPPLYING: TaskKind = { take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };
+export const SUPPLYING: TaskKind = { job: Job.None, take, holds, work, release, refresh: refreshStack, reopen: reopenGoods };

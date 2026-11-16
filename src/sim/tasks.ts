@@ -1,6 +1,8 @@
 import { BUILDING } from './building';
+import { ANYONE, type Job } from './buildings';
 import { CARRYING } from './carrying';
 import { GATHERING } from './gathering';
+import { jobOf } from './jobs';
 import { sideOf } from './map';
 import { type TileArea, clip } from './orders';
 import type { Sim } from './sim';
@@ -16,6 +18,8 @@ import { NO_TASK } from './villagerState';
  * and route.
  */
 export interface TaskKind {
+  /** The job a villager must hold to take a task of this kind, or `ANYONE`. */
+  readonly job: Job | typeof ANYONE;
   /**
    * Finds the open task of this kind nearest the villager in a straight line,
    * reserves it for the villager, and plans the villager's route to its work
@@ -36,18 +40,30 @@ export interface TaskKind {
 
 /**
  * Every kind of task, most urgent first. An idle villager takes a task of the
- * first kind that has one open.
+ * first kind its job allows that has one open.
  */
 export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING];
 
-/** Gives the villager a task of the most urgent kind that has one open. Returns false when no kind has one. */
+export function allows(kind: TaskKind, job: Job): boolean {
+  return kind.job === ANYONE || kind.job === job;
+}
+
+/** Gives the villager a task of the most urgent kind its job allows that has one open. Returns false when no kind has one. */
 export function takeTask(sim: Sim, id: number): boolean {
+  const job = jobOf(sim, id);
   for (let kind = 0; kind < TASK_KINDS.length; kind++) {
-    if (!TASK_KINDS[kind]!.take(sim, id)) continue;
+    const taskKind = TASK_KINDS[kind]!;
+    if (!allows(taskKind, job) || !taskKind.take(sim, id)) continue;
     sim.villagers.task[id] = kind + 1;
     return true;
   }
   return false;
+}
+
+/** Whether the villager's task still stands: its job allows the kind, and the kind holds it, as an order cancelled under it does not. */
+export function stands(sim: Sim, id: number): boolean {
+  const kind = taskKind(sim, id);
+  return allows(kind, jobOf(sim, id)) && kind.holds(sim, id);
 }
 
 /** The kind of the villager's task. The villager must hold one. */

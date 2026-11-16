@@ -6,9 +6,10 @@ import { type FlowField, createFlowField } from './flowField';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
 import { type Households, createHouseholds } from './households';
+import { setPlaces } from './jobs';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
-import { type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
+import { MAX_SITES, type OrderCommand, type OrderOutcome, type Orders, applyOrder, createOrders } from './orders';
 import { type PathSearch, createPathSearch } from './paths';
 import { CAMP_FOOD, type Stores, createStores } from './stores';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
@@ -21,6 +22,8 @@ export type Speed = (typeof SPEEDS)[number];
 export type Command =
   | { readonly kind: 'togglePause' }
   | { readonly kind: 'setSpeed'; readonly speed: Speed }
+  // The places of the finished workplace in `slot` that the player wants filled.
+  | { readonly kind: 'setPlaces'; readonly slot: number; readonly places: number }
   | OrderCommand;
 
 export interface Population {
@@ -91,10 +94,14 @@ export interface Sim {
   readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
   readonly pathSearch: PathSearch;
+  /** Scratch for `fillPlaces`: the workers it counts at each site slot. Not part of the simulation's state. */
+  readonly workers: Uint8Array;
   readonly tally: Tally;
   tick: number;
   /** Dawns passed since the start. */
   dawns: number;
+  /** Places at workplaces taken since the start, so each hire has its own number. */
+  hires: number;
   /** Villagers alive. */
   living: number;
   /** True once the last villager died. The clock stops for good. A simulation that started with nobody is never over. */
@@ -124,9 +131,11 @@ export function createSim(source: TileMap, population: Population): Sim {
     stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
+    workers: new Uint8Array(MAX_SITES),
     tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0 },
     tick: 0,
     dawns: 0,
+    hires: 0,
     living: population.villagers,
     over: false,
     speed: 1,
@@ -141,7 +150,7 @@ export function createSim(source: TileMap, population: Population): Sim {
   return sim;
 }
 
-/** Returns what became of an order, and nothing for a clock command. */
+/** Returns what became of an order, and nothing for a clock command or a change of places. */
 export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefined {
   switch (command.kind) {
     case 'togglePause':
@@ -165,6 +174,10 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
       if (outcome.ok) resetSite(sim, sim.orders.siteOf[command.y * sim.map.size + command.x]!);
       return outcome;
     }
+    case 'setPlaces':
+      setPlaces(sim, command.slot, command.places);
+      stopFallenTasks(sim);
+      return;
   }
 }
 

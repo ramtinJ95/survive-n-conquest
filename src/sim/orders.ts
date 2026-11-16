@@ -173,6 +173,12 @@ export function setSiteWork(orders: Orders, slot: number, work: number): void {
   orders.changes.slots[slot] = 1;
 }
 
+/** Sets how many places of a finished workplace the player wants filled, and lists the site for `takeOrderChanges`. */
+export function setSitePlaces(orders: Orders, slot: number, places: number): void {
+  orders.sites.places[slot] = places;
+  orders.changes.slots[slot] = 1;
+}
+
 /** Turns a site whose work is done into a building. */
 export function finishSite(orders: Orders, slot: number): void {
   orders.sites.state[slot] = SiteState.Built;

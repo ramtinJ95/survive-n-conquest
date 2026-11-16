@@ -1,3 +1,4 @@
+import { Job } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
 import { Good, putDown } from './goods';
 import { TileKind, type TileMap, sideOf } from './map';
@@ -196,4 +197,4 @@ function release(sim: Sim, id: number): void {
 }
 
 /** Felling marked trees and quarrying marked rock, the least urgent kind of task. */
-export const GATHERING: TaskKind = { take, holds, work, release, refresh, reopen };
+export const GATHERING: TaskKind = { job: Job.None, take, holds, work, release, refresh, reopen };

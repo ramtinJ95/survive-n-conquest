@@ -7,6 +7,8 @@ export type Building = (typeof Building)[keyof typeof Building];
 /** The work a villager does in a place at a workplace. A villager with no place has none. */
 export const Job = { None: 0, Forager: 1 } as const;
 export type Job = (typeof Job)[keyof typeof Job];
+/** Where a rule takes a villager with any job, or with none. */
+export const ANYONE = -1;
 
 export type BuildingName = 'house' | 'hut';
 
