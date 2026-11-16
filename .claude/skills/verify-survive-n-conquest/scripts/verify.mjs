@@ -2568,7 +2568,7 @@ function hungerDriver(session) {
     stockpiles(page).evaluate((node) => {
       const rows = {};
       for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
-      return { camp: Number(rows['Food at the camp']), homes: Number(rows['Food in homes']) };
+      return { camp: Number(rows['Food in barns and camp']), homes: Number(rows['Food in homes']) };
     });
   const lines = async (page) => (await news(page).count()) > 0 ? news(page).locator('p').allTextContents() : [];
   return { stockpiles, news, diedOut, food, lines };
@@ -3634,6 +3634,280 @@ SCENARIOS.foraging = async (session) => {
   );
   await session.finishClips(play.context, page, [{ label: 'foraging-day', from, to, ...FORAGE_CLIP }]);
   seen.push(...play.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `storing` scenario plays a barn on seed 7 through the page, with the camp's own 24 food: a forager's hut anchored
+ * on (136, 127), a barn on (134, 127) between it and the camp, so every tree the hut reaches lies nearer the barn than
+ * the camp, and a house on (137, 123), nearer the barn than the camp. A Chop drag over the trees from (137, 129) to
+ * (145, 139) and a Quarry drag over the rock from (121, 114) to (122, 115) give their 36 logs and 12 stone. The orders
+ * go in from a view of 42 m that holds the rock, the camp, and the forest's edge, and the scenario reads the buildings
+ * from 23 m, the view of the foraging clip. `scripts/aim.ts` found the spots:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-700,"turn":{"x":424,"y":20},"target":[131.5,125.5]}'
+ * '[[137,129],[145,139],[121,114],[122,115],[136,127],[134,127],[137,123],[135,123],[135,131],[133,119]]'` and, after a
+ * further wheel of `STORE_CLOSER`, the same command with a wheel of -1100 and the target [131.48, 125.48], with the
+ * roofs 1.6 m and 1.0 m over the barn's and the house's middles and the camp center. In `scripts/first-year.ts` terms the barn stood at day 2 14:41, the
+ * house at day 3 08:59, and on day 4 the camp held 11 food from dawn to dusk while the barn rose from 4 to 16.
+ */
+const STORE_SEARCH = '?seed=7';
+const STORE_ORDER_VIEW = { wheel: -700, turn: { x: 424, y: 20 }, pan: { x: 39, y: 38 } };
+const STORE_CLOSER = -400;
+const STORE_ORDERS = {
+  chop: [{ x: 537, y: 200 }, { x: 659, y: 131 }],
+  quarry: [{ x: 266, y: 379 }, { x: 291, y: 367 }],
+  hut: { x: 509, y: 212 },
+  barn: { x: 510, y: 233 },
+  house: { x: 452, y: 207 },
+};
+const STORE_SPOTS = {
+  barn: [{ x: 548, y: 160 }, { x: 547, y: 177 }, { x: 533, y: 204 }],
+  house: [{ x: 444, y: 130 }, { x: 443, y: 109 }, { x: 432, y: 163 }],
+  // Around the camp center at (546, 352), since a click on a settler sleeping at the camp selects the settler.
+  camp: [0, 1, 2, 3, 4, 5, 6, 7].flatMap((step) => [12, 20].map((radius) => ({ x: 546 + Math.round(radius * Math.cos((step * Math.PI) / 4)), y: 352 + Math.round(radius * Math.sin((step * Math.PI) / 4)) }))),
+};
+const STORE_STOPS = {
+  night: { day: 3, time: '23:00' },
+  beforeDawn: { day: 4, time: '03:25' },
+  morning: { day: 4, time: '07:00' },
+  evening: { day: 4, time: '18:30' },
+};
+/** The clip runs across the dawn of day 4 at 2×, so a carrier moves under a tile between two drawn frames. */
+const STORE_CLIP_UNTIL = { day: 4, time: '06:30' };
+const STORE_CLIP = { crop: { x: 230, y: 0, width: 520, height: 360 }, width: 480, colors: 48 };
+const STORE_RISE = 3;
+/**
+ * The ground page: `?food=8` and four forager's huts, on (136, 127), (135, 123), (135, 131), and (133, 119), whose
+ * eight places take every settler, so nobody without a job is left to carry food from the ground. With the camp's 24
+ * food the camp filled and the foragers waited, and no unit lay on the ground. In `scripts/first-year.ts` terms four
+ * units lay on the ground from the dusk of day 2 through day 3, one at (128, 126) beside the camp, and were gone at the
+ * dawn of day 4, the second after they were put down.
+ */
+const GROUND_SEARCH = '?seed=7&food=8';
+const GROUND_HUTS = [{ x: 509, y: 212 }, { x: 451, y: 230 }, { x: 569, y: 219 }, { x: 392, y: 261 }];
+const GROUND_STOPS = { lying: { day: 3, time: '12:00' }, gone: { day: 4, time: '12:00' } };
+/**
+ * The lit top of the sack of a unit of food, `foodShape` in `src/render/shapes.ts`, which read 205, 166, 100 at noon
+ * on day 3. Each of the two sacks beside the camp showed 49 such pixels, and the box around the camp read 3 once they
+ * were gone. The box leaves out the clock and the camera controls, whose text has pixels of that color.
+ */
+const FOOD_SACK = ([r, g, b]) => Math.abs(r - 205) <= 8 && Math.abs(g - 166) <= 8 && Math.abs(b - 100) <= 8;
+const GROUND_BOX = { x: 400, y: 240, width: 300, height: 180 };
+const GROUND_SACKS = { lying: 40, gone: 10 };
+
+SCENARIOS.storing = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click } = selectionDriver(session);
+  const { food } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  const takeView = async (page, { wheel, turn, pan }) => {
+    await page.mouse.move(middle.x, middle.y);
+    await page.mouse.wheel(0, wheel);
+    await session.still(page);
+    for (const [move, button] of [[turn, 'right'], [pan, 'left']]) {
+      const from = { x: middle.x - move.x / 2, y: middle.y - move.y / 2 };
+      await session.drag(page, from, { x: from.x + move.x, y: from.y + move.y }, button);
+      await session.still(page);
+    }
+  };
+  const away = async (page) => {
+    const toolbar = await page.getByRole('toolbar', { name: 'Orders' }).boundingBox();
+    await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + 2);
+  };
+  const markArea = async (page, key, [from, to], done) => {
+    await away(page);
+    await page.keyboard.press(key);
+    await session.drag(page, from, to, 'left');
+    return said(page, done);
+  };
+  const placeAt = async (page, key, spot, done, picked = () => {}) => {
+    await away(page);
+    if (key) await page.keyboard.press(key);
+    await picked();
+    await page.mouse.move(spot.x, spot.y, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.up();
+    return said(page, done);
+  };
+  const readOne = async (page, spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) return read;
+    }
+    return read;
+  };
+  const count = (read) => Number(/^(\d+) of \d+$/.exec(read?.rows?.Food ?? '')?.[1] ?? NaN);
+  const stores = async (page) => {
+    const barn = await readOne(page, STORE_SPOTS.barn, 'Barn');
+    const camp = await readOne(page, STORE_SPOTS.camp, 'Camp');
+    const house = await readOne(page, STORE_SPOTS.house, 'House');
+    await page.keyboard.press('Escape');
+    return { at: await at(page), barn: count(barn), camp: count(camp), house: count(house), reads: [barn, camp, house], totals: await food(page) };
+  };
+  const words = (read) => `barn ${read.barn}, camp ${read.camp}, house ${read.house}; the Stockpiles panel reads ${read.totals.camp} in barns and camp and ${read.totals.homes} in homes`;
+  const labelsGone = async (page, names, minutes) => {
+    const deadline = Date.now() + minutes * 60_000;
+    const gone = {};
+    while (names.some((name) => gone[name] === undefined)) {
+      if (Date.now() > deadline) fail(`${names.filter((name) => gone[name] === undefined).join(' and ')} still stood ${minutes} minutes after the orders at 8×`);
+      for (const name of names) if (gone[name] === undefined && (await page.getByRole('status', { name }).count()) === 0) gone[name] = await session.gameMinutes(page);
+      await page.waitForTimeout(100);
+    }
+    return gone;
+  };
+
+  const play = await session.open(CLIP, { record: true, search: STORE_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeView(page, STORE_ORDER_VIEW);
+  const orders = [
+    await markArea(page, 'KeyC', STORE_ORDERS.chop, /trees? marked for felling/),
+    await markArea(page, 'KeyM', STORE_ORDERS.quarry, /rock tiles? marked for quarrying/),
+    await placeAt(page, 'KeyG', STORE_ORDERS.hut, /^Forager's hut site placed/),
+  ];
+  let barnTool = 0;
+  let barnHint = '';
+  orders.push(
+    await placeAt(page, 'KeyB', STORE_ORDERS.barn, /^Barn site placed/, async () => {
+      barnTool = await page.getByRole('button', { name: 'Barn', exact: true, pressed: true }).count();
+      barnHint = await said(page, /barn site on 3 by 3 tiles/);
+    }),
+  );
+  orders.push(await placeAt(page, 'KeyH', STORE_ORDERS.house, /^House site placed/));
+  session.check(
+    'B picks the Barn tool, which places a barn site with a click',
+    barnTool === 1 && /barn site on 3 by 3 tiles/.test(barnHint) && /^Barn site placed/.test(orders[3]),
+    `${barnTool ? 'the Barn tool is pressed' : 'no Barn tool is pressed'}; the status line read "${barnHint}", then "${orders[3]}"`,
+  );
+  session.check(
+    'the Chop and Quarry drags mark trees and rock, and the hut, the barn, and the house sites are placed',
+    /marked for felling/.test(orders[0]) && /marked for quarrying/.test(orders[1]) && /^Forager's hut site placed/.test(orders[2]) && /^House site placed/.test(orders[4]),
+    orders.map((line) => `"${line}"`).join(', '),
+  );
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const barnLabel = (await page.getByRole('status', { name: 'Barn site' }).innerText()).replace(/\s+/g, ' ');
+  session.check(
+    "the barn site's label reads 0 of 16 logs, 0 of 6 stone, and waits for materials",
+    /Logs\s*0\/16/.test(barnLabel) && /Stone\s*0\/6/.test(barnLabel) && /Waiting for materials/.test(barnLabel),
+    `the label reads "${barnLabel}"`,
+  );
+  await session.screenshot(page, 'storing-sites');
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.wheel(0, STORE_CLOSER);
+  await session.still(page);
+
+  await page.keyboard.press('4');
+  const gone = await labelsGone(page, ["Forager's hut site", 'Barn site'], 12);
+  await session.pause(page);
+  await session.still(page);
+  session.check(
+    'the settlers build the hut and the barn',
+    gone["Forager's hut site"] !== undefined && gone['Barn site'] !== undefined,
+    `the hut's label went at ${clockText(gone["Forager's hut site"])} and the barn's at ${clockText(gone['Barn site'])}; paused at ${await at(page)}`,
+  );
+  const built = await readOne(page, STORE_SPOTS.barn, 'Barn');
+  session.check(
+    `at ${await at(page)} the barn's panel says what it is and reads its food against its 120`,
+    built?.title === 'Barn' && /Food in it keeps/.test(built.note ?? '') && /^\d+ of 120$/.test(built.rows.Food ?? ''),
+    `the panel reads "${text(built)}"`,
+  );
+  await session.screenshot(page, 'storing-barn-panel');
+  await page.keyboard.press('Escape');
+
+  await session.reach(page, STORE_STOPS.night);
+  await session.still(page);
+  const night = await stores(page);
+  await session.reach(page, STORE_STOPS.beforeDawn);
+  await session.still(page);
+  const from = play.since();
+  await page.keyboard.press('2');
+  while ((await session.gameMinutes(page)) < clockMinutes(STORE_CLIP_UNTIL)) await page.waitForTimeout(50);
+  await session.pause(page);
+  await session.still(page);
+  const to = play.since();
+  await session.reach(page, STORE_STOPS.morning);
+  await session.still(page);
+  const morning = await stores(page);
+  session.check(
+    `from ${night.at} to ${morning.at} the household with the house takes food from the barn: the house's food rises while the camp's stays`,
+    morning.house > night.house && morning.camp === night.camp,
+    `at ${night.at} ${words(night)}; at ${morning.at} ${words(morning)}`,
+  );
+  await session.reach(page, STORE_STOPS.evening);
+  await session.still(page);
+  const evening = await stores(page);
+  await session.screenshot(page, 'storing-evening');
+  session.check(
+    `from ${morning.at} to ${evening.at} the barn's food rises by at least ${STORE_RISE} in its panel while the camp's does not rise`,
+    evening.barn - morning.barn >= STORE_RISE && evening.camp <= morning.camp,
+    `at ${morning.at} ${words(morning)}; at ${evening.at} ${words(evening)}`,
+  );
+  session.check(
+    "the Stockpiles panel totals the barn's and the camp's food as one and the house's as another",
+    [night, morning, evening].every((read) => read.totals.camp === read.barn + read.camp && read.totals.homes === read.house),
+    [night, morning, evening].map((read) => `at ${read.at} ${words(read)}`).join('; '),
+  );
+  await session.finishClips(play.context, page, [{ label: 'storing-barn-to-house', from, to, ...STORE_CLIP }]);
+  seen.push(...play.errors);
+
+  const ground = await session.open(CLIP, { search: GROUND_SEARCH, clock: 'paused' });
+  const g = ground.page;
+  await takeView(g, STORE_ORDER_VIEW);
+  const groundOrders = [await markArea(g, 'KeyC', STORE_ORDERS.chop, /trees? marked for felling/)];
+  // A second press of G would put the tool away, so only the first hut picks it.
+  for (const [index, spot] of GROUND_HUTS.entries()) groundOrders.push(await placeAt(g, index === 0 ? 'KeyG' : null, spot, /^Forager's hut site placed/));
+  session.check(
+    'the ground page places four huts, whose eight places take every settler',
+    groundOrders.slice(1).every((line) => /^Forager's hut site placed/.test(line)),
+    groundOrders.map((line) => `"${line}"`).join(', '),
+  );
+  await g.keyboard.press('Escape');
+  await g.mouse.move(middle.x, middle.y);
+  await g.mouse.wheel(0, STORE_CLOSER);
+  await session.still(g);
+  await g.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const jobsOf = async () =>
+    g.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+    });
+  await session.reach(g, GROUND_STOPS.lying);
+  await session.still(g);
+  const lyingJobs = await jobsOf();
+  const lying = await session.screenshot(g, 'storing-ground-lying');
+  await session.reach(g, GROUND_STOPS.gone);
+  await session.still(g);
+  const goneShot = await session.screenshot(g, 'storing-ground-gone');
+  const sacks = (png) => {
+    const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+    let found = 0;
+    for (let y = GROUND_BOX.y; y < GROUND_BOX.y + GROUND_BOX.height; y++) {
+      for (let x = GROUND_BOX.x; x < GROUND_BOX.x + GROUND_BOX.width; x++) {
+        const i = (y * CLIP.width + x) * 3;
+        if (FOOD_SACK([pixels[i], pixels[i + 1], pixels[i + 2]])) found++;
+      }
+    }
+    return found;
+  };
+  session.check(
+    `at ${clockText(clockMinutes(GROUND_STOPS.lying))} every settler holds a job, so nobody carries food from the ground`,
+    lyingJobs.withJob === 8 && lyingJobs.withoutJob === 0,
+    `${lyingJobs.withJob} settlers with a job and ${lyingJobs.withoutJob} with none`,
+  );
+  const before = sacks(lying);
+  const after = sacks(goneShot);
+  session.check(
+    'food that nobody carried lies on the ground on day 3 and is gone by noon on day 4',
+    before >= GROUND_SACKS.lying && after <= GROUND_SACKS.gone,
+    `${before} pixels of sack tops in the box around the camp at day 3 12:00, needs ${GROUND_SACKS.lying}; ${after} at day 4 12:00, needs at most ${GROUND_SACKS.gone}`,
+  );
+  await ground.context.close();
+  seen.push(...ground.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
