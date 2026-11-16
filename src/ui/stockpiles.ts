@@ -13,7 +13,7 @@ const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
 ];
 
 const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[] = [
-  { kind: StoreKind.Common, label: 'Food in barns and camp' },
+  { kind: StoreKind.Common, label: 'Barn and camp food' },
   { kind: StoreKind.Home, label: 'Food in homes' },
 ];
 

@@ -2568,7 +2568,7 @@ function hungerDriver(session) {
     stockpiles(page).evaluate((node) => {
       const rows = {};
       for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
-      return { camp: Number(rows['Food in barns and camp']), homes: Number(rows['Food in homes']) };
+      return { camp: Number(rows['Barn and camp food']), homes: Number(rows['Food in homes']) };
     });
   const lines = async (page) => (await news(page).count()) > 0 ? news(page).locator('p').allTextContents() : [];
   return { stockpiles, news, diedOut, food, lines };
