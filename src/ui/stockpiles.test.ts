@@ -4,7 +4,8 @@ import { Good } from '../sim/goods';
 import { SiteState, applyOrder, createOrders } from '../sim/orders';
 import { CAMP_STORE, STORES, StoreKind } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
-import { foodTotals, stockpileTotals } from './stockpiles';
+import { VillagerState } from '../sim/villagerState';
+import { foodTotals, jobCounts, stockpileTotals } from './stockpiles';
 
 const ROWS = Array.from({ length: 12 }, () => '.'.repeat(12));
 
@@ -47,5 +48,19 @@ describe('foodTotals', () => {
     storeFood[second!] = 3;
     storeFood[site!] = 5;
     expect(foodTotals(orders, storeFood)).toMatchObject({ [StoreKind.Common]: 17, [StoreKind.Home]: 9 });
+  });
+});
+
+describe('jobCounts', () => {
+  it('counts the living settlers who work at a finished hut as holding a job, and every other living one as holding none', () => {
+    const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
+    const orders = createOrders(map);
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.Hut, x: 4, y: 4 })).toMatchObject({ ok: true });
+    const hut = orders.siteOf[at(map, 4, 4)]!;
+    orders.sites.state[hut] = SiteState.Built;
+    const { Walking, Inside, Dead } = VillagerState;
+    const states = Uint8Array.of(Walking, Inside, Walking, Dead, Walking);
+    expect(jobCounts(orders, states, Int16Array.of(-1, hut, hut, -1, -1))).toEqual({ withJob: 2, withoutJob: 2 });
+    expect(jobCounts(orders, states, Int16Array.of(-1, -1, -1, -1, -1))).toEqual({ withJob: 0, withoutJob: 4 });
   });
 });
