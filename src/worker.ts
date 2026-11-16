@@ -23,9 +23,11 @@ export interface SimFrame extends ClockSnapshot {
   readonly tasks: Uint8Array;
   /** The tile of each villager's task in id order, or -1. */
   readonly taskTiles: Int32Array;
-  /** Per villager in id order: an index into `NAMES[sex]`, a `Sex`, and a household. */
+  /** One index into `NAMES[sex]` per villager in id order. */
   readonly names: Uint16Array;
+  /** One `Sex` per villager in id order. */
   readonly sexes: Uint8Array;
+  /** The household of each villager in id order. */
   readonly households: Int16Array;
   /** Per household: the site slot of its house, or `NO_HOME`. */
   readonly homes: Int16Array;

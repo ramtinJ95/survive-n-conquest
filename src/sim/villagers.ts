@@ -70,7 +70,7 @@ export interface Villagers {
   readonly name: Uint16Array;
   /** One `Sex` for each villager. */
   readonly sex: Uint8Array;
-  /** Villagers `2h` and `2h + 1` form household `h`, a man and a woman. */
+  /** Villagers `2h`, a man, and `2h + 1`, a woman, form household `h`. With an odd count the last household is one man. */
   readonly household: Int16Array;
 }
 
@@ -107,7 +107,6 @@ function clearLine(map: TileMap, fromX: number, fromY: number, toX: number, toY:
   return true;
 }
 
-/** The indices of a sex's names in an order the seed shuffles. */
 function shuffledNames(seed: number, sex: Sex): Uint16Array {
   const order = Uint16Array.from(NAMES[sex], (_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
@@ -296,7 +295,6 @@ function goIn(sim: Sim, id: number): void {
   else if (atWork(villagers, id)) villagers.state[id] = VillagerState.Inside;
 }
 
-/** Ends the villager's night where it stands, idle and with no route. */
 function daybreak(sim: Sim, id: number): void {
   const { villagers } = sim;
   villagers.state[id] = VillagerState.Idle;

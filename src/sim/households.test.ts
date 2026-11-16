@@ -14,13 +14,14 @@ import { VillagerState } from './villagers';
 const house = (x: number, y: number): OrderCommand => ({ kind: 'placeHouse', x, y });
 const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
 
-/**
- * Room for houses centered on row 8 of an open 40 by 40 map, each with its 12
- * logs and 6 stone lying four tiles below it. The camp is at (19, 19). With
- * `loose`, 80 more logs lie in the bottom right corner, for a stockpile in the
- * bottom left to take.
- */
 const ROW = [5, 11, 17, 23, 29];
+
+/**
+ * Room for houses centered on row 8 of an open 40 by 40 map at the columns of
+ * `ROW`, each with its 12 logs and 6 stone lying four tiles below it. The camp
+ * is at (19, 19). With `loose`, 80 more logs lie in the bottom right corner,
+ * for a stockpile in the bottom left to take.
+ */
 function housesWithGoods(villagers: number, loose = false): Sim {
   const map = mapFrom(open(40));
   const lay = (x: number, y: number, good: Good, size: number) => {

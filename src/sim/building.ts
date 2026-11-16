@@ -127,8 +127,8 @@ export function deliver(sim: Sim, slot: number, good: Good): void {
 /**
  * Turns a site whose work is done into a house, and the home of a household
  * that has none. Its materials are used up, its nine tiles stop walkers, and
- * the routes are brought up to date in place. The
- * villagers leave the land it closed once the work that finished it ends.
+ * the routes are brought up to date in place. The villagers leave the land it
+ * closed once the work that finished it ends.
  */
 export function finishHouse(sim: Sim, slot: number): void {
   const { map, orders, siteTasks } = sim;
