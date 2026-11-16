@@ -41,7 +41,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 ## Building in a pylon
 
 - `.nexus/setup` runs once when a pylon is made. It installs ffmpeg and Debian's Chromium headless shell from apt, bun from npm at the version CI pins, the packages from `bun.lock`, and the ffmpeg build that Playwright records video with.
-- `.nexus/resume` runs on every wake and installs again only when `bun.lock` or `package.json` changed.
+- `.nexus/resume` runs on every wake. It clones or updates the private assets repository at `game-assets/`, and only warns when the pylon cannot read it. It installs the packages again only when `bun.lock` or `package.json` changed.
 - `.nexus/check` is the check a pull request must pass. It installs if needed, then runs `bun run typecheck`, `bun run test`, and `bun run build`, and exits nonzero if any of them fails.
 - The verification skill runs in the pylon, in headless Chromium.
 - A thread that runs the browser scenarios or the benchmark is started on rj-firebat with 6 CPUs and 8 GiB, because a 2 CPU pylon is too slow for headless Chromium. The review loop's check threads keep the project's default size.
@@ -94,3 +94,7 @@ The media of a pull request stays on `pr-media` only until its stage closes, as 
 ## Assets
 
 Purchased or licensed source assets go in `assets-source/`, which is ignored. Never commit them: this repository is public and their licences forbid redistribution.
+
+- The same rule covers every model and texture converted from them. They live in the private repository `ramtinJ95/survive-n-conquest-assets`, cloned at `game-assets/`, which is ignored too. Commit them there, never here.
+- `assets/models.json` names the pack model behind each shape of the game and its size. `scripts/convert-models.py` turns them into `game-assets/public/models.glb` with Blender. Both hold no licensed content and are committed here.
+- The dev server and the build serve only `game-assets/public/`. Without the clone the checks still pass, and the game draws stand-in shapes and says so on screen. The verification skill's `doctor` fails without the models.

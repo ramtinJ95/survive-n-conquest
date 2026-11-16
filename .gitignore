@@ -2,6 +2,8 @@ node_modules/
 dist/
 # Purchased or licensed source assets must never be committed.
 assets-source/
+# The private assets repository with the models converted from them. This repository is public.
+game-assets/
 .DS_Store
 # Per-machine agent state.
 .claude/.cc-writes/

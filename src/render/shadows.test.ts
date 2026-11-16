@@ -4,13 +4,14 @@ import { TICKS_PER_DAY } from '../sim/calendar';
 import { heightAt } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
 import { TALLEST_TREE } from './scenery';
+import { primitiveShapes } from './shapes';
 import { createWorld } from './world';
 
 const HOUR = TICKS_PER_DAY / 24;
 const SIZE = 256;
 const HALF = SIZE / 2;
 const map = generateMap(19, SIZE);
-const { scene, rig, show } = createWorld(map);
+const { scene, rig, show } = createWorld(map, primitiveShapes());
 const light = scene.getObjectByName('sun') as DirectionalLight;
 rig.camera.aspect = 16 / 9;
 rig.camera.updateProjectionMatrix();

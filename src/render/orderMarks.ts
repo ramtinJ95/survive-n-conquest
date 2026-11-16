@@ -146,10 +146,10 @@ const GHOST_SHADOW = { scale: 1.06, color: '#1a0d0d' };
  */
 function createGhost() {
   const box = new BoxGeometry(3, GHOST_HEIGHT, 3);
-  const faces = new MeshBasicMaterial({ transparent: true, opacity: GHOST_OPACITY, depthTest: false, depthWrite: false, fog: false });
-  const edges = new LineBasicMaterial({ depthTest: false, fog: false });
+  const faces = new MeshBasicMaterial({ transparent: true, opacity: GHOST_OPACITY, depthTest: false, depthWrite: false, fog: false, toneMapped: false });
+  const edges = new LineBasicMaterial({ depthTest: false, fog: false, toneMapped: false });
   const outline = new EdgesGeometry(box);
-  const shadow = new LineSegments(outline, new LineBasicMaterial({ color: GHOST_SHADOW.color, depthTest: false, fog: false }));
+  const shadow = new LineSegments(outline, new LineBasicMaterial({ color: GHOST_SHADOW.color, depthTest: false, fog: false, toneMapped: false }));
   shadow.scale.setScalar(GHOST_SHADOW.scale);
   const ghost = new Group();
   ghost.name = 'house-ghost';
@@ -169,7 +169,7 @@ const OUTLINE = 1.35;
 const PIN_ZOOM = { per: 60, least: 0.8, most: 3.2 };
 
 function pinMaterial(color: string, scale: { value: number }, outline: boolean): Material {
-  const material = new MeshBasicMaterial({ color, fog: false, ...(outline && { side: BackSide }) });
+  const material = new MeshBasicMaterial({ color, fog: false, toneMapped: false, ...(outline && { side: BackSide }) });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.pinScale = scale;
     shader.vertexShader = shader.vertexShader

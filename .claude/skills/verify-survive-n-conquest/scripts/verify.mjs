@@ -34,6 +34,10 @@ const PROBE = { width: 160, height: 90 };
 const COVER_MARGIN = 8;
 // Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
 const LOW_FLIGHT_LEG_MS = 400;
+// The share of the farthest view that is water. The lakes and rivers of seed 7 alone are 6% to 8% of a view, and with the sea around the island the farthest view read 40.6%.
+const SEA_AROUND_THE_ISLAND = 0.25;
+// The share of the farthest and lowest view that has the color of the sky. The camera never looks above the horizon, and the haze hides the sea beyond 900 m in that color. The view read 7.6%.
+const SKY_AT_THE_HORIZON = 0.05;
 // Two reach stops at the same noon measured 0.000 outside the clock panel on every run. One tick later reads about 0.05.
 const SAME_NOON_LIMIT = 0.02;
 const UNIT_COLORS = {
@@ -102,6 +106,46 @@ function paceFramesToTheGpu() {
   };
 }
 
+function countDraws() {
+  const sent = { calls: 0, triangles: 0 };
+  window.drawsSent = sent;
+  const gl = WebGL2RenderingContext.prototype;
+  const count = (name, vertices, instances) => {
+    const draw = gl[name];
+    gl[name] = function (...args) {
+      sent.calls++;
+      if (args[0] === this.TRIANGLES) sent.triangles += (args[vertices] / 3) * (instances ? args[instances] : 1);
+      return draw.apply(this, args);
+    };
+  };
+  count('drawArrays', 2);
+  count('drawElements', 1);
+  count('drawArraysInstanced', 2, 3);
+  count('drawElementsInstanced', 1, 4);
+}
+
+function timeFrames() {
+  if (!window.drawsSent) throw new Error('timeFrames tells a drawn frame by the draws that countDraws counts, so countDraws runs first');
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  const contexts = new Set();
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    const context = getContext.call(this, type, ...rest);
+    if (type === 'webgl2' && context) contexts.add(context);
+    return context;
+  };
+  const request = window.requestAnimationFrame.bind(window);
+  window.frameCosts = [];
+  window.requestAnimationFrame = (callback) =>
+    request((time) => {
+      const drawn = window.drawsSent.calls;
+      const from = performance.now();
+      callback(time);
+      if (window.drawsSent.calls === drawn) return;
+      for (const gl of contexts) gl.finish();
+      window.frameCosts.push(performance.now() - from);
+    });
+}
+
 function fail(message) {
   throw new VerifyError(message);
 }
@@ -150,6 +194,16 @@ async function servesThisBuild(url) {
   try {
     const response = await fetch(url);
     return response.ok && existsSync(built) && (await response.text()) === readFileSync(built, 'utf8');
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the instance serves a binary glTF file of models. `vite preview` answers a missing file with the page itself. */
+async function servesModels(url) {
+  try {
+    const response = await fetch(`${url}models.glb`);
+    return response.ok && Buffer.from(await response.arrayBuffer()).subarray(0, 4).toString('latin1') === 'glTF';
   } catch {
     return false;
   }
@@ -217,6 +271,28 @@ function launchBrowser() {
   return playwright().chromium.launch({ args: BROWSER_ARGS, executablePath: BROWSER_PATH });
 }
 
+const rendererOf = (page) =>
+  page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const info = gl?.getExtension('WEBGL_debug_renderer_info');
+    return gl && info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown renderer';
+  });
+
+async function launchGpuBrowser() {
+  const args = ['--enable-gpu', '--ignore-gpu-blocklist', `--use-angle=${process.platform === 'darwin' ? 'metal' : 'default'}`, '--disable-gpu-vsync', '--disable-frame-rate-limit'];
+  const seen = [];
+  for (const headless of [true, false]) {
+    const browser = await playwright().chromium.launch({ args, headless });
+    const page = await browser.newPage();
+    const renderer = await rendererOf(page);
+    await page.close();
+    if (!/swiftshader|llvmpipe|software/i.test(renderer)) return { browser, renderer };
+    seen.push(`${headless ? 'headless' : 'a window'}: ${renderer}`);
+    await browser.close();
+  }
+  fail(`no browser here draws on a GPU (${seen.join('; ')})`);
+}
+
 async function probeBrowser() {
   try {
     const browser = await launchBrowser();
@@ -250,6 +326,11 @@ async function doctor() {
     const reach = signal(instance.pid, 0);
     check('preview pid can be stopped from this shell', reach === 'sent', `pid ${instance.pid} ${reach}`);
     check('build matches checkout', instance.revision === revision(), `built ${instance.revision}, checkout ${revision()}`);
+    check(
+      'the build serves the models',
+      await servesModels(instance.url),
+      `${instance.url}models.glb; without it the game draws stand-in shapes, so clone the private assets repository into game-assets/ and launch again`,
+    );
   }
   check('ffmpeg on PATH', spawnSync('ffmpeg', ['-version']).status === 0, 'needed for GIFs and pixel probes');
   const browser = await probeBrowser();
@@ -436,7 +517,7 @@ const clockText = (minutes) => {
   return `day ${day} ${time}`;
 };
 
-function createSession(browser, instance, dir, evidence) {
+function createSession(browser, instance, dir, evidence, gpu = false) {
   const check = (name, ok, detail) => evidence.checks.push({ name, ok, detail });
   const capture = (file) => {
     evidence.files.push(file);
@@ -456,7 +537,8 @@ function createSession(browser, instance, dir, evidence) {
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
       });
-      await context.addInitScript(paceFramesToTheGpu);
+      await context.addInitScript(countDraws);
+      await context.addInitScript(gpu ? timeFrames : paceFramesToTheGpu);
       const page = await context.newPage();
       const created = Date.now();
       const errors = [];
@@ -540,6 +622,26 @@ function createSession(browser, instance, dir, evidence) {
         last = next;
       }
       check('the view comes to rest', false, 'two screenshots a drawn frame apart still differ after 60 tries');
+    },
+
+    async drawsPerFrame(page) {
+      return page.evaluate(async () => {
+        const frames = 10;
+        const frame = () => new Promise((done) => requestAnimationFrame(done));
+        await frame();
+        const { calls, triangles } = window.drawsSent;
+        for (let drawn = 0; drawn < frames; drawn++) await frame();
+        return { calls: (window.drawsSent.calls - calls) / frames, triangles: Math.round((window.drawsSent.triangles - triangles) / frames) };
+      });
+    },
+
+    async frameWork(page, ms) {
+      if (!gpu) fail('only a scenario marked `gpu` times its frames, because headless Chromium draws on the CPU');
+      await page.evaluate(() => (window.frameCosts.length = 0));
+      await page.waitForTimeout(ms);
+      const costs = await page.evaluate(() => window.frameCosts.slice());
+      if (costs.length === 0) fail(`the page drew no frame in ${ms} ms`);
+      return { frames: costs.length, mean: costs.reduce((sum, cost) => sum + cost, 0) / costs.length, perSecond: (costs.length * 1000) / ms };
     },
 
     async hold(page, key, ms) {
@@ -650,8 +752,20 @@ const SETTLER_THRESHOLD = 25;
 const SETTLER_GATHERED_SPREAD = 40;
 /** The camera opens looking at the map center, and the camp is the walkable tile nearest it. */
 const SETTLER_CAMP_OFF_CENTER = 60;
+/**
+ * A settler is 1.1 m tall and wears a tunic between its hair and its legs. At the camp zoom the 8 tunics showed 185
+ * villager pixels at 15:00, and the bare map 7. The limits are the same shares of those readings as 400 and 50 were of
+ * the 486 pixels that 8 settlers of 1.75 m in one color showed.
+ */
+const SETTLER_TUNICS = { least: 150, bareMost: 20 };
 /** Between 21:00 and 04:30 the light changes the shading of the settlers, so the outline they leave moves by a few pixels. */
 const SETTLER_STAYED = 10;
+/**
+ * The flame of the camp's fire, in clip pixels of the opening view on seed 7. The sun does not light the flame, and its
+ * red and orange are a monster's colors by day, so a check that no unit glows at night leaves this box out. At midnight
+ * the flame held 53 monster-colored pixels between (465, 254) and (489, 265).
+ */
+const OPENING_FIRE = { x: 448, y: 240, width: 60, height: 40 };
 const OPENS_AT = clockMinutes({ day: 1, time: '08:00' });
 /** The sun rises and sets at these times through the spring. */
 const DAWN = '04:48';
@@ -666,12 +780,19 @@ const BLUE_LAG = 20;
 const BESIDE_TWILIGHT = 30;
 /** The sun has set by this time in winter and is still up in summer. */
 const EVENING = '18:30';
-/** The share of the map, below the sky, that each season must and must not color at noon. */
+/** The rows of a picture below the horizon of the opening view, where the season checks read the map. */
+const BELOW_HORIZON_ROWS = [0.35, 1];
+/**
+ * The share of the map, below the horizon, that each season must and must not color at noon. The shares of plants,
+ * orange, and snow are read on the small probe picture. Blossom grows in groves of one kind of tree, and a crown is
+ * smaller than a probe pixel, so `blossom` is the share of the pixels of the full picture. On seed 7 the spring read
+ * 1.03%, and summer, autumn, and winter 0.06%, 0.03%, and 0.03%. Spring needs four times what the others may show.
+ */
 const SEASON_LOOKS = [
-  { season: 'Spring', atLeast: { plants: 0.4, blossom: 0.02 }, atMost: { orange: 0.02, snow: 0.02 } },
-  { season: 'Summer', atLeast: { plants: 0.4 }, atMost: { blossom: 0.005, orange: 0.02, snow: 0.02 } },
-  { season: 'Autumn', atLeast: { orange: 0.15 }, atMost: { plants: 0.2, blossom: 0.005, snow: 0.02 } },
-  { season: 'Winter', atLeast: { snow: 0.3 }, atMost: { plants: 0.02, blossom: 0.005, orange: 0.02 } },
+  { season: 'Spring', atLeast: { plants: 0.4 }, atMost: { orange: 0.02, snow: 0.02 }, blossom: { atLeast: 0.006 } },
+  { season: 'Summer', atLeast: { plants: 0.4 }, atMost: { orange: 0.02, snow: 0.02 }, blossom: { atMost: 0.0015 } },
+  { season: 'Autumn', atLeast: { orange: 0.15 }, atMost: { plants: 0.2, snow: 0.02 }, blossom: { atMost: 0.0015 } },
+  { season: 'Winter', atLeast: { snow: 0.3 }, atMost: { plants: 0.02, orange: 0.02 }, blossom: { atMost: 0.0015 } },
 ];
 
 const SCENARIOS = {
@@ -773,7 +894,7 @@ const SCENARIOS = {
     await session.hold(page, 'KeyX', 4000);
     await session.still(page);
     const farthest = await shoot('farthest');
-    session.expectSurfaces('the sky shows around the map at the farthest view', farthest, { sky: 0.05 });
+    session.expectSurfaces('the sea shows around the island at the farthest view', farthest, { water: SEA_AROUND_THE_ISLAND });
     await page.mouse.wheel(0, 2000);
     await session.hold(page, 'KeyX', 1000);
     await session.still(page);
@@ -794,17 +915,24 @@ const SCENARIOS = {
     session.check('panning stops in a corner of the map', rested, rested ? 'the view stopped while W stayed held' : 'the view still moved after 20 s of W');
     session.expectSurfaces('the map stays in view at its corner', edge, { plants: 0.05 });
 
-    await session.hold(page, 'KeyZ', 5000);
-    await session.hold(page, 'KeyF', 3000);
+    await page.mouse.wheel(0, READ_WHEELS.near);
+    await session.hold(page, 'KeyF', 6000);
     await session.still(page);
     const nearest = await shoot('nearest');
     await page.mouse.wheel(0, -2000);
+    await session.hold(page, 'KeyZ', 1000);
     await session.hold(page, 'KeyF', 1000);
     await session.still(page);
     session.expectUnchanged('zooming in and tilting stop at the lowest view', nearest, await shoot('nearest-again'));
     await context.close();
 
     const low = await session.open(WIDE, { search: '?swarm=off' });
+    await low.page.mouse.move(CENTER.x, CENTER.y);
+    await low.page.mouse.wheel(0, READ_WHEELS.far);
+    await session.hold(low.page, 'KeyF', 6000);
+    await session.still(low.page);
+    const horizon = await session.screenshot(low.page, `camera-${String(++shots).padStart(2, '0')}-horizon`);
+    session.expectSurfaces('the sky shows at the horizon of the farthest and lowest view', horizon, { sky: SKY_AT_THE_HORIZON });
     await session.hold(low.page, 'KeyZ', 5000);
     await session.hold(low.page, 'KeyF', 3000);
     await low.page.mouse.wheel(0, -2000);
@@ -984,10 +1112,12 @@ const SCENARIOS = {
       lit.villagers >= 200 && lit.monsters >= 200,
       `${lit.villagers} villager pixels and ${lit.monsters} monster pixels, needs 200 of each`,
     );
+    const atFire = (kind) => pixelsIn(at.midnight.png, CLIP.width, OPENING_FIRE, UNIT_COLORS[kind]).count;
+    const away = { villagers: unlit.villagers - atFire('villagers'), monsters: unlit.monsters - atFire('monsters') };
     session.check(
-      'no villager or monster glows at midnight',
-      unlit.villagers < 50 && unlit.monsters < 50,
-      `${unlit.villagers} villager pixels and ${unlit.monsters} monster pixels in their daylight colors, needs fewer than 50 of each`,
+      'no villager or monster glows at midnight, away from the flame of the camp',
+      away.villagers < 50 && away.monsters < 50,
+      `${away.villagers} villager pixels and ${away.monsters} monster pixels in their daylight colors outside the fire's box, needs fewer than 50 of each; the box holds ${atFire('villagers')} and ${atFire('monsters')}`,
     );
 
     const day = stops.filter((stop) => stop.side === 'day' && !stop.twilight);
@@ -1017,9 +1147,10 @@ const SCENARIOS = {
   async seasons(session) {
     const { context, page, errors } = await session.open(WIDE, { clock: 'running', search: '?swarm=off' });
     const date = page.getByRole('status', { name: 'Date' });
-    const share = {};
+    const evening = {};
+    const below = { x: 0, y: Math.floor(BELOW_HORIZON_ROWS[0] * WIDE.height), width: WIDE.width, height: WIDE.height - Math.floor(BELOW_HORIZON_ROWS[0] * WIDE.height) };
     let lastNoon = null;
-    for (const [index, { season, atLeast, atMost }] of SEASON_LOOKS.entries()) {
+    for (const [index, { season, atLeast, atMost, blossom }] of SEASON_LOOKS.entries()) {
       const day = 3 * index + 1;
       const stops = { noon: { day, time: '12:00' }, evening: { day, time: EVENING }, midnight: { day: day + 1, time: '00:00' } };
       const shots = {};
@@ -1031,13 +1162,21 @@ const SCENARIOS = {
         session.check(`the date reads ${season} at ${clockText(clockMinutes(when))}`, read.includes(season), `date "${read}"`);
       }
 
-      session.expectShares(`${season} colors the map at noon`, SEASON_MARKS, shots.noon, { atLeast, atMost }, [0.35, 1]);
+      session.expectShares(`${season} colors the map at noon`, SEASON_MARKS, shots.noon, { atLeast, atMost }, BELOW_HORIZON_ROWS);
+      const pink = pixelsIn(shots.noon, WIDE.width, below, SEASON_MARKS.blossom).count / (below.width * below.height);
+      const percent = (share) => `${(share * 100).toFixed(2)}%`;
+      session.check(
+        blossom.atLeast ? `${season} is in blossom at noon` : `nothing is in blossom at noon in ${season}`,
+        blossom.atLeast ? pink >= blossom.atLeast : pink <= blossom.atMost,
+        `blossom colors ${percent(pink)} of the pixels below the horizon, needs ${blossom.atLeast ? `at least ${percent(blossom.atLeast)}` : `at most ${percent(blossom.atMost)}`}`,
+      );
       if (lastNoon) session.expectChanged(`${season} looks different from the season before it`, lastNoon, shots.noon);
       lastNoon = shots.noon;
 
       const noon = meanColor(shots.noon);
       const midnight = meanColor(shots.midnight);
-      share[season] = brightness(meanColor(shots.evening)) / brightness(noon);
+      const dusk = meanColor(shots.evening);
+      evening[season] = { kept: brightness(dusk) / brightness(noon), blue: blueness(dusk), halfway: (blueness(noon) + blueness(midnight)) / 2 };
       session.check(
         `midnight in ${season} is dark, cold, and light enough to see the map`,
         brightness(midnight) < 0.6 * brightness(noon) &&
@@ -1046,10 +1185,13 @@ const SCENARIOS = {
         `midnight is ${brightness(midnight).toFixed(0)} against ${brightness(noon).toFixed(0)} at noon, on a scale of 255, and has ${blueness(midnight).toFixed(2)} times as much blue as red against ${blueness(noon).toFixed(2)} at noon`,
       );
     }
+    const { Summer, Winter } = evening;
     session.check(
       `at ${EVENING} it is still day in summer and already night in winter`,
-      share.Summer > 0.7 && share.Winter < 0.6,
-      `the summer evening keeps ${(share.Summer * 100).toFixed(0)}% of its noon brightness, needs more than 70%; the winter evening keeps ${(share.Winter * 100).toFixed(0)}%, needs less than 60%`,
+      Summer.blue < Summer.halfway && Winter.blue > Winter.halfway && Summer.kept > Winter.kept,
+      `the summer evening has ${Summer.blue.toFixed(2)} parts of blue for each of red, needs less than ${Summer.halfway.toFixed(2)}, halfway between its noon and its midnight; ` +
+        `the winter evening has ${Winter.blue.toFixed(2)}, needs more than ${Winter.halfway.toFixed(2)}; ` +
+        `the summer evening keeps ${(Summer.kept * 100).toFixed(0)}% of its noon brightness and the winter evening ${(Winter.kept * 100).toFixed(0)}%, needs more in summer`,
     );
     await context.close();
     session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
@@ -1153,7 +1295,11 @@ SCENARIOS.settlers = async (session) => {
 
   const lit = session.unitPixels(settled.shots.afternoon);
   const none = session.unitPixels(bare.shots.afternoon);
-  session.check('the settlers show by day', lit.villagers >= 400 && none.villagers < 50, `${lit.villagers} villager pixels with the settlers and ${none.villagers} on the bare map at 15:00, needs 400 and fewer than 50`);
+  session.check(
+    'the settlers show by day',
+    lit.villagers >= SETTLER_TUNICS.least && none.villagers < SETTLER_TUNICS.bareMost,
+    `${lit.villagers} villager pixels with the settlers and ${none.villagers} on the bare map at 15:00, needs ${SETTLER_TUNICS.least} and fewer than ${SETTLER_TUNICS.bareMost}`,
+  );
   const gathered = at.night;
   const offCenter = Math.hypot(gathered.x - CLIP.width / 2, gathered.y - CLIP.height / 2);
   session.check(
@@ -1212,10 +1358,16 @@ const GATHER_VIEWS = {
  * colors keep each clip under 4 MB, and the logs, the stone, and the settlers still read.
  */
 const GATHER_CLIP = { crop: { x: 200, y: 0, width: 560, height: 420 }, width: 560, colors: 64 };
-/** Pale cut wood and cool grey stone, as `LOG_COLOR` and `STONE_COLOR` in `src/render/goods.ts` look in spring daylight. */
+const paleWood = (dimmest) => ([r, g, b]) => r > dimmest && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r;
+/**
+ * Pale cut wood and pale grey stone, as the `paint` of the log and the stone in `assets/models.json` looks in spring
+ * daylight. The warm sun lights the stone to a white that leans a little yellow, near (210, 209, 204), and the sky
+ * colors its shaded faces blue, so `stone` takes a grey on either side of neutral. It stops below the white ink of a
+ * label, and a label's blurred edge still matches it, so a box that reads stone leaves the labels out.
+ */
 const GOOD_COLORS = {
-  logs: ([r, g, b]) => r > 150 && g > 0.72 * r && g < 0.9 * r && b > 0.45 * r && b < 0.7 * r,
-  stone: ([r, g, b]) => g >= r && b >= g && b > r + 4 && Math.min(r, g, b) > 120 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
+  logs: paleWood(150),
+  stone: ([r, g, b]) => Math.min(r, g, b) > 120 && Math.max(r, g, b) < 232 && Math.max(r, g, b) - Math.min(r, g, b) < 45 && b > r - 16 && g > r - 10,
 };
 
 /**
@@ -1233,13 +1385,19 @@ const GATHER_STOPS = [
   ['spent', { day: 2, time: '09:30' }],
 ];
 /**
- * On rj-firebat the grove box held 527 pin pixels before and 0 after, and 0 log pixels before and 192 after. The rock
- * box held 0 stone pixels before and 412 at the last stop, and 64 and 126 villager pixels at the two day stops. The camp
- * box differed from the bare map in 0 pixels by day and 501 at night. The marks' tint fell from 2976 to 1590 pixels
- * once the first row of the face was spent, and the settlers moved 15 pixels up the screen onto it.
+ * On the owner's Mac the grove box held 522 pin pixels before and 0 after, and 0 log pixels before and 117 after. The
+ * rock box held 0 stone pixels before and 297 at the last stop. The settlers at the face work in the shade of the rock,
+ * where `TUNIC_IN_SHADE` matched 46 and 87 pixels at the two day stops and none on the bare map. The camp box differed
+ * from the bare map in 0 pixels by day and 342 at night. The marks' tint fell from 3094 to 1684 pixels once the first
+ * row of the face was spent, and the settlers moved 15 pixels up the screen onto it.
  */
 const GATHER_LEAST = { pins: 200, logs: 80, stone: 150, workers: 25, campAtNight: 200, tintLost: 0.25, climb: 6 };
-const GATHER_MOST = { leftover: 10, goodsBefore: 10, campByDay: 20 };
+const GATHER_MOST = { leftover: 10, goodsBefore: 10, campByDay: 20, tunicsOnBare: 2 };
+/**
+ * The tunic of a settler in the sun or in the shade of the rock, where `UNIT_COLORS.villagers` is too bright for it.
+ * Lit thatch matches it too, so it reads settlers only where the bare map shows none of it, as at the rock face.
+ */
+const TUNIC_IN_SHADE = ([r, g, b]) => r > 120 && g > 0.55 * r && g < 0.9 * r && b < 0.3 * r;
 
 /** The violet that the quarry mark mixes into the ground of each marked rock tile. */
 const QUARRY_TINT = ([r, g, b]) => b > g + 35 && r > g + 15;
@@ -1388,14 +1546,20 @@ SCENARIOS.gathering = async (session) => {
   seen.push(...bare.errors);
 
   const atCamp = (name) => changedIn(empty[name], shots[name], CLIP.width, GATHER_VIEWS.rock.camp);
-  const atRock = (name) => pixelsIn(shots[name], CLIP.width, GATHER_VIEWS.rock.box, UNIT_COLORS.villagers);
+  const atRock = (name) => pixelsIn(shots[name], CLIP.width, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE);
   const camp = { working: atCamp('working'), night: atCamp('night'), back: atCamp('back') };
   const workers = { working: atRock('working').count, back: atRock('back').count };
+  const noWorkers = { working: count(empty.working, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE), back: count(empty.back, GATHER_VIEWS.rock.box, TUNIC_IN_SHADE) };
   const when = Object.fromEntries(GATHER_STOPS.map(([name, stop]) => [name, stop.time ?? stop.to?.time]));
+  session.check(
+    'the bare rock face shows nothing in the color of a tunic',
+    noWorkers.working <= GATHER_MOST.tunicsOnBare && noWorkers.back <= GATHER_MOST.tunicsOnBare,
+    `${noWorkers.working} tunic pixels at the rock face of the bare map at ${when.working} and ${noWorkers.back} at ${when.back}, needs at most ${GATHER_MOST.tunicsOnBare}`,
+  );
   session.check(
     `at ${when.working} the settlers quarry the rock face, away from the camp`,
     workers.working >= GATHER_LEAST.workers && camp.working <= GATHER_MOST.campByDay,
-    `${workers.working} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.working} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+    `${workers.working} tunic pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.working} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
   );
   session.check(
     `at ${when.night} the settlers have left the work and stand at the camp`,
@@ -1405,7 +1569,7 @@ SCENARIOS.gathering = async (session) => {
   session.check(
     `at ${when.back} on day 2 the settlers are back at the rock face`,
     workers.back >= GATHER_LEAST.workers && camp.back <= GATHER_MOST.campByDay,
-    `${workers.back} villager pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.back} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
+    `${workers.back} tunic pixels at the rock face, needs ${GATHER_LEAST.workers}; ${camp.back} pixels at the camp differ from the bare map, needs at most ${GATHER_MOST.campByDay}`,
   );
   const stone = { before: count(face, GATHER_VIEWS.rock.box, GOOD_COLORS.stone), after: count(shots.spent, GATHER_VIEWS.rock.box, GOOD_COLORS.stone) };
   session.check(
@@ -1456,7 +1620,7 @@ const HAUL_CLIP = { crop: { x: 0, y: 0, width: 510, height: 345 }, width: 510, c
  * On seed 7, with the grove cleared and the near stockpile marked at 13:30, the panel read 6 logs at 14:30, 8 at 15:30,
  * 16 at 16:30, 22 at 17:30, and 24 at 18:30. The 2-tile stockpile was full by 16:30. With the far stockpile marked at
  * 15:30 the panel read 0 at 17:00 and 8 at 19:05, all night, and at 07:00 on day 2, and 24 by 11:00 on day 2.
- * `GOOD_COLORS` matches the logs until 17:30 and no longer at 18:30, so every log count stops in daylight.
+ * `GOOD_COLORS` matches the logs in the sun until 17:30 and no longer at 18:30, so every log count stops in daylight.
  */
 const HAUL_STOPS = {
   cleared: { day: 1, time: '13:30' },
@@ -1473,15 +1637,25 @@ const HAUL_STOPS = {
   carried: { day: 2, time: '11:00' },
 };
 /**
- * On rj-firebat the grove box held 192 log pixels at 13:30 and 34 at 17:30, and the near stockpile's box 0, 114, and
- * 280 at 13:30, 15:00, and 17:30. Beside the full stockpile the grove box held 10 log pixels at 17:00 and 9 at 10:00 on
- * day 2: the carriers take the front logs first, and the 8 left lie under the crowns at the back. A grove with no logs
- * reads 0. The route held 0 log pixels and differed from the bare map in 0 pixels before the far stockpile, differed in
- * 317 at 19:05 and in 149 at 21:00, and held 60 log pixels at 07:00 on day 2 and 0 at 11:00. The camp box differed from
- * the bare map in 377 pixels at 21:00.
+ * On the owner's Mac the grove box held 117 log pixels at 13:30 and 0 at 17:30, and the near stockpile's box 0, 89, and
+ * 218 at 13:30, 15:00, and 17:30. Beside the full stockpile the carriers take the front logs first, and the 8 left lie
+ * in the deep shade under the crowns at the back, where the sky colors the pale wood near (100, 96, 78) and
+ * `GOOD_COLORS.logs` matches none of it. There the grove box held 91 pixels of `LOGS_IN_A_CLEARED_GROVE_BY_DAY` at
+ * 17:00 and 100 at 10:00 on day 2, about 12 for each log, 332 with all 24 logs at 13:30, and 0 in the emptied grove
+ * at 17:30. Before the far stockpile the route held 31 log pixels, all of them pink flowers that the bare map shows
+ * too, and differed from the bare map in 0 pixels. It differed in 193 at 19:05 and in 143 at 21:00. At 07:00 on day 2
+ * the sun is low, and the two stacks that the carriers put down held 33 pixels of `LOGS_IN_DIM_LIGHT` more than the
+ * bare map, and the route none more at 11:00. The camp box differed from the bare map in 324 pixels at 21:00.
  */
-const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 5, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
-const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, routeBefore: 20, routeCarried: 0.5 };
+const HAUL_LEAST = { lying: 100, rising: 40, stacked: 150, noPlace: 50, routeByDusk: 100, droppedAtNight: 50, campAtNight: 150, droppedAtDawn: 25 };
+const HAUL_MOST = { goodsBefore: 10, leftInGrove: 0.5, emptyGrove: 5, routeBefore: 20, routeCarried: 0.5 };
+/**
+ * The wood of a log in the sun or in the blue shade under a crown. Blossom, flowers, and the forest in the evening
+ * match it too, so it reads logs only in a grove that is felled, by day, and beside a reading of the same grove empty.
+ */
+const LOGS_IN_A_CLEARED_GROVE_BY_DAY = ([r, g, b]) => r > 90 && g > 0.72 * r && g < 1.02 * r && b > 0.45 * r && b < 0.84 * r;
+/** The wood of `GOOD_COLORS.logs` under a low sun, which lights it too little for that predicate. */
+const LOGS_IN_DIM_LIGHT = paleWood(105);
 /** A log put down at night differs from the bare ground by about 25 in its brightest channel, too little for `SETTLER_THRESHOLD`. */
 const NIGHT_THRESHOLD = 12;
 
@@ -1577,11 +1751,13 @@ SCENARIOS.hauling = async (session) => {
     filled.totals.logs === small.places && stillFull.totals.logs === small.places,
     `Logs ${filled.totals.logs} and then ${stillFull.totals.logs}, needs ${small.places} both times`,
   );
-  const outside = { filled: logsIn(filled.png, grove), stillFull: logsIn(stillFull.png, grove) };
+  const shadedLogsIn = (png) => pixelsIn(png, CLIP.width, grove, LOGS_IN_A_CLEARED_GROVE_BY_DAY).count;
+  const outside = { filled: shadedLogsIn(filled.png), stillFull: shadedLogsIn(stillFull.png), emptied: shadedLogsIn(stacked.png) };
   session.check(
     `at ${when('full')} and at ${when('stillFull')} the logs with no place still lie in the grove`,
-    outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace,
-    `${outside.filled} and then ${outside.stillFull} log pixels in the grove, needs ${HAUL_LEAST.noPlace} both times`,
+    outside.filled >= HAUL_LEAST.noPlace && outside.stillFull >= HAUL_LEAST.noPlace && outside.emptied <= HAUL_MOST.emptyGrove,
+    `${outside.filled} and then ${outside.stillFull} log pixels in the grove, needs ${HAUL_LEAST.noPlace} both times; ` +
+      `${outside.emptied} in the grove that the first stockpile emptied by ${when('stacked')}, needs at most ${HAUL_MOST.emptyGrove}`,
   );
 
   const walk = await session.open(CLIP, { clock: 'paused' });
@@ -1601,16 +1777,16 @@ SCENARIOS.hauling = async (session) => {
   const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
   await takeView(session, bare.page, GATHER_VIEWS.grove);
   const empty = {};
-  for (const stop of ['farMarked', 'beforeDusk', 'night']) empty[stop] = (await at(bare.page, HAUL_STOPS[stop], `hauling-bare-${stop}`)).png;
+  for (const stop of ['farMarked', 'beforeDusk', 'night', 'morning', 'carried']) empty[stop] = (await at(bare.page, HAUL_STOPS[stop], `hauling-bare-${stop}`)).png;
   await bare.context.close();
   seen.push(...bare.errors);
 
   const onRoute = (stop, png, threshold) => changedIn(empty[stop], png, CLIP.width, HAUL_BOXES.route, threshold);
-  const routeBefore = { logs: logsIn(route.png, HAUL_BOXES.route), changed: onRoute('farMarked', route.png) };
+  const routeBefore = { logs: logsIn(route.png, HAUL_BOXES.route), bare: logsIn(empty.farMarked, HAUL_BOXES.route), changed: onRoute('farMarked', route.png) };
   session.check(
     `at ${when('farMarked')}, before the far stockpile, nothing lies on the route`,
-    routeBefore.logs <= HAUL_MOST.goodsBefore && routeBefore.changed <= HAUL_MOST.routeBefore,
-    `${routeBefore.logs} log pixels on the route, needs at most ${HAUL_MOST.goodsBefore}; ${routeBefore.changed} pixels differ from the bare map, needs at most ${HAUL_MOST.routeBefore}`,
+    routeBefore.logs - routeBefore.bare <= HAUL_MOST.goodsBefore && routeBefore.changed <= HAUL_MOST.routeBefore,
+    `${routeBefore.logs} log pixels on the route and ${routeBefore.bare} on the bare map, needs at most ${HAUL_MOST.goodsBefore} more; ${routeBefore.changed} pixels differ from the bare map, needs at most ${HAUL_MOST.routeBefore}`,
   );
   const carrying = onRoute('beforeDusk', beforeDusk.png);
   session.check(
@@ -1631,11 +1807,12 @@ SCENARIOS.hauling = async (session) => {
     nightTotals.every((logs) => logs === nightTotals[0]) && beforeDusk.totals.logs <= nightTotals[0],
     `Logs ${beforeDusk.totals.logs} at ${when('beforeDusk')}, then ${nightTotals.join(', ')}`,
   );
-  const routeLogs = { morning: logsIn(morning.png, HAUL_BOXES.route), carried: logsIn(carried.png, HAUL_BOXES.route) };
+  const dimLogsIn = (png) => pixelsIn(png, CLIP.width, HAUL_BOXES.route, LOGS_IN_DIM_LIGHT).count;
+  const routeLogs = { morning: dimLogsIn(morning.png) - dimLogsIn(empty.morning), carried: dimLogsIn(carried.png) - dimLogsIn(empty.carried) };
   session.check(
     `after dawn the settlers carry the dropped units on by ${when('carried')}`,
     routeLogs.morning >= HAUL_LEAST.droppedAtDawn && routeLogs.carried <= routeLogs.morning * HAUL_MOST.routeCarried && carried.totals.logs > nightTotals[0],
-    `${routeLogs.morning} log pixels on the route at ${when('morning')} and ${routeLogs.carried} at ${when('carried')}, needs ${HAUL_LEAST.droppedAtDawn} and then at most ${HAUL_MOST.routeCarried * 100}% of them; Logs ${nightTotals[0]} at night and ${carried.totals.logs} at ${when('carried')}`,
+    `${routeLogs.morning} more log pixels on the route than on the bare map at ${when('morning')} and ${routeLogs.carried} more at ${when('carried')}, needs ${HAUL_LEAST.droppedAtDawn} and then at most ${HAUL_MOST.routeCarried * 100}% of them; Logs ${nightTotals[0]} at night and ${carried.totals.logs} at ${when('carried')}`,
   );
 
   const layout = await session.open(WIDE);
@@ -1688,12 +1865,17 @@ const BUILD_SPOTS = {
   house: { x: 490, y: 279 },
 };
 /**
- * The boxes are in clip pixels of the closer view: the nine tiles of the site up to the top of the roof, and the land
- * a tile or two around them, with the near edge of the stockpile. The walkers beside the house are those in `around`
- * and not in `site`.
+ * The boxes are in clip pixels of the closer view: the house, which is as wide as its nine tiles, up to the top of
+ * its roof, the nine tiles below the site's label, and the land a tile or two around them, with the near edge of the
+ * stockpile. The walkers beside the house are those in `around` and not in `site`. The goods are counted in `tiles`,
+ * because the fill of the label's work bar has the color of a log and the label's edge the color of stone. The roof
+ * is counted in `roof`, the band of both its slopes that lies below the label and above the walls of a house at half
+ * its work, whose timber in shade has the colors of thatch in shade.
  */
 const BUILD_BOXES = {
-  site: { x: 460, y: 195, width: 80, height: 120 },
+  site: { x: 445, y: 195, width: 112, height: 120 },
+  roof: { x: 455, y: 236, width: 90, height: 22 },
+  tiles: { x: 460, y: 240, width: 80, height: 75 },
   around: { x: 425, y: 185, width: 150, height: 150 },
 };
 /** The clip keeps the clock, the site with its label, the stockpile, the camp's edge, and the rock face's foot. */
@@ -1712,25 +1894,36 @@ const BUILD_STOPS = {
   day: { day: 1, time: '12:00' },
   midnight: { day: 2, time: '00:00' },
 };
-/** Wheel pixels that reach the nearest view of 22 m and the farthest of 243 m from any view. */
+/** Wheel pixels that reach the nearest view of 14 m and the farthest of 243 m from any view. */
 const READ_WHEELS = { near: -3000, far: 3000 };
-/** The slate of the house roof, as it looks in the late afternoon: a dark grey with a cool cast. */
-const HOUSE_ROOF = ([r, g, b]) => Math.abs(r - g) <= 8 && b >= g && b - r <= 24 && Math.max(r, g, b) < 100;
-/** The dark timber of a site's frame, `FRAME_COLOR` in `src/render/sites.ts`, in the afternoon light. */
-const SITE_FRAME = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
+/**
+ * The thatch of the house roof in the afternoon. The house is finished at 17:23 in one run and at 17:55 in another,
+ * because `reach` stops within two game minutes of its time and an order can land a few ticks apart. The sunlit slope
+ * reads near (174, 114, 42) and then near (174, 102, 30). The slope in shade is olive at 17:23, near (78, 66, 30),
+ * and warm at 17:55, near (90, 66, 18). The three clauses are the sunlit slope, the warm shade, and the olive shade.
+ * A tunic there reads near (126, 90, 18), yellower than the sunlit slope, and timber has more blue than the shade.
+ */
+const HOUSE_ROOF = ([r, g, b]) =>
+  (r > 110 && r < 200 && g > 0.53 * r && g < 0.7 * r && b > 0.1 * r && b < 0.3 * r) ||
+  (r >= 60 && r <= 110 && g > 0.58 * r && g < 0.8 * r && b < 0.3 * r) ||
+  (r >= 68 && r <= 100 && g >= 0.78 * r && g < 0.93 * r && b > 0.25 * r && b < 0.45 * r);
+/** The timber of a site's scaffold and of the walls that rise inside it, in the afternoon light. */
+const SITE_TIMBER = ([r, g, b]) => r > 40 && r < 140 && g > 0.5 * r && g < 0.78 * r && b < 0.5 * r;
 /** The label's text is near white, on a dark panel. */
 const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
 /**
- * On rj-firebat the stockpile held 5 logs at 11:30. The site held 237 log and 69 stone pixels half supplied, and 228 log
- * pixels at half its work. Its box held 15 roof pixels at half the work and 3017 once the house stood, and 0 log pixels.
- * Beside the house stood 340, 308, and 37 villager pixels at the three stops of day 2, a carrier or two. Each label
- * held 129 to 136 near-white text pixels.
+ * On the owner's Mac the stockpile held 5 logs at 11:30. Two runs are given, the first with the house finished at
+ * 17:55 and the second at 17:23. The site's tiles held 194 and 295 log and 134 and 137 stone pixels half supplied. At
+ * half the work the walls and the scaffold hide most of the 12 logs, and 85 and 87 log pixels showed beside them. The
+ * house's box held 97 and 213 timber pixels half supplied and 1952 and 2548 at half the work. The roof's band of 1980
+ * pixels held 26 and 30 roof pixels at half the work and 1150 and 1060 once the house stood, and the house's tiles 0
+ * log pixels. Beside the house stood at most 63 and 112 villager pixels at the three stops of day 2, a carrier or two
+ * in a tunic. Each label held 149 to 157 near-white text pixels.
  */
-const BUILD_LEAST = { stocked: 1, logs: 80, stone: 25, frame: 40, roof: 1500, walkers: 150, ink: 60 };
+const BUILD_LEAST = { stocked: 1, logs: 80, logsAtWork: 40, stone: 80, timber: 40, roof: 730, walkers: 45, ink: 60 };
 const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, goodsAfter: 10 };
 
-SCENARIOS.building = async (session) => {
-  const seen = [];
+function siteDriver(session) {
   const site = (page) => page.getByRole('status', { name: 'House site' });
   const order = (page) => page.getByRole('status', { name: 'Order' });
   const said = async (page, pattern) => {
@@ -1738,8 +1931,9 @@ SCENARIOS.building = async (session) => {
     return (await order(page).textContent()) ?? '';
   };
   const reads = async (page) => {
-    if ((await site(page).count()) === 0) return null;
-    const text = await site(page).innerText();
+    // One round trip: a label that a count saw can be gone before a second call reads it, when the house is finished in between.
+    const text = await site(page).evaluateAll((labels) => (labels.length === 0 ? null : labels[0].innerText));
+    if (text === null) return null;
     const read = /Logs\s*(\d+)\/12\s*Stone\s*(\d+)\/6\s*(?:(Waiting for materials)|(\d+)%)/.exec(text);
     if (!read) fail(`the site label reads "${text}", not the logs, the stone, and the work`);
     return { text: text.replace(/\s+/g, ' '), logs: Number(read[1]), stone: Number(read[2]), waiting: Boolean(read[3]), percent: read[4] === undefined ? null : Number(read[4]) };
@@ -1777,6 +1971,27 @@ SCENARIOS.building = async (session) => {
     await session.pause(page);
     await session.still(page);
   };
+  const markWork = async (page) => {
+    await takeView(session, page, BUILD_VIEW);
+    const marked = [];
+    for (const [key, name, pattern] of [
+      ['KeyC', 'Chop', /^7 trees marked for felling/],
+      ['KeyM', 'Quarry', /^23 rock tiles marked for quarrying/],
+      ['KeyP', 'Stockpile', /^4 tiles join the stockpile zone/],
+    ]) {
+      await page.keyboard.press(key);
+      await session.drag(page, ...BUILD_SPOTS[name.toLowerCase()]);
+      marked.push({ name, pattern, line: await said(page, pattern) });
+      await page.keyboard.press('Escape');
+    }
+    return marked;
+  };
+  return { site, said, reads, totals, placeHouse, runUntil, markWork };
+}
+
+SCENARIOS.building = async (session) => {
+  const seen = [];
+  const { site, reads, totals, placeHouse, runUntil, markWork } = siteDriver(session);
   const barOf = async (page) => {
     const bar = site(page).getByRole('progressbar', { name: 'Building work' });
     if ((await bar.count()) === 0 || !(await bar.isVisible())) return null;
@@ -1797,17 +2012,8 @@ SCENARIOS.building = async (session) => {
   const build = await session.open(CLIP, { record: true, clock: 'paused' });
   const { page } = build;
   await session.reach(page, BUILD_STOPS.marked);
-  await takeView(session, page, BUILD_VIEW);
-  for (const [key, name, pattern] of [
-    ['KeyC', 'Chop', /^7 trees marked for felling/],
-    ['KeyM', 'Quarry', /^23 rock tiles marked for quarrying/],
-    ['KeyP', 'Stockpile', /^4 tiles join the stockpile zone/],
-  ]) {
-    await page.keyboard.press(key);
-    await session.drag(page, ...BUILD_SPOTS[name.toLowerCase()]);
-    const line = await said(page, pattern);
+  for (const { name, pattern, line } of await markWork(page)) {
     session.check(`a ${name} drag marks its tiles`, pattern.test(line), `the status line reads "${line}"`);
-    await page.keyboard.press('Escape');
   }
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, BUILD_CLOSER);
@@ -1845,7 +2051,7 @@ SCENARIOS.building = async (session) => {
     empty.label?.logs === 0 && empty.label.stone === 0 && empty.label.waiting,
     `the label reads "${labelText(empty.label)}"`,
   );
-  const goods = (shot) => ({ logs: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.logs), stone: count(shot.png, BUILD_BOXES.site, GOOD_COLORS.stone) });
+  const goods = (shot) => ({ logs: count(shot.png, BUILD_BOXES.tiles, GOOD_COLORS.logs), stone: count(shot.png, BUILD_BOXES.tiles, GOOD_COLORS.stone) });
   const goodsAt = { empty: goods(empty), half: goods(half), work: goods(work), done: goods(done) };
   session.check(
     `at ${empty.at} nothing lies on the site`,
@@ -1878,22 +2084,22 @@ SCENARIOS.building = async (session) => {
     work.bar !== null && work.bar.now === work.label?.percent && Math.abs(work.bar.share - work.bar.now / 100) <= 0.05,
     work.bar ? `aria-valuenow ${work.bar.now}, the fill spans ${(work.bar.share * 100).toFixed(1)}% of the bar, the label reads ${work.label?.percent}%` : 'no visible bar',
   );
-  const frame = { half: count(half.png, BUILD_BOXES.site, SITE_FRAME), work: count(work.png, BUILD_BOXES.site, SITE_FRAME) };
+  const timber = { half: count(half.png, BUILD_BOXES.site, SITE_TIMBER), work: count(work.png, BUILD_BOXES.site, SITE_TIMBER) };
   session.check(
-    `at ${work.at} the frame has risen on the site`,
-    frame.work >= frame.half + BUILD_LEAST.frame,
-    `${frame.half} frame pixels on the site at ${half.at} and ${frame.work} at ${work.at}, needs ${BUILD_LEAST.frame} more`,
+    `at ${work.at} the walls have risen in their scaffold on the site`,
+    timber.work >= timber.half + BUILD_LEAST.timber,
+    `${timber.half} timber pixels on the site at ${half.at} and ${timber.work} at ${work.at}, needs ${BUILD_LEAST.timber} more`,
   );
-  const roof = { work: count(work.png, BUILD_BOXES.site, HOUSE_ROOF), done: count(done.png, BUILD_BOXES.site, HOUSE_ROOF) };
+  const roof = { work: count(work.png, BUILD_BOXES.roof, HOUSE_ROOF), done: count(done.png, BUILD_BOXES.roof, HOUSE_ROOF) };
   session.check(
     `at ${done.at} the label is gone and the house stands on the site`,
     done.label === null && roof.work <= BUILD_MOST.roofBefore && roof.done >= BUILD_LEAST.roof,
-    `${done.label ? `the label reads "${done.label.text}"` : 'no label'}; ${roof.work} roof pixels on the site at ${work.at} and ${roof.done} at ${done.at}, needs at most ${BUILD_MOST.roofBefore} and then ${BUILD_LEAST.roof}`,
+    `${done.label ? `the label reads "${done.label.text}"` : 'no label'}; ${roof.work} roof pixels above the walls at ${work.at} and ${roof.done} at ${done.at}, needs at most ${BUILD_MOST.roofBefore} and then ${BUILD_LEAST.roof}`,
   );
   session.check(
     `at ${done.at} no log is drawn on the house's tiles any more`,
-    goodsAt.work.logs >= BUILD_LEAST.logs && goodsAt.done.logs <= BUILD_MOST.goodsAfter,
-    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logs} and then at most ${BUILD_MOST.goodsAfter}`,
+    goodsAt.work.logs >= BUILD_LEAST.logsAtWork && goodsAt.done.logs <= BUILD_MOST.goodsAfter,
+    `${goodsAt.work.logs} log pixels on the site at ${work.at} and ${goodsAt.done.logs} at ${done.at}, needs ${BUILD_LEAST.logsAtWork} and then at most ${BUILD_MOST.goodsAfter}`,
   );
   const walkers = around.map((shot) => ({
     at: shot.at,
@@ -1931,6 +2137,202 @@ SCENARIOS.building = async (session) => {
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
+/**
+ * The `look` scenario builds the house of `building` from the same marks, views, and stops, so the settlement it shows
+ * is the one that scenario measures. The dusk clip runs at 1× from before the settlers stop work until they stand at
+ * the camp. Each view is shot at the nearest zoom of 14 m, at the 22 m that was the nearest zoom on `main`, where the
+ * checks read it and the pictures line up with those of `main`, and at the farthest zoom: the first midnight, the next
+ * noon, and a noon and a midnight of winter, which starts on day 10.
+ */
+const LOOK_STOPS = {
+  dusk: { from: { day: 1, time: '18:45' }, to: { day: 1, time: '19:40' } },
+  views: [
+    { name: 'midnight', when: { day: 2, time: '00:00' } },
+    { name: 'noon', when: { day: 2, time: '12:00' } },
+    { name: 'winter-noon', when: { day: 10, time: '12:00' } },
+    { name: 'winter-midnight', when: { day: 11, time: '00:00' } },
+  ],
+};
+const LOOK_CLIP = { crop: { x: 200, y: 40, width: 560, height: 420 }, width: 560, colors: 64 };
+/** Pixels the land is dragged up once the house is placed, so the near view holds the camp below the house. */
+const LOOK_PAN = 40;
+/** Wheel pixels from the nearest view of 14 m out to the near view of 22 m, and from there back to the 31 m the house is placed from. */
+const LOOK_NEAR_WHEEL = Math.log(22 / 14) / 0.0015;
+const LOOK_BACK_WHEEL = Math.log(31.1 / 22) / 0.0015;
+/**
+ * The boxes are in clip pixels of the near view: the house up to its ridge, the fire in the middle of the camp, the
+ * camp with all the ground that the fire lights, and the land clear of the panels.
+ */
+const LOOK_BOXES = {
+  house: { x: 455, y: 150, width: 115, height: 125 },
+  fire: { x: 440, y: 330, width: 50, height: 50 },
+  camp: { x: 390, y: 280, width: 145, height: 153 },
+  land: { x: 150, y: 60, width: 640, height: 420 },
+};
+/** The thatch of the house roof in daylight: a dull gold, yellower than timber and soil. Its sunlit slope is as bright as a tunic. */
+const THATCH = ([r, g, b]) => r > 120 && g > 0.6 * r && g < 0.8 * r && b > 0.15 * r && b < 0.4 * r;
+/**
+ * The flame of the campfire is the one thing that no light changes. It is drawn in two colors, 0xff7a1a and 0xffd35a,
+ * and the edge between them blends the two, so its blue follows its green.
+ */
+const FLAME = ([r, g, b]) => r > 240 && g > 113 && g < 220 && Math.abs(b - (26 + (64 * (g - 122)) / 89)) < 14;
+/** What the fire lights at night, and the flame itself: the ground, the tents, and the settlers near it are bright and warm. A tunic in daylight is too. */
+const FIRELIT = ([r, g, b]) => r > 200 && g > 90 && g < 220 && b < 110 && r > g + 30;
+/**
+ * On the owner's Mac the house's box held 3711 thatch pixels at the spring noon and 4108 at the winter noon, and 222
+ * on a site with no house, where goods and tunics match. The land around the house held 573 and 1065 villager pixels.
+ * At both midnights the fire's box held 182 flame pixels and the rest of the land 0. The camp held 3011 and 3264
+ * firelit pixels beside the flame, and the land away from the camp 0.
+ */
+const LOOK_LEAST = { thatch: 1900, settlers: 150, flame: 100, firelit: 1500 };
+/**
+ * A frame draws each kind of thing in one call, and once more into the shadow map for a kind that casts a shadow.
+ * `main` drew 20 to 22 calls and the first models 22 to 24. The sea and its bed, two more kinds of tree, five kinds
+ * of ground cover, the settlers' legs, and the smoke brought a frame to 36 to 38 calls, and to 42 on the owner's GPU
+ * with a site and its marks in view. A count that grew with the number of trees or settlers would be in the
+ * thousands.
+ */
+const LOOK_MOST = { flameElsewhere: 5, firelitElsewhere: 5, calls: 46 };
+
+SCENARIOS.look = async (session) => {
+  const seen = [];
+  const { placeHouse, runUntil, markWork } = siteDriver(session);
+  const draws = [];
+  const shots = {};
+  const shot = async (page, label) => {
+    shots[label] = await session.screenshot(page, label);
+    draws.push({ label, ...(await session.drawsPerFrame(page)) });
+  };
+  const count = (label, box, matches) => pixelsIn(shots[label], CLIP.width, box, matches).count;
+  const zoom = async (page, wheel) => {
+    await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+    await page.mouse.wheel(0, wheel);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+  };
+
+  const town = await session.open(CLIP, { record: true, clock: 'paused' });
+  const { page } = town;
+  const notice = await page.locator('.models-notice').allTextContents();
+  session.check('the game draws the models, not stand-in shapes', notice.length === 0, notice.join(' ') || 'no notice on the page');
+  await session.reach(page, BUILD_STOPS.marked);
+  await markWork(page);
+  await zoom(page, BUILD_CLOSER);
+  await session.reach(page, BUILD_STOPS.placed);
+  await placeHouse(page, BUILD_SPOTS.closerHouse);
+  await session.drag(page, { x: CLIP.width / 2, y: CLIP.height / 2 + LOOK_PAN / 2 }, { x: CLIP.width / 2, y: CLIP.height / 2 - LOOK_PAN / 2 });
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
+  await shot(page, 'look-site-supplied');
+  await zoom(page, READ_WHEELS.near);
+  await zoom(page, LOOK_NEAR_WHEEL);
+  await shot(page, 'look-site-supplied-near');
+  await zoom(page, LOOK_BACK_WHEEL);
+  await runUntil(page, 'got half its work done', (label) => label?.percent >= 50);
+  await shot(page, 'look-site-half-built');
+  await runUntil(page, 'was finished', (label) => label === null);
+  await shot(page, 'look-house-finished');
+  await session.reach(page, LOOK_STOPS.dusk.from);
+  const from = town.since();
+  await page.keyboard.press('1');
+  while ((await session.gameMinutes(page)) < clockMinutes(LOOK_STOPS.dusk.to)) await page.waitForTimeout(100);
+  await session.pause(page);
+  const to = town.since();
+  for (const { name, when } of LOOK_STOPS.views) {
+    await session.reach(page, when);
+    await zoom(page, READ_WHEELS.near);
+    await shot(page, `look-${name}-nearest`);
+    await zoom(page, LOOK_NEAR_WHEEL);
+    await shot(page, `look-${name}-near`);
+    await zoom(page, READ_WHEELS.far);
+    await shot(page, `look-${name}-far`);
+  }
+  await session.finishClips(town.context, page, [{ label: 'look-dusk', from, to, ...LOOK_CLIP }]);
+  seen.push(...town.errors);
+
+  const crowd = await session.open(CLIP, { search: SWARM });
+  await takeView(session, crowd.page, BUILD_VIEW);
+  await shot(crowd.page, 'look-swarm');
+  await crowd.context.close();
+  seen.push(...crowd.errors);
+
+  for (const season of ['', 'winter-']) {
+    const noon = `look-${season}noon-near`;
+    const midnight = `look-${season}midnight-near`;
+    const roof = count(noon, LOOK_BOXES.house, THATCH);
+    session.check(`${noon} shows the house under its thatch`, roof >= LOOK_LEAST.thatch, `${roof} thatch pixels on the house, needs ${LOOK_LEAST.thatch}`);
+    const settlers = count(noon, LOOK_BOXES.land, UNIT_COLORS.villagers) - count(noon, LOOK_BOXES.house, UNIT_COLORS.villagers);
+    session.check(
+      `${noon} shows the settlers in their tunics`,
+      settlers >= LOOK_LEAST.settlers,
+      `${settlers} villager pixels on the land around the house, needs ${LOOK_LEAST.settlers}`,
+    );
+    const flame = count(midnight, LOOK_BOXES.fire, FLAME);
+    const otherFlames = count(midnight, LOOK_BOXES.land, FLAME) - flame;
+    session.check(
+      `${midnight} shows the flame of the fire at the camp, and no other`,
+      flame >= LOOK_LEAST.flame && otherFlames <= LOOK_MOST.flameElsewhere,
+      `${flame} flame pixels at the fire and ${otherFlames} on the rest of the land, needs ${LOOK_LEAST.flame} and at most ${LOOK_MOST.flameElsewhere}`,
+    );
+    const inCamp = count(midnight, LOOK_BOXES.camp, FIRELIT);
+    const firelit = inCamp - count(midnight, LOOK_BOXES.camp, FLAME);
+    const awayFromCamp = count(midnight, LOOK_BOXES.land, FIRELIT) - inCamp;
+    session.check(
+      `${midnight} shows the fire lighting the camp, and nothing away from the camp as bright`,
+      firelit >= LOOK_LEAST.firelit && awayFromCamp <= LOOK_MOST.firelitElsewhere,
+      `${firelit} firelit pixels in the camp beside the flame and ${awayFromCamp} away from the camp, needs ${LOOK_LEAST.firelit} and at most ${LOOK_MOST.firelitElsewhere}`,
+    );
+  }
+  for (const { label, calls, triangles } of draws) {
+    session.check(
+      `${label} takes few draw calls, so its repeated shapes are instanced`,
+      calls > 0 && calls <= LOOK_MOST.calls,
+      `${calls} draw calls and ${triangles} triangles a frame, needs at most ${LOOK_MOST.calls} calls`,
+    );
+  }
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/** Each case is sampled this many times for this long, at 1×, so the units move and their shapes are posed on every tick. */
+const FRAME_SAMPLES = { count: 5, ms: 4000 };
+
+SCENARIOS.frames = async (session) => {
+  const { placeHouse, runUntil, markWork } = siteDriver(session);
+  const measure = async (name, page) => {
+    await page.keyboard.press('1');
+    const samples = [];
+    for (let sample = 0; sample < FRAME_SAMPLES.count; sample++) samples.push(await session.frameWork(page, FRAME_SAMPLES.ms));
+    await session.pause(page);
+    const { calls, triangles } = await session.drawsPerFrame(page);
+    const means = samples.map((sample) => sample.mean).sort((a, b) => a - b);
+    const rates = samples.map((sample) => sample.perSecond).sort((a, b) => a - b);
+    const middle = Math.floor(samples.length / 2);
+    session.check(
+      `${name}: frames are drawn and timed`,
+      samples.every((sample) => sample.frames > 0),
+      `median ${means[middle].toFixed(2)} ms of work a frame, ${means[0].toFixed(2)} to ${means.at(-1).toFixed(2)} ms over ${samples.length} samples of ${FRAME_SAMPLES.ms / 1000} s; ` +
+        `median ${rates[middle].toFixed(0)} frames a second, ${rates[0].toFixed(0)} to ${rates.at(-1).toFixed(0)}; ${calls} draw calls and ${triangles} triangles a frame`,
+    );
+  };
+
+  const town = await session.open(CLIP, { clock: 'paused' });
+  await session.reach(town.page, BUILD_STOPS.marked);
+  await markWork(town.page);
+  await session.reach(town.page, BUILD_STOPS.placed);
+  await placeHouse(town.page, BUILD_SPOTS.house);
+  await runUntil(town.page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
+  await measure('the settlement at work', town.page);
+  await town.context.close();
+
+  const crowd = await session.open(CLIP, { search: SWARM });
+  await takeView(session, crowd.page, BUILD_VIEW);
+  await measure('the swarm', crowd.page);
+  await crowd.context.close();
+  session.check('no page errors', town.errors.length + crowd.errors.length === 0, [...town.errors, ...crowd.errors].join(' | ') || 'none');
+};
+SCENARIOS.frames.gpu = true;
+
 /** Where each order goes on the opening view of seed 7, as shares of the viewport's width and height. */
 const ORDER_SPOTS = {
   chop: [[0.577, 0.488], [0.63, 0.571]],
@@ -1959,6 +2361,12 @@ const FAR_WHEEL = 2000;
 const BACK_WHEEL = Math.log(120 / 243.2) / 0.0015;
 /** The fewest outline and pin pixels that each kind of mark must draw in a 1280x720 view, at each zoom. */
 const MARKS_AT_LEAST = { mid: 20, near: 50, far: 10 };
+/**
+ * The fewest pixels of the red outline of a house that cannot stand, at the opening view. Over rock it read 104 to
+ * 155. Over the forest the crowns cover part of it and sway with the tick, and it read 57 at the spring midnight and
+ * 110 to 123 at the other three stops.
+ */
+const REFUSED_AT_LEAST = { rock: 60, forest: 50 };
 
 SCENARIOS.orders = async (session) => {
   const seen = [];
@@ -2139,7 +2547,7 @@ SCENARIOS.orders = async (session) => {
       await view.mouse.move(over.x, over.y, { steps: 3 });
       await expectSaid(view, `a house over ${where} says why it does not fit, ${label}`, reason);
       await session.still(view);
-      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: 60 });
+      await expectMarks(view, `a refused house reads over ${where}, ${label}`, await session.screenshot(view, `orders-refused-${where}-${label}`), { blocks: REFUSED_AT_LEAST[where] });
     }
     await view.mouse.move(hover.x, hover.y, { steps: 3 });
   };
@@ -2240,10 +2648,10 @@ async function drive(name) {
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const browser = await launchBrowser();
-    evidence.browser = browser.version();
+    const { browser, renderer } = scenario.gpu ? await launchGpuBrowser() : { browser: await launchBrowser() };
+    evidence.browser = renderer ? `${browser.version()} on ${renderer}` : browser.version();
     try {
-      await scenario(createSession(browser, instance, dir, evidence));
+      await scenario(createSession(browser, instance, dir, evidence, Boolean(scenario.gpu)));
     } finally {
       await browser.close();
     }

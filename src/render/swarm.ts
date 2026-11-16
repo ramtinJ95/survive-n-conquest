@@ -1,26 +1,81 @@
 import {
+  BoxGeometry,
   type BufferGeometry,
-  CapsuleGeometry,
   ConeGeometry,
+  CylinderGeometry,
   DynamicDrawUsage,
+  IcosahedronGeometry,
   InstancedMesh,
+  type Material,
   MeshLambertMaterial,
+  Object3D,
 } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Good } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
+import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
-import { LOG_COLOR, STONE_COLOR, logGeometry, stoneGeometry } from './goods';
+import { VillagerState } from '../sim/villagers';
+import { type Shapes, colored, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */
 export const VILLAGER_COLOR = 0xf2c12e;
 export const MONSTER_COLOR = 0x9c1f2b;
-/** A carried unit rests this far above the ground, a little over the villager's head. */
-const CARRY_HEIGHT = 1.7;
+const SKIN_COLOR = 0xe8b48c;
+const HAIR_COLOR = 0x4a3222;
+const BELT_COLOR = 0x6b4a2b;
+const TROUSER_COLOR = 0x5a4632;
+const HEM_HEIGHT = 0.24;
+const BOOT_COLOR = 0x3b2a1e;
+/**
+ * A settler is a little over a meter tall, with a large head, so that it reads as a person from the game's camera and
+ * a house on its nine tiles stands over it. Heights are in meters above its feet, and sides in meters from its middle.
+ */
+const HIP_HEIGHT = 0.3;
+const LEG_SIDE = 0.09;
+const SHOULDER_HEIGHT = 0.66;
+const ARM_SIDE = 0.2;
+const ARM_LENGTH = 0.46;
+const CARRY_HEIGHT = SHOULDER_HEIGHT + ARM_LENGTH;
+const SIZE_SPREAD = 0.08;
+/** Radians of a walker's stride and of a worker's swing in one tick, so the motion follows the game's clock. */
+const STRIDE = 0.9;
+const SWING = 0.8;
+const STEP_LIFT = 0.04;
+/** The angle of a limb about its joint: 0 hangs down, a negative angle reaches forward, and `HELD_UP` reaches up. */
+const HELD_UP = Math.PI;
+const ARM_STRIDE = 0.6;
+const LEG_STRIDE = 0.55;
+/** A worker's arms swing between over its head and down in front of it, and it leans into the stroke. */
+const STROKE = { middle: -1.65, reach: 0.95, lean: 0.14 };
 
-function group(name: string, geometry: BufferGeometry, color: number, capacity: number): InstancedMesh {
-  geometry.computeBoundingBox();
-  geometry.translate(0, -geometry.boundingBox!.min.y, 0);
-  const mesh = new InstancedMesh(geometry, new MeshLambertMaterial({ color, flatShading: true }), capacity);
+function bodyGeometry(): BufferGeometry {
+  return mergeGeometries([
+    colored(new CylinderGeometry(0.15, 0.23, 0.48, 7).translate(0, HEM_HEIGHT + 0.24, 0), VILLAGER_COLOR),
+    colored(new CylinderGeometry(0.2, 0.215, 0.06, 7).translate(0, 0.41, 0), BELT_COLOR),
+    colored(new IcosahedronGeometry(0.2, 0).translate(0, 0.9, 0), SKIN_COLOR),
+    colored(new IcosahedronGeometry(0.205, 0).rotateY(0.6).translate(0, 0.94, -0.05), HAIR_COLOR),
+  ]);
+}
+
+function armGeometry(): BufferGeometry {
+  const sleeve = ARM_LENGTH - 0.1;
+  return mergeGeometries([
+    colored(new BoxGeometry(0.1, sleeve, 0.11).translate(0, -sleeve / 2, 0), VILLAGER_COLOR),
+    colored(new BoxGeometry(0.09, 0.1, 0.1).translate(0, -sleeve - 0.05, 0), SKIN_COLOR),
+  ]);
+}
+
+function legGeometry(): BufferGeometry {
+  const boot = 0.1;
+  return mergeGeometries([
+    colored(new BoxGeometry(0.11, HIP_HEIGHT - boot, 0.12).translate(0, -(HIP_HEIGHT - boot) / 2, 0), TROUSER_COLOR),
+    colored(new BoxGeometry(0.12, boot, 0.17).translate(0, -HIP_HEIGHT + boot / 2, 0.02), BOOT_COLOR),
+  ]);
+}
+
+function group(name: string, geometry: BufferGeometry, material: Material, capacity: number): InstancedMesh {
+  const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.name = name;
   mesh.count = 0;
   mesh.frustumCulled = false;
@@ -30,20 +85,51 @@ function group(name: string, geometry: BufferGeometry, color: number, capacity: 
   return mesh;
 }
 
+/** What `show` reads of a frame from the simulation. */
+export interface UnitFrame {
+  readonly tick: number;
+  readonly villagers: Float32Array;
+  readonly monsters: Float32Array;
+  readonly carried: Uint8Array;
+  readonly states: Uint8Array;
+}
+
 /**
- * Draws each group of units as one instanced mesh standing on the ground. Each
- * instance keeps the identity rotation and scale, so placing a unit writes only
- * the translation of its matrix. The units take the light of the scene, and
- * they cast and take its shadows.
+ * Draws the units standing on the ground, each group as one instanced mesh.
+ * A villager is a body, two arms, and two legs: villager `id` has the limbs
+ * `2 * id` on its right and `2 * id + 1` on its left. It turns the way it
+ * walks, steps and swings its arms against its legs as it goes, swings both
+ * arms over its head and down as it works, and holds what it carries up on
+ * both hands. At its spot for the night it faces the camp `camp`. The motion
+ * follows the tick, so the units hold still while the clock is paused. They
+ * take the light of the scene, and they cast and take its shadows.
  */
-export function createSwarm(map: TileMap, population: Population) {
+export function createSwarm(map: TileMap, population: Population, shapes: Shapes, camp: number) {
   const half = map.size / 2;
-  const villagers = group('villagers', new CapsuleGeometry(0.3, 1, 2, 6), VILLAGER_COLOR, population.villagers);
-  const monsters = group('monsters', new ConeGeometry(0.55, 1.5, 5), MONSTER_COLOR, population.monsters);
-  const carriedLogs = group('carried logs', logGeometry().rotateZ(Math.PI / 2), LOG_COLOR, population.villagers);
-  const carriedStone = group('carried stone', stoneGeometry(), STONE_COLOR, population.villagers);
+  const campX = (camp % map.size) + 0.5;
+  const campY = Math.floor(camp / map.size) + 0.5;
+  const villagers = group('villagers', bodyGeometry(), shapeMaterial(), population.villagers);
+  const arms = group('villager arms', armGeometry(), shapeMaterial(), population.villagers * 2);
+  const legs = group('villager legs', legGeometry(), shapeMaterial(), population.villagers * 2);
+  const monsters = group(
+    'monsters',
+    new ConeGeometry(0.55, 1.5, 5).translate(0, 0.75, 0),
+    new MeshLambertMaterial({ color: MONSTER_COLOR, flatShading: true }),
+    population.monsters,
+  );
+  const carriedLogs = group('carried logs', shapes.log, shapeMaterial(), population.villagers);
+  const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), population.villagers);
   const carriedMeshes = [carriedLogs, carriedStone];
+  const posed = [villagers, arms, legs, ...carriedMeshes];
   const held: Readonly<Record<Good, InstancedMesh | null>> = { [Good.None]: null, [Good.Log]: carriedLogs, [Good.Stone]: carriedStone };
+
+  const sizes = Float32Array.from({ length: population.villagers }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));
+  const facing = new Float32Array(population.villagers);
+  const last = new Float32Array(population.villagers * 2);
+  const walking = new Uint8Array(population.villagers);
+  let shown = -1;
+  const pose = new Object3D();
+  pose.rotation.order = 'YXZ';
 
   const place = (mesh: InstancedMesh, positions: Float32Array) => {
     const matrices = mesh.instanceMatrix.array;
@@ -59,29 +145,80 @@ export function createSwarm(map: TileMap, population: Population) {
     mesh.instanceMatrix.needsUpdate = true;
   };
 
-  const carry = (positions: Float32Array, carried: Uint8Array) => {
+  const put = (mesh: InstancedMesh, instance: number, x: number, y: number, z: number, lean: number, turn: number, size: number) => {
+    pose.position.set(x, y, z);
+    pose.rotation.set(lean, turn, 0);
+    pose.scale.setScalar(size);
+    pose.updateMatrix();
+    mesh.setMatrixAt(instance, pose.matrix);
+  };
+
+  const act = ({ tick, villagers: positions, carried, states }: UnitFrame) => {
+    const count = positions.length / 2;
+    const stepped = tick !== shown;
     for (const mesh of carriedMeshes) mesh.count = 0;
-    for (let id = 0; id < carried.length; id++) {
-      const mesh = held[carried[id] as Good];
-      if (!mesh) continue;
-      const x = positions[id * 2]!;
-      const y = positions[id * 2 + 1]!;
-      const at = mesh.count++ * 16;
-      const matrices = mesh.instanceMatrix.array;
-      matrices[at + 12] = x - half;
-      matrices[at + 13] = heightAt(map, x, y) + CARRY_HEIGHT;
-      matrices[at + 14] = y - half;
+    for (let id = 0; id < count; id++) {
+      const mapX = positions[id * 2]!;
+      const mapY = positions[id * 2 + 1]!;
+      if (stepped) {
+        const dx = mapX - last[id * 2]!;
+        const dy = mapY - last[id * 2 + 1]!;
+        walking[id] = shown >= 0 && (dx !== 0 || dy !== 0) ? 1 : 0;
+        if (walking[id]) facing[id] = Math.atan2(dx, dy);
+        else if (shown < 0 || states[id] === VillagerState.Settling) facing[id] = Math.atan2(campX - mapX, campY - mapY);
+        last[id * 2] = mapX;
+        last[id * 2 + 1] = mapY;
+      }
+
+      const walks = walking[id] === 1;
+      const works = states[id] === VillagerState.Working;
+      const load = held[carried[id] as Good];
+      const size = sizes[id]!;
+      const stride = walks ? Math.sin(tick * STRIDE + id) : 0;
+      const stroke = works ? Math.cos(tick * SWING + id) : 0;
+      const x = mapX - half;
+      const z = mapY - half;
+      const ground = heightAt(map, mapX, mapY) + Math.abs(stride) * STEP_LIFT;
+      const turn = facing[id]!;
+      const lean = works ? STROKE.lean * (1 - stroke) : 0;
+      const both = load ? HELD_UP : works ? STROKE.middle - STROKE.reach * stroke : null;
+      put(villagers, id, x, ground, z, lean, turn, size);
+      const forward = Math.sin(lean) * SHOULDER_HEIGHT * size;
+      const shoulder = ground + Math.cos(lean) * SHOULDER_HEIGHT * size;
+      const acrossX = Math.cos(turn) * size;
+      const acrossZ = -Math.sin(turn) * size;
+      for (let left = 0; left < 2; left++) {
+        const side = left ? 1 : -1;
+        const swing = side * stride;
+        put(
+          arms,
+          id * 2 + left,
+          x + Math.sin(turn) * forward + side * ARM_SIDE * acrossX,
+          shoulder,
+          z + Math.cos(turn) * forward + side * ARM_SIDE * acrossZ,
+          lean + (both ?? ARM_STRIDE * swing),
+          turn,
+          size,
+        );
+        put(legs, id * 2 + left, x + side * LEG_SIDE * acrossX, ground + HIP_HEIGHT * size, z + side * LEG_SIDE * acrossZ, -LEG_STRIDE * swing, turn, size);
+      }
+      if (load) put(load, load.count++, x, ground + CARRY_HEIGHT * size, z, 0, turn, 1);
     }
-    for (const mesh of carriedMeshes) mesh.instanceMatrix.needsUpdate = true;
+    villagers.count = count;
+    arms.count = legs.count = count * 2;
+    for (const mesh of posed) mesh.instanceMatrix.needsUpdate = true;
   };
 
   return {
-    meshes: [villagers, monsters, ...carriedMeshes],
-    /** Moves every unit to the positions in a frame from the simulation, and puts what each villager carries above its head. */
-    show(frame: { readonly villagers: Float32Array; readonly monsters: Float32Array; readonly carried: Uint8Array }) {
-      place(villagers, frame.villagers);
+    meshes: [villagers, arms, legs, monsters, ...carriedMeshes],
+    /**
+     * Moves every unit to its place in a frame from the simulation. A frame that repeats the last tick comes from a
+     * command given while the clock is paused: it keeps each villager's gait and can still change what one carries.
+     */
+    show(frame: UnitFrame) {
       place(monsters, frame.monsters);
-      carry(frame.villagers, frame.carried);
+      act(frame);
+      shown = frame.tick;
     },
   };
 }

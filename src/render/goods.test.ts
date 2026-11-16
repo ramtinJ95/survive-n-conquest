@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Good } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { createGoods } from './goods';
+import { primitiveShapes } from './shapes';
 
 const SIZE = 64;
 
@@ -26,7 +27,7 @@ const pile = (goods: ReturnType<typeof createGoods>, name: string) => goods.grou
 describe('goods on the ground', () => {
   it('draws one log or stone for each unit of a stack, on its tile, and nothing once the stack is gone', () => {
     const map = generateMap(7, SIZE);
-    const goods = createGoods(map);
+    const goods = createGoods(map, primitiveShapes());
     map.stackGood[100] = Good.Log;
     map.stackSize[100] = 2;
     map.stackGood[200] = Good.Stone;
@@ -47,7 +48,7 @@ describe('goods on the ground', () => {
 
   it('keeps every stack when more tiles hold goods than its first mesh has room for', () => {
     const map = generateMap(7, SIZE);
-    const goods = createGoods(map);
+    const goods = createGoods(map, primitiveShapes());
     const tiles = Array.from({ length: 600 }, (_, i) => i * 3);
     for (const tile of tiles) {
       map.stackGood[tile] = Good.Stone;

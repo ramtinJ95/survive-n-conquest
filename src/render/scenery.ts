@@ -1,72 +1,46 @@
 import {
-  BufferAttribute,
-  BufferGeometry,
+  type BufferGeometry,
   Color,
-  ConeGeometry,
-  CylinderGeometry,
-  DodecahedronGeometry,
+  DoubleSide,
   type IUniform,
-  IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
   Object3D,
   type Vector3,
   type Vector4,
 } from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TileKind, heightAt, type TileMap } from '../sim/map';
-import { hashUnit } from '../sim/noise';
-import { PALETTES, type Surface } from './palette';
-import { SEASON_COLORS, seasonalMaterial } from './seasonal';
+import { fractalNoise, hashUnit } from '../sim/noise';
+import { type CoverKind, TREE_KINDS, TREE_TOPS, type TreeKind, boulderShape, coverShapes, treeShapes } from './plants';
+import { type Motion, goneInWinter, movedShadow, seasonalMaterial, sway } from './seasonal';
 
 const BOULDERS_PER_ROCK_TILE = 0.1;
 /** A tree is this many times the size of its shape, at most and at least. */
 const GROWTH = { min: 0.85, max: 1.6 };
-const PINE_TOP = 5.3;
-/** The top of the upper crown of a broadleaf tree, in meters at a growth of 1. */
-const BROADLEAF_TOP = 4.55;
 /** No tree stands taller than this, in meters. */
-export const TALLEST_TREE = PINE_TOP * GROWTH.max;
+export const TALLEST_TREE = Math.max(...Object.values(TREE_TOPS)) * GROWTH.max;
 /** Pines take over from broadleaf trees between these heights, in meters. */
 const PINE_LINE = { from: 2, to: 13 };
+const GROVE_SPAN = 24;
+export const TREE_MESHES: Readonly<Record<TreeKind, string>> = { pine: 'pines', oak: 'oaks', blossom: 'blossoms', birch: 'birches' };
+const TREE_BEND = 0.008;
 
-/**
- * Strips a primitive down to unshared triangles so that it shades flat and
- * merges, and paints it as `surface` in each season.
- */
-function painted(geometry: BufferGeometry, surface: Surface): BufferGeometry {
-  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-  flat.deleteAttribute('normal');
-  flat.deleteAttribute('uv');
-  const count = flat.getAttribute('position').count;
-  PALETTES.forEach((palette, season) => {
-    const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) palette[surface].toArray(colors, i * 3);
-    flat.setAttribute(SEASON_COLORS[season]!, new BufferAttribute(colors, 3));
-  });
-  return flat;
-}
+const COVER: Readonly<Record<CoverKind, { readonly mesh: string; readonly bend: number; readonly shadow: boolean; readonly hardy: boolean }>> = {
+  tuft: { mesh: 'grass tufts', bend: 0.5, shadow: false, hardy: true },
+  flowers: { mesh: 'flowers', bend: 0.6, shadow: false, hardy: false },
+  bush: { mesh: 'bushes', bend: 0.04, shadow: true, hardy: true },
+  pebbles: { mesh: 'pebbles', bend: 0, shadow: false, hardy: true },
+  reeds: { mesh: 'reeds', bend: 0.22, shadow: false, hardy: true },
+};
 
-function pineGeometry(): BufferGeometry {
-  return mergeGeometries([
-    painted(new CylinderGeometry(0.16, 0.22, 1.2, 5).translate(0, 0.6, 0), 'trunk'),
-    painted(new ConeGeometry(1.35, 2.3, 6).translate(0, 2.0, 0), 'pineLow'),
-    painted(new ConeGeometry(1.0, 2.0, 6).rotateY(0.5).translate(0, 3.3, 0), 'pineMid'),
-    painted(new ConeGeometry(0.62, 1.6, 6).translate(0, PINE_TOP - 0.8, 0), 'pineHigh'),
-  ]);
+function coverMotion(kind: CoverKind, clock: IUniform<number>): Motion | undefined {
+  const { bend, hardy } = COVER[kind];
+  if (!hardy) return goneInWinter(sway(clock, bend));
+  return bend > 0 ? sway(clock, bend) : undefined;
 }
-
-function broadleafGeometry(): BufferGeometry {
-  return mergeGeometries([
-    painted(new CylinderGeometry(0.17, 0.24, 1.8, 5).translate(0, 0.9, 0), 'trunk'),
-    painted(new IcosahedronGeometry(1.5, 0).scale(1, 0.85, 1).translate(0, 2.7, 0), 'leafLow'),
-    painted(new IcosahedronGeometry(0.95, 0).rotateY(1).translate(0.7, 3.6, 0.3), 'leafHigh'),
-  ]);
-}
-
-function boulderGeometry(): BufferGeometry {
-  return painted(new DodecahedronGeometry(1, 0), 'boulder');
-}
+/** No flower is yellow, orange, red, white, or violet: those are the colors of the settlers, the monsters, the stone, and the marks of the orders. */
+const PETALS = [0xf48fb1, 0xff8f86, 0x6f8fff, 0xf48fb1].map((hex) => new Color(hex));
+const CAMP_CLEARING = 4;
 
 interface Placement {
   tile: number;
@@ -76,39 +50,47 @@ interface Placement {
   turn: number;
   width: number;
   height: number;
-  shade: number;
+  tint: Color;
 }
 
-/** Where a tile's tree or boulder stands, so that it can leave when the tile changes. */
+type Stands = (map: TileMap, tile: number) => boolean;
+const TREE_STANDS: Stands = (map, tile) => map.trees[tile] === 1;
+const BOULDER_STANDS: Stands = (map, tile) => map.kinds[tile] === TileKind.Rock;
+const COVER_STANDS: Stands = (map, tile) => map.kinds[tile] === TileKind.Grass && map.stackSize[tile] === 0;
+
 interface Standing {
   readonly mesh: InstancedMesh;
   readonly instance: number;
   readonly matrix: Matrix4;
-  readonly tree: boolean;
+  readonly stands: Stands;
 }
 
-function instanced(
-  name: string,
-  geometry: BufferGeometry,
-  placements: Placement[],
-  seasonMix: IUniform<Vector4>,
-  standing: Map<number, Standing>,
-  tree: boolean,
-): InstancedMesh {
-  const mesh = new InstancedMesh(geometry, seasonalMaterial(seasonMix), placements.length);
+interface Drawn {
+  readonly name: string;
+  readonly geometry: BufferGeometry;
+  readonly placements: Placement[];
+  readonly stands: Stands;
+  readonly motion?: Motion;
+  readonly shadow: boolean;
+  readonly bothSides?: boolean;
+}
+
+function instanced(drawn: Drawn, seasonMix: IUniform<Vector4>, standing: Map<number, Standing>): InstancedMesh {
+  const { name, geometry, placements, stands, motion, shadow, bothSides } = drawn;
+  const mesh = new InstancedMesh(geometry, seasonalMaterial(seasonMix, bothSides ? { side: DoubleSide } : {}, motion), placements.length);
   mesh.name = name;
-  mesh.castShadow = true;
+  mesh.castShadow = shadow;
   mesh.receiveShadow = true;
+  if (motion && shadow) mesh.customDepthMaterial = movedShadow(motion);
   const pose = new Object3D();
-  const tint = new Color();
   placements.forEach((placement, i) => {
     pose.position.set(placement.x, placement.y, placement.z);
     pose.rotation.set(0, placement.turn, 0);
     pose.scale.set(placement.width, placement.height, placement.width);
     pose.updateMatrix();
     mesh.setMatrixAt(i, pose.matrix);
-    standing.set(placement.tile, { mesh, instance: i, matrix: pose.matrix.clone(), tree });
-    mesh.setColorAt(i, tint.setScalar(placement.shade));
+    standing.set(placement.tile, { mesh, instance: i, matrix: pose.matrix.clone(), stands });
+    mesh.setColorAt(i, placement.tint);
   });
   mesh.computeBoundingSphere();
   return mesh;
@@ -116,8 +98,21 @@ function instanced(
 
 const roll = (map: TileMap, salt: number, x: number, y: number) => hashUnit(map.seed ^ salt, x, y);
 
-/** Where the tree on a tile stands, at what size, and whether it is a pine, or null when the tile holds no tree. */
-function treeOn(map: TileMap, tile: number): (Placement & { pine: boolean }) | null {
+function shade(light: number, warm: number): Color {
+  const value = 0.84 + 0.3 * light;
+  const shift = 0.07 * (warm - 0.5);
+  return new Color(value * (1 + shift), value, value * (1 - shift));
+}
+
+function broadleafOn(map: TileMap, x: number, y: number): TreeKind {
+  const grove = fractalNoise(map.seed ^ 0x51ed, x / GROVE_SPAN, y / GROVE_SPAN, 2);
+  const stray = roll(map, 11, x, y);
+  if (grove > 0.22) return stray < 0.8 ? 'blossom' : 'oak';
+  if (grove < -0.26) return stray < 0.75 ? 'birch' : 'oak';
+  return stray < 0.05 ? 'blossom' : stray < 0.1 ? 'birch' : 'oak';
+}
+
+function treeOn(map: TileMap, tile: number): (Placement & { kind: TreeKind }) | null {
   if (map.trees[tile] === 0) return null;
   const { size } = map;
   const x = tile % size;
@@ -135,30 +130,58 @@ function treeOn(map: TileMap, tile: number): (Placement & { pine: boolean }) | n
     turn: roll(map, 3, x, y) * Math.PI * 2,
     width: grown * (0.85 + 0.3 * roll(map, 8, x, y)),
     height: grown,
-    shade: 0.82 + 0.3 * roll(map, 4, x, y),
-    pine: roll(map, 7, x, y) < pineShare,
+    tint: shade(roll(map, 4, x, y), roll(map, 12, x, y)),
+    kind: roll(map, 7, x, y) < pineShare ? 'pine' : broadleafOn(map, x, y),
   };
 }
 
 /** Writes the world position of the top of the tree on a tile into `out`, or returns null when the tile holds no tree. */
 export function treeTop(map: TileMap, tile: number, out: Vector3): Vector3 | null {
   const tree = treeOn(map, tile);
-  return tree && out.set(tree.x, tree.y + tree.height * (tree.pine ? PINE_TOP : BROADLEAF_TOP), tree.z);
+  return tree && out.set(tree.x, tree.y + tree.height * TREE_TOPS[tree.kind], tree.z);
+}
+
+function coverOn(map: TileMap, x: number, y: number): CoverKind | null {
+  const { size, kinds } = map;
+  let forest = false;
+  let rock = false;
+  let water = false;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+    const kind = kinds[ny * size + nx];
+    forest ||= kind === TileKind.Forest;
+    rock ||= kind === TileKind.Rock;
+    water ||= kind === TileKind.Water;
+  }
+  const chance = roll(map, 21, x, y);
+  if (water) return chance < 0.4 ? 'reeds' : null;
+  if (chance < (forest ? 0.14 : 0.012)) return 'bush';
+  if (chance > (rock ? 0.72 : 0.992)) return 'pebbles';
+  const bloom = fractalNoise(map.seed ^ 0x7f10, x / 14, y / 14, 2);
+  if (bloom > 0.18 && roll(map, 22, x, y) < 0.42) return 'flowers';
+  return roll(map, 23, x, y) < 0.34 ? 'tuft' : null;
 }
 
 /**
- * Trees on forest tiles and boulders on rock tiles, one instanced mesh for each
- * shape. The seed decides where each one stands, so a map always looks the same.
- * `seasonMix` blends the colors that each shape has in each season. `refresh`
- * hides a tile's tree once the map holds no tree there, and its boulder once the
- * tile is no longer rock.
+ * Trees on forest tiles, boulders on rock tiles, and grass, flowers, bushes,
+ * pebbles, and reeds on open ground, one instanced mesh for each shape. The
+ * seed decides where each one stands, so a map always looks the same.
+ * `seasonMix` blends the colors that each shape has in each season, and the
+ * plants move in the wind with `clock`, the clock of the game in ticks.
+ * Nothing but the trees stands in anyone's way. `refresh` hides a tile's tree
+ * once the map holds no tree there, its boulder once the tile is no longer
+ * rock, and its ground cover once the tile is no longer grass or holds goods.
  */
-export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
-  const { size, kinds, trees } = map;
+export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>, clock: IUniform<number>, camp: number) {
+  const { size, kinds } = map;
   const half = size / 2;
-  const pines: Placement[] = [];
-  const broadleaves: Placement[] = [];
+  const trees = Object.fromEntries(TREE_KINDS.map((kind) => [kind, [] as Placement[]])) as Record<TreeKind, Placement[]>;
+  const cover = Object.fromEntries(Object.keys(COVER).map((kind) => [kind, [] as Placement[]])) as Record<CoverKind, Placement[]>;
   const boulders: Placement[] = [];
+  const campX = (camp % size) + 0.5;
+  const campY = Math.floor(camp / size) + 0.5;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -166,39 +189,74 @@ export function createScenery(map: TileMap, seasonMix: IUniform<Vector4>) {
       const kind = kinds[tile];
       if (kind === TileKind.Forest) {
         const tree = treeOn(map, tile);
-        if (tree) (tree.pine ? pines : broadleaves).push(tree);
-      } else if (kind === TileKind.Rock && roll(map, 5, x, y) < BOULDERS_PER_ROCK_TILE) {
-        const px = x + 0.1 + 0.8 * roll(map, 1, x, y);
-        const py = y + 0.1 + 0.8 * roll(map, 2, x, y);
+        if (tree) trees[tree.kind].push(tree);
+        continue;
+      }
+      const px = x + 0.1 + 0.8 * roll(map, 1, x, y);
+      const py = y + 0.1 + 0.8 * roll(map, 2, x, y);
+      const turn = roll(map, 3, x, y) * Math.PI * 2;
+      if (kind === TileKind.Rock && roll(map, 5, x, y) < BOULDERS_PER_ROCK_TILE) {
         const girth = 0.6 + 1.1 * roll(map, 6, x, y);
         boulders.push({
           tile,
           x: px - half,
           y: heightAt(map, px, py) + 0.1 * girth,
           z: py - half,
-          turn: roll(map, 3, x, y) * Math.PI * 2,
+          turn,
           width: girth,
           height: girth * (0.55 + 0.4 * roll(map, 8, x, y)),
-          shade: 0.82 + 0.3 * roll(map, 4, x, y),
+          tint: shade(roll(map, 4, x, y), 0.5),
+        });
+      } else if (kind === TileKind.Grass && Math.hypot(x + 0.5 - campX, y + 0.5 - campY) > CAMP_CLEARING) {
+        const grows = coverOn(map, x, y);
+        if (!grows) continue;
+        const grown = 0.7 + 0.8 * roll(map, 6, x, y);
+        cover[grows].push({
+          tile,
+          x: px - half,
+          y: heightAt(map, px, py) - 0.03,
+          z: py - half,
+          turn,
+          width: grown,
+          height: grown * (0.8 + 0.4 * roll(map, 8, x, y)),
+          tint: grows === 'flowers' ? PETALS[Math.floor(roll(map, 24, x, y) * PETALS.length)]! : shade(roll(map, 4, x, y), roll(map, 12, x, y)),
         });
       }
     }
   }
 
   const standing = new Map<number, Standing>();
+  const wind = sway(clock, TREE_BEND);
+  const treeGeometry = treeShapes();
+  const coverGeometry = coverShapes();
   const meshes = [
-    instanced('pines', pineGeometry(), pines, seasonMix, standing, true),
-    instanced('broadleaves', broadleafGeometry(), broadleaves, seasonMix, standing, true),
-    instanced('boulders', boulderGeometry(), boulders, seasonMix, standing, false),
+    ...TREE_KINDS.map((kind) =>
+      instanced({ name: TREE_MESHES[kind], geometry: treeGeometry[kind], placements: trees[kind], stands: TREE_STANDS, motion: wind, shadow: true }, seasonMix, standing),
+    ),
+    instanced({ name: 'boulders', geometry: boulderShape(), placements: boulders, stands: BOULDER_STANDS, shadow: true }, seasonMix, standing),
+    ...(Object.keys(COVER) as CoverKind[]).map((kind) =>
+      instanced(
+        {
+          name: COVER[kind].mesh,
+          geometry: coverGeometry[kind],
+          placements: cover[kind],
+          stands: COVER_STANDS,
+          motion: coverMotion(kind, clock),
+          shadow: COVER[kind].shadow,
+          bothSides: true,
+        },
+        seasonMix,
+        standing,
+      ),
+    ),
   ];
   const hidden = new Matrix4().makeScale(0, 0, 0);
 
   const refresh = (tile: number) => {
     const found = standing.get(tile);
     if (!found) return;
-    const { mesh, instance, matrix, tree } = found;
-    const stands = tree ? trees[tile] === 1 : kinds[tile] === TileKind.Rock;
-    mesh.setMatrixAt(instance, stands ? matrix : hidden);
+    const { mesh, instance, matrix, stands } = found;
+    mesh.setMatrixAt(instance, stands(map, tile) ? matrix : hidden);
     mesh.instanceMatrix.needsUpdate = true;
   };
 

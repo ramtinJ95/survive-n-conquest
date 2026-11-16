@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs once per pylon. Installs the system packages and bun, then the packages from bun.lock through resume.
+# Runs once per pylon. Installs the system packages and bun, then the models and the packages from bun.lock through resume.
 set -eu
 cd "$(dirname "$0")/.."
 BUN_VERSION=1.3.14
