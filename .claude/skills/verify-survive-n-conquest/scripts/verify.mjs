@@ -3681,6 +3681,8 @@ const STORE_STOPS = {
 const STORE_SELECT_AT = { day: 4, time: '03:42' };
 const STORE_CLIP_UNTIL = { day: 4, time: '06:30' };
 const HOUSE_DOORS = { x: 370, y: 80, width: 170, height: 140 };
+/** A tunic in the light of 03:42, before sunrise: it read 138, 80, 9 at the house's door, where daylight's test needs red over 170. */
+const DAWN_TUNIC = ([r, g, b]) => r > 110 && g > 0.5 * r && g < 0.72 * r && b < 0.15 * r;
 const STORE_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, colors: 32 };
 const STORE_RISE = 3;
 /**
@@ -3705,7 +3707,7 @@ const GROUND_SACKS = { lying: 40, gone: 10 };
 SCENARIOS.storing = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
-  const { reads, text, click, tunicPixels } = selectionDriver(session);
+  const { reads, text, click } = selectionDriver(session);
   const { food } = hungerDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
@@ -3838,10 +3840,11 @@ SCENARIOS.storing = async (session) => {
     await session.still(page);
   };
   await runTo(STORE_SELECT_AT);
-  const doors = await tunicPixels(page, await session.screenshot(page, 'storing-doors'));
+  const doors = ffmpeg(['-i', await session.screenshot(page, 'storing-doors'), '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const cells = new Map();
-  for (const { x, y } of doors) {
-    if (x < HOUSE_DOORS.x || x >= HOUSE_DOORS.x + HOUSE_DOORS.width || y < HOUSE_DOORS.y || y >= HOUSE_DOORS.y + HOUSE_DOORS.height) continue;
+  for (let y = HOUSE_DOORS.y; y < HOUSE_DOORS.y + HOUSE_DOORS.height; y++) for (let x = HOUSE_DOORS.x; x < HOUSE_DOORS.x + HOUSE_DOORS.width; x++) {
+    const i = (y * CLIP.width + x) * 3;
+    if (!DAWN_TUNIC([doors[i], doors[i + 1], doors[i + 2]])) continue;
     const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
     const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
     cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
