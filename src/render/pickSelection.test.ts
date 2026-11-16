@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CAMP_RADIUS } from '../sim/camp';
 import { applyOrder, createOrders, SiteState } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
+import { CAMP_LAYOUT } from './camp';
 import { CameraRig } from './cameraRig';
 import { SETTLER_HEIGHT, pickSelection } from './pickSelection';
 
@@ -81,6 +82,17 @@ describe('pickSelection', () => {
     expect(pick(world, villagers, screen(world, 32.5, GROUND + 0.3, 32.5))).toEqual({ kind: 'camp' });
     expect(pick(world, villagers, screen(world, 32.5 + CAMP_RADIUS - 0.2, GROUND, 32.5 - CAMP_RADIUS + 0.2))).toEqual({ kind: 'camp' });
     expect(pick(world, villagers, screen(world, 34, GROUND + SETTLER_HEIGHT / 2, 32.5))).toEqual({ kind: 'villager', id: 0 });
+  });
+
+  it('takes the camp for a click on the outer side of each tent, beyond the ground the camp keeps free of orders', () => {
+    const world = setting(FIRST_YAW, NEAREST, 32, 32);
+    for (const { shape, x, z } of CAMP_LAYOUT.filter((placed) => placed.shape === 'tent')) {
+      const out = Math.hypot(x, z);
+      const reach = out + 0.6;
+      expect(reach).toBeGreaterThan(CAMP_RADIUS);
+      const click = screen(world, 32.5 + (x / out) * reach, GROUND + 0.2, 32.5 + (z / out) * reach);
+      expect(pick(world, [], click), shape).toEqual({ kind: 'camp' });
+    }
   });
 
   it('takes nothing on bare ground', () => {

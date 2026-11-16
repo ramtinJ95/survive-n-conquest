@@ -1,5 +1,6 @@
 import { Box3, type PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
-import { CAMP_RADIUS } from '../sim/camp';
+import manifest from '../../assets/models.json';
+import { CAMP_LAYOUT } from './camp';
 import { type TileMap, heightAt } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
 
@@ -28,6 +29,8 @@ export const SETTLER_OVER_BUILDING_PX = 4;
 /** A box over a building reaches this far above its highest tile, to take in the roof. */
 const BUILDING_HEIGHT = 3;
 const CAMP_HEIGHT = 1.8;
+/** Half the side of the square that holds every model of the camp, so a click on the outer half of a tent selects the camp. */
+const CAMP_REACH = Math.max(...CAMP_LAYOUT.map(({ shape, x, z }) => Math.max(Math.abs(x), Math.abs(z)) + manifest.models[shape].size / 2));
 
 const feet = new Vector3();
 const head = new Vector3();
@@ -118,10 +121,10 @@ function nearestBuilding(scene: PickScene): { distance: number; selection: Selec
   const tileY = Math.floor(camp / size);
   const campX = tileX + 0.5;
   const campY = tileY + 0.5;
-  const reach = Math.ceil(CAMP_RADIUS);
+  const reach = Math.ceil(CAMP_REACH);
   const { lowest } = heightRange(map, tileX - reach, tileY - reach, tileX + reach, tileY + reach);
-  box.min.set(campX - CAMP_RADIUS - half, lowest, campY - CAMP_RADIUS - half);
-  box.max.set(campX + CAMP_RADIUS - half, heightAt(map, campX, campY) + CAMP_HEIGHT, campY + CAMP_RADIUS - half);
+  box.min.set(campX - CAMP_REACH - half, lowest, campY - CAMP_REACH - half);
+  box.max.set(campX + CAMP_REACH - half, heightAt(map, campX, campY) + CAMP_HEIGHT, campY + CAMP_REACH - half);
   const distance = rayDistance();
   if (distance < best) {
     best = distance;
