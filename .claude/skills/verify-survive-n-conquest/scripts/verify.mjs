@@ -2768,7 +2768,8 @@ function selectionDriver(session) {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 3;
-        if (UNIT_COLORS.villagers([pixels[i], pixels[i + 1], pixels[i + 2]])) found.push({ x, y });
+        const pixel = [pixels[i], pixels[i + 1], pixels[i + 2]];
+        if (UNIT_COLORS.villagers(pixel) || TUNIC_IN_SHADE(pixel)) found.push({ x, y });
       }
     }
     return found;
@@ -2988,8 +2989,8 @@ SCENARIOS.selecting = async (session) => {
   await cancel.context.close();
   seen.push(...cancel.errors);
 
-  // The camp, chosen by day and kept to midnight, and the mark by day, at night, and on snow, from the opening view.
-  const camp = await session.open(CLIP, { clock: 'paused' });
+  // The camp, chosen at noon, when the settlers have wandered off it, and kept to midnight, and the mark by day, at night, and on snow, from the opening view.
+  const camp = await session.open(CLIP);
   const c = camp.page;
   const measureMark = async (where, label) => {
     const withMark = await session.screenshot(c, `selecting-${label}`);
