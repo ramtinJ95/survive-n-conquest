@@ -35,6 +35,7 @@ Preconditions:
 ## Gotchas
 
 - The checks read where the settlers are, not how many there are. The count of 8 comes from the unit tests in `src/sim/settlers.test.ts`, and from `settlers-night.png`, where all 8 stand in the ring. By day the wander box reaches into the forest beside the camp, so `settlers-afternoon.png` shows 7, and the eighth walks under the trees or out of the view.
+- The comparison with the bare map leaves out the Stockpiles panel. Its food at the camp falls as the settlers eat and stays at 24 on the bare map, and with the panel in, the night spread read 99.5 pixels around (452, 236) on the commit that added hunger.
 - The spread at night is about 28 pixels, which matches the ring of spots 1.5 tiles from the camp center at about 20 pixels a tile. By day it is 75 to 95 pixels.
 - The centroid at night sits about 30 pixels above the view center, because the settlers stand upright and the camp is the ground under them.
 - The night and the before-dawn outlines differ by a few pixels even though no settler moved, because the moonlight shades the settlers differently at 21:00 and at 04:30.

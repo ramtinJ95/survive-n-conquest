@@ -468,7 +468,7 @@ function unitPixels(png) {
 }
 
 /** Where two screenshots of one size differ by more than `threshold` in some channel: how many pixels, their centroid, and their spread around it, in pixels. */
-function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
+function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = null) {
   const a = ffmpeg(['-i', pngA, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const b = ffmpeg(['-i', pngB, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const xs = [];
@@ -476,8 +476,11 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD) {
   for (let i = 0; i < a.length; i += 3) {
     const delta = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
     if (delta <= threshold) continue;
-    xs.push((i / 3) % width);
-    ys.push(Math.floor(i / 3 / width));
+    const px = (i / 3) % width;
+    const py = Math.floor(i / 3 / width);
+    if (skip && px >= skip.x && px < skip.x + skip.width && py >= skip.y && py < skip.y + skip.height) continue;
+    xs.push(px);
+    ys.push(py);
   }
   const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
   const x = mean(xs);
@@ -1282,9 +1285,11 @@ SCENARIOS.settlers = async (session) => {
     'before-dawn': { day: 2, time: '04:30' },
     morning: { day: 2, time: '07:00' },
   });
+  let panel = null;
   const visit = async (search, label) => {
     const opened = await session.open(CLIP, { search, clock: 'paused' });
     await zoomToCamp(opened.page);
+    panel ??= await opened.page.getByRole('status', { name: 'Stockpiles' }).boundingBox();
     const shots = {};
     for (const [name, when] of stops) {
       await session.reach(opened.page, when);
@@ -1296,7 +1301,8 @@ SCENARIOS.settlers = async (session) => {
   };
   const settled = await visit('', 'settlers');
   const bare = await visit('?swarm=off', 'bare');
-  const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width)]));
+  // The Stockpiles panel is left out: the food at the camp falls as the settlers eat and stays at 24 on the bare map.
+  const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width, SETTLER_THRESHOLD, panel)]));
   const describe = (name) => `${name} ${at[name].count} pixels around (${at[name].x.toFixed(0)}, ${at[name].y.toFixed(0)}) with a spread of ${at[name].spread.toFixed(1)}`;
 
   const lit = session.unitPixels(settled.shots.afternoon);
