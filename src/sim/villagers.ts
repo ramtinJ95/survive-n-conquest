@@ -1,5 +1,6 @@
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
+import { NO_HOME } from './households';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
@@ -22,10 +23,12 @@ const SPOT_CHECKS = 16;
  * What a villager is doing. By day it is idle near the camp, or walks its route
  * to a task and works it there. A villager whose task just ended waits where it
  * stands until it next looks for work, so it does not wander off between two
- * tasks at the same place. By night it walks the flow field to the camp center,
- * then out to its spot, where it stays until dawn.
+ * tasks at the same place. By night a villager whose household has a home walks
+ * its route to a door of the house and is inside until dawn, standing on the
+ * door tile. One whose household has none walks the flow field to the camp
+ * center, then out to its spot, where it stays until dawn.
  */
-export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5 } as const;
+export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const SALT = 0x5f1a_7e11;
@@ -238,6 +241,72 @@ function goToCamp(sim: Sim, id: number): void {
   stepHome(sim, id);
 }
 
+function atNight(state: number): boolean {
+  return state === VillagerState.GoingToCamp || state === VillagerState.Settling || state === VillagerState.GoingIn || state === VillagerState.Inside;
+}
+
+/**
+ * The tile beside one of the house's nine tiles, sharing a side with it, that
+ * has a walk to the camp and lies nearest a point in a straight line, or -1.
+ * Equally near tiles go to the lowest.
+ */
+function nearestDoor(sim: Sim, slot: number, px: number, py: number): number {
+  const { size } = sim.map;
+  const { sites } = sim.orders;
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if ((Math.abs(dx) === 2) === (Math.abs(dy) === 2)) continue;
+      const x = sites.x[slot]! + dx;
+      const y = sites.y[slot]! + dy;
+      if (x < 0 || y < 0 || x >= size || y >= size || sim.flow.next[y * size + x] === -1) continue;
+      const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
+      if (distance < bestDistance) {
+        best = y * size + x;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Ends the villager's day: it gives its task up and sets out for its house, or
+ * for the camp when its household has no home. One with no door to walk to
+ * keeps a work tile of -1 and stays where it stands.
+ */
+function nightfall(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  endTask(sim, id);
+  const home = sim.households.home[villagers.household[id]!]!;
+  if (home === NO_HOME) {
+    villagers.state[id] = VillagerState.GoingToCamp;
+    return;
+  }
+  villagers.state[id] = VillagerState.GoingIn;
+  const door = nearestDoor(sim, home, villagers.x[id]!, villagers.y[id]!);
+  if (door >= 0 && planPath(sim, id, door)) villagers.workTile[id] = door;
+}
+
+function goIn(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  if (villagers.workTile[id] === -1) return;
+  if (!walkRoute(sim, id)) villagers.workTile[id] = -1;
+  else if (atWork(villagers, id)) villagers.state[id] = VillagerState.Inside;
+}
+
+/** Ends the villager's night where it stands, idle and with no route. */
+function daybreak(sim: Sim, id: number): void {
+  const { villagers } = sim;
+  villagers.state[id] = VillagerState.Idle;
+  villagers.targetX[id] = villagers.x[id]!;
+  villagers.targetY[id] = villagers.y[id]!;
+  villagers.workTile[id] = -1;
+  villagers.pathLength[id] = 0;
+  villagers.pathCursor[id] = 0;
+}
+
 /** Whether the villager stands on the center of its work tile, at the end of its route. */
 function atWork(villagers: Villagers, id: number): boolean {
   const length = villagers.pathLength[id]!;
@@ -404,27 +473,23 @@ function doTask(sim: Sim, id: number): void {
 /**
  * Moves every villager one tick. By day an idle villager looks for work on the
  * tick of its group and wanders near the camp until it finds some. At dusk a
- * villager gives its task up at once and walks to its spot at the camp, and at
- * dawn it is idle again.
+ * villager gives its task up at once and walks into its household's house, or
+ * to its spot at the camp when the household has none. The choice is made only
+ * at dusk, so a home gained in the night is first used the next night. At dawn
+ * every villager is idle again where it stands, so one that was inside comes
+ * out on the tile it went in on.
  */
 export function moveVillagers(sim: Sim, night: boolean): void {
-  const { villagers } = sim;
-  const { state } = villagers;
+  const { state } = sim.villagers;
   const group = sim.tick % THINK_GROUPS;
   for (let id = 0; id < state.length; id++) {
     if (night) {
-      if (state[id] !== VillagerState.GoingToCamp && state[id] !== VillagerState.Settling) {
-        endTask(sim, id);
-        state[id] = VillagerState.GoingToCamp;
-      }
-      goToCamp(sim, id);
+      if (!atNight(state[id]!)) nightfall(sim, id);
+      if (state[id] === VillagerState.GoingIn) goIn(sim, id);
+      else if (state[id] !== VillagerState.Inside) goToCamp(sim, id);
       continue;
     }
-    if (state[id] === VillagerState.GoingToCamp || state[id] === VillagerState.Settling) {
-      state[id] = VillagerState.Idle;
-      villagers.targetX[id] = villagers.x[id]!;
-      villagers.targetY[id] = villagers.y[id]!;
-    }
+    if (atNight(state[id]!)) daybreak(sim, id);
     const free = state[id] === VillagerState.Idle || state[id] === VillagerState.Waiting;
     if (free && id % THINK_GROUPS === group) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
     if (state[id] === VillagerState.Idle) idle(sim, id);
