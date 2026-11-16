@@ -10,8 +10,8 @@ import type { TaskKind } from './tasks';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, nearestOpen, setOpen } from './tileSet';
 
-/** Units of each good that a house needs, at index `good - 1`: 12 logs and 6 stone. */
-export const HOUSE_NEEDS: readonly number[] = [12, 6];
+/** Units of each good that a house needs, at index `good - 1`: 12 logs, 6 stone, and no food. */
+export const HOUSE_NEEDS: readonly number[] = [12, 6, 0];
 /** Ticks of building work that finish a house once its last unit has arrived, shared by its builders. */
 export const HOUSE_WORK_TICKS = 90 * TICKS_PER_SECOND;
 /** Villagers that build one site at a time, one on each corner tile. */

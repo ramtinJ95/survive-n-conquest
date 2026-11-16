@@ -1,7 +1,7 @@
 import { type BufferGeometry, DynamicDrawUsage, Group, InstancedMesh, type Material, Matrix4, Object3D, Vector3 } from 'three';
 import { Good, STACK_LIMIT } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
-import { type Shapes, shapeMaterial } from './shapes';
+import { type Shapes, foodShape, shapeMaterial } from './shapes';
 
 const FIRST_BLOCKS = 256;
 /** A unit rests this share of its own height above the unit under it, so a stack settles a little. */
@@ -41,6 +41,13 @@ const placeLogs = (size: Vector3) => (unit: number, pose: Object3D) => {
   pose.rotation.set(0, across ? Math.PI / 2 : 0, 0);
 };
 
+const placeFood = (size: Vector3) => (unit: number, pose: Object3D) => {
+  const layer = Math.floor(unit / 4);
+  const corner = unit % 4;
+  pose.position.set((corner % 2 === 0 ? -0.55 : 0.55) * size.x, layer * size.y * SETTLED, (corner < 2 ? -0.55 : 0.55) * size.z);
+  pose.rotation.set(0, unit * 0.7, 0);
+};
+
 const placeStones = (size: Vector3) => (unit: number, pose: Object3D) => {
   const layer = Math.floor(unit / 4);
   const corner = unit % 4;
@@ -50,7 +57,7 @@ const placeStones = (size: Vector3) => (unit: number, pose: Object3D) => {
 };
 
 /**
- * Draws the goods on the ground: up to 8 logs or 8 stones on a tile, one
+ * Draws the goods on the ground: up to 8 logs, stones, or sacks of food on a tile, one
  * instance each. Each tile that holds goods owns a block of 8 instances of its
  * good's mesh, and `refresh` rewrites that block from the map's stack. A mesh
  * that runs out of blocks is replaced by one twice its size inside `group`.
@@ -60,6 +67,7 @@ export function createGoods(map: TileMap, shapes: Shapes) {
   const piles: Partial<Record<Good, Pile>> = {
     [Good.Log]: createPile('logs', shapes.log, placeLogs),
     [Good.Stone]: createPile('stone', shapes.stone, placeStones),
+    [Good.Food]: createPile('food', foodShape(), placeFood),
   };
   const group = new Group();
   group.name = 'goods';

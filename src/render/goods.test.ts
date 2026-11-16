@@ -25,17 +25,21 @@ function drawnTiles(mesh: InstancedMesh): number[] {
 const pile = (goods: ReturnType<typeof createGoods>, name: string) => goods.group.getObjectByName(name) as InstancedMesh;
 
 describe('goods on the ground', () => {
-  it('draws one log or stone for each unit of a stack, on its tile, and nothing once the stack is gone', () => {
+  it('draws one log, stone, or sack of food for each unit of a stack, on its tile, and nothing once the stack is gone', () => {
     const map = generateMap(7, SIZE);
     const goods = createGoods(map, primitiveShapes());
     map.stackGood[100] = Good.Log;
     map.stackSize[100] = 2;
     map.stackGood[200] = Good.Stone;
     map.stackSize[200] = 8;
+    map.stackGood[300] = Good.Food;
+    map.stackSize[300] = 3;
     goods.refresh(100);
     goods.refresh(200);
+    goods.refresh(300);
     expect(drawnTiles(pile(goods, 'logs'))).toEqual([100, 100]);
     expect(drawnTiles(pile(goods, 'stone'))).toEqual(Array(8).fill(200));
+    expect(drawnTiles(pile(goods, 'food'))).toEqual([300, 300, 300]);
 
     map.stackSize[200] = 3;
     goods.refresh(200);

@@ -61,6 +61,9 @@ export function primitiveShapes(): Shapes {
   };
 }
 
+/** A unit of food, on the ground or in hands: a plain grain sack, with no model behind it. */
+export const foodShape = (): BufferGeometry => colored(new BoxGeometry(0.34, 0.28, 0.3).translate(0, 0.14, 0), 0xc8a86b);
+
 function plain(geometry: BufferGeometry): BufferGeometry {
   const flat = geometry.index ? geometry.toNonIndexed() : geometry;
   const from = flat.getAttribute('color');

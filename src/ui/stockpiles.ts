@@ -9,11 +9,11 @@ const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
   { good: Good.Stone, label: 'Stone' },
 ];
 
-/** The units of each good on the stockpile tiles of a map. */
+/** The units of each good on the stockpile tiles of a map. A stockpile takes no food, so food lying on one is not counted. */
 export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, number> {
-  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0 };
+  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0 };
   for (let tile = 0; tile < claims.length; tile++) {
-    if (claims[tile] === Claim.Stockpile) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
+    if (claims[tile] === Claim.Stockpile && map.stackGood[tile] !== Good.Food) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
   }
   return totals;
 }

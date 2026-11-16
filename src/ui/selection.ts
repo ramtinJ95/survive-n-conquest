@@ -81,7 +81,7 @@ const CARRY = task(CARRYING);
 const SUPPLY = task(SUPPLYING);
 const BUILD = task(BUILDING);
 
-const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone' };
+const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food' };
 
 /** What a villager holding a task does, by the task's column value, while it walks to its work or works it. */
 const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: boolean) => string>> = {
@@ -119,7 +119,7 @@ function doing(facts: Facts, id: number): string {
   return words(facts, id, state === VillagerState.Working);
 }
 
-const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone' };
+const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone', [Good.Food]: '1 food' };
 
 const builders = ({ frame }: Facts, center: number) => {
   let count = 0;

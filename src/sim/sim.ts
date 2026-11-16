@@ -4,7 +4,7 @@ import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
 import { type Gathering, createGathering } from './gathering';
-import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack } from './goods';
+import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
 import { type Households, createHouseholds } from './households';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
@@ -71,6 +71,8 @@ export interface Sim {
   readonly pathSearch: PathSearch;
   readonly tally: Tally;
   tick: number;
+  /** Dawns passed since the start. */
+  dawns: number;
   speed: Speed;
   paused: boolean;
 }
@@ -97,6 +99,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     pathSearch: createPathSearch(map.size * map.size),
     tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0 },
     tick: 0,
+    dawns: 0,
     speed: 1,
     paused: false,
   };
@@ -136,13 +139,18 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
 }
 
 /**
- * Runs the systems in their fixed order. Nothing in a tick allocates. Tasks set
- * aside as out of reach open again at dawn, and after a tick in which land
- * gained walks to the camp.
+ * Runs the systems in their fixed order. Nothing in a tick allocates. At dawn
+ * the food on open ground whose day has come is gone, and tasks set aside as
+ * out of reach open again, as they do after a tick in which land gained walks
+ * to the camp.
  */
 export function step(sim: Sim): void {
   const night = isNight(sim.tick);
-  if (isDawn(sim.tick)) reopenTasks(sim);
+  if (isDawn(sim.tick)) {
+    sim.dawns += 1;
+    spoilFood(sim);
+    reopenTasks(sim);
+  }
   moveVillagers(sim, night);
   if (sim.flow.gainedCount > 0) reachTasks(sim);
   moveMonsters(sim.map, sim.flow, sim.monsters);
