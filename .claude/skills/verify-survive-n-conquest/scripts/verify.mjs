@@ -2670,7 +2670,7 @@ const CAMP_TRIES = 6;
 const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
 const SELECT_TURN = 300;
-const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 720, colors: 64 };
+const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
 /**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
@@ -3019,7 +3019,7 @@ SCENARIOS.selecting = async (session) => {
   const morning = await selectCamp();
   const morningAt = await at(c);
   session.check(
-    `at ${morningAt} a click on the camp, clear of the settlers, selects the camp`,
+    `at ${morningAt} a click on the camp selects the camp`,
     morning.read?.title === 'Camp' && /^\d$/.test(morning.read.rows['Settlers here'] ?? ''),
     `${morning.aim ? `clicked ${morning.aim.x},${morning.aim.y}` : 'no click selected the camp'} after ${morning.tries} of at most ${CAMP_TRIES} clicks; the panel reads "${text(morning.read)}"`,
   );

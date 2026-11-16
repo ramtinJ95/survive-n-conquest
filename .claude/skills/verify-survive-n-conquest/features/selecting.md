@@ -46,7 +46,7 @@ Preconditions:
   - `with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection` reads the refusal in the status line and the site's panel throughout.
   - It presses Delete and drags over the site. `cancelling the selected site clears the selection` reads `Orders removed` and no panel.
 - **The camp, and the mark by night and on snow.** The third page opens at noon and stays at the opening view. It clicks the camp as a player would, and again when a settler standing in the camp took the click: first the blue tent behind the fire, then the points of `CAMP_AIM` farthest from every lit tunic, at most `CAMP_TRIES` clicks.
-  - `a click on the camp, clear of the settlers, selects the camp` reads `Camp` and a count of `Settlers here`.
+  - `a click on the camp selects the camp` reads `Camp` and a count of `Settlers here`.
   - `the camp stays selected until midnight, and its panel then counts all 8 settlers there` reads `Settlers here 8` at spring midnight without another click.
   - Each mark check takes the frame with the selection, presses Escape, and takes the same paused frame without it. They run at spring midnight on the camp, at winter noon over snow on a settler, and at winter midnight on the camp, which it selects again at winter noon.
   - It zooms to the farthest view. `at the farthest zoom a click on the firelit camp selects one of the settlers ringed there` clicks the largest patch of `FIRELIT` ground.
