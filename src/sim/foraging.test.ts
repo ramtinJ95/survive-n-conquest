@@ -71,7 +71,7 @@ function watchPicks(sim: Sim): { tiles: number[]; at: number[]; each: () => void
 }
 
 describe('a forager', () => {
-  it('works a tree tile in reach for 20 seconds, picks 1 food, and carries it into the camp', () => {
+  it('works a tree tile in reach for 30 seconds, picks 1 food, and carries it into the camp', () => {
     const sim = createSim(mapWith(40, [[26, 12]]), { villagers: 1, monsters: 0 });
     finishedHut(sim, 24, 14);
     const tree = at(sim.map, 26, 12);
@@ -83,7 +83,7 @@ describe('a forager', () => {
       if (state[0] === VillagerState.Working && carried[0] === Good.None && taskTile[0] === tree) working++;
       if (pickedOn < 0 && carried[0] === Good.Food) pickedOn = sim.tick;
     });
-    expect(working + 1).toBe(200);
+    expect(working + 1).toBe(300);
     expect([sim.tally.foraged, campFood(sim) - before, sim.villagers.carried[0]]).toEqual([1, 1, Good.None]);
     expect(sim.villagers.x[0]! - 0.5).toBe(sim.flow.goal % 40);
     expect(bears(sim, tree)).toBe(false);
@@ -153,8 +153,8 @@ describe('a forager', () => {
       });
       return working + 1;
     };
-    expect(ticks(0)).toBe(200);
-    expect(Math.abs(ticks(1) - 400)).toBeLessThanOrEqual(1);
+    expect(ticks(0)).toBe(300);
+    expect(Math.abs(ticks(1) - 600)).toBeLessThanOrEqual(1);
   });
 
   it('picks only tiles whose centers lie within 20 tiles of the middle of its hut', () => {
