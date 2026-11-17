@@ -4,6 +4,7 @@ import { DAYS_PER_YEAR, TICKS_PER_SECOND, dateAt, seasonAt } from '../src/sim/ca
 import { isNight } from '../src/sim/daylight';
 import { FIRST_YEAR_BARNS, FIRST_YEAR_SEED, barnYearCommands, firstYearCommands } from '../src/sim/firstYear';
 import { FORAGE_WORK_TICKS } from '../src/sim/foraging';
+import { Good } from '../src/sim/goods';
 import { generateMap } from '../src/sim/mapgen';
 import { type Sex, nameOf } from '../src/sim/names';
 import { SiteState } from '../src/sim/orders';
