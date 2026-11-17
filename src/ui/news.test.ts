@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { frameOf } from '../frame';
 import { finishBuilding } from '../sim/building';
 import { Building } from '../sim/buildings';
+import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
+import { isNight } from '../sim/daylight';
 import { Good } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
@@ -11,6 +13,7 @@ import { createOrders } from '../sim/orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { CAMP_STORE } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
+import { VillagerState } from '../sim/villagerState';
 import { LINE_MS, createNews, listNames } from './news';
 
 /** Runs a simulation, hearing a frame after every tick at 100 ms of wall time apiece, and keeps every line the news ever showed in its last words. */
@@ -165,5 +168,36 @@ describe('the settlement news', () => {
       tailor = sim.villagers.workplace.indexOf(slot);
     });
     expect(said).toEqual([`Day 1, 08:47. ${name(tailor)} became a tailor.`]);
+  });
+
+  it('says who had a cold night at each winter dusk and who froze at the last, by name', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    while (dateAt(sim.tick).day < 10) step(sim);
+    const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
+    const { said } = listen(sim, TICKS_PER_DAY * 4);
+    expect(sim.tally).toMatchObject({ froze: 2, starved: 0 });
+    expect(said).toHaveLength(3);
+    expect(said[0]).toMatch(new RegExp(`^Day 10, \\d\\d:\\d\\d\\. ${first} and ${second} had a cold night\\.$`));
+    expect(said[1]).toMatch(new RegExp(`^Day 11, \\d\\d:\\d\\d\\. ${first} and ${second} had a cold night\\.$`));
+    expect(said[2]).toMatch(new RegExp(`^Day 12, \\d\\d:\\d\\d\\. ${first} and ${second} froze\\.$`));
+  });
+
+  it('says a settler with two cold nights who starves on a winter night starved, and one who freezes there froze', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    while (!(dateAt(sim.tick).day === 12 && isNight(sim.tick) && tickOfDay(sim.tick) >= TICKS_PER_DAY / 2)) step(sim);
+    expect(Array.from(sim.villagers.coldNights)).toEqual([2, 2]);
+    sim.villagers.missedMeals[0] = HUNGER.diesAt - 1;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
+    const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
+    const { said } = listen(sim, TICKS_PER_DAY);
+    expect(Array.from(sim.villagers.state)).toEqual([VillagerState.Dead, VillagerState.Dead]);
+    expect(sim.tally).toMatchObject({ starved: 1, froze: 1 });
+    expect(said).toHaveLength(2);
+    expect(said).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(new RegExp(`^Day 12, \\d\\d:\\d\\d\\. ${first} starved\\.$`)),
+        expect.stringMatching(new RegExp(`^Day 12, \\d\\d:\\d\\d\\. ${second} froze\\.$`)),
+      ]),
+    );
   });
 });

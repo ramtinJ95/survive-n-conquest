@@ -69,6 +69,25 @@ describe('storeTotals of firewood', () => {
   });
 });
 
+describe('storeTotals of firewood at the camp and in homes', () => {
+  it('counts the camp with the common stores and the finished houses as homes, beside the woodsheds, and none in a house site', () => {
+    const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
+    const orders = createOrders(map);
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.Woodshed, x: 2, y: 2 })).toMatchObject({ ok: true });
+    for (const x of [6, 10]) expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x, y: 3 })).toMatchObject({ ok: true });
+    expect(applyOrder(map, orders, { kind: 'place', building: Building.House, x: 6, y: 9 })).toMatchObject({ ok: true });
+    const [shed, first, second, site] = [at(map, 2, 2), at(map, 6, 3), at(map, 10, 3), at(map, 6, 9)].map((tile) => orders.siteOf[tile]!);
+    for (const slot of [shed, first, second]) orders.sites.state[slot!] = SiteState.Built;
+    const storeFirewood = new Uint16Array(STORES);
+    storeFirewood[shed!] = 9;
+    storeFirewood[CAMP_STORE] = 5;
+    storeFirewood[first!] = 4;
+    storeFirewood[second!] = 2;
+    storeFirewood[site!] = 3;
+    expect(storeTotals(orders, storeFirewood)).toMatchObject({ [StoreKind.Workshop]: 9, [StoreKind.Common]: 5, [StoreKind.Home]: 6 });
+  });
+});
+
 describe('jobCounts', () => {
   it('counts the living settlers who work at a finished hut as holding a job, and every other living one as holding none', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));

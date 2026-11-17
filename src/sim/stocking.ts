@@ -163,9 +163,9 @@ function work(sim: Sim, id: number): boolean {
 /**
  * Gives back what the task still holds: the unit and its place in the store
  * it goes to until it is picked up, and the place after. A unit in the
- * villager's hands is put down where it stands. Food lies on open ground until
- * a settler without a job carries it to a store or it is gone. Firewood lies
- * there for good, because no carrier takes it off the ground.
+ * villager's hands is put down where it stands, where it lies on open ground
+ * until a settler without a job carries it to a common store with room. Food
+ * left there is gone at its second dawn.
  */
 function release(sim: Sim, id: number): void {
   const { villagers, stores } = sim;

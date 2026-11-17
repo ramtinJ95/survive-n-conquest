@@ -3,7 +3,7 @@ import { frameOf } from '../frame';
 import { AnimalKind, addAnimal } from '../sim/animals';
 import { BUILDING, finishBuilding } from '../sim/building';
 import { BUILDINGS, Building } from '../sim/buildings';
-import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
+import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
@@ -796,5 +796,64 @@ describe('keepSelection', () => {
     const { orders } = siteFacts();
     expect(keepSelection({ kind: 'villager', id: 3 }, orders)).toEqual({ kind: 'villager', id: 3 });
     expect(keepSelection({ kind: 'camp' }, orders)).toEqual({ kind: 'camp' });
+  });
+});
+
+/** Runs to the first tick of the night that falls at the dusk of `day`. */
+function toDusk(sim: Sim, day: number): void {
+  while (!(dateAt(sim.tick).day === day && isNight(sim.tick) && tickOfDay(sim.tick) >= TICKS_PER_DAY / 2)) step(sim);
+}
+
+describe("a settler's panel in winter", () => {
+  it('counts the cold nights a settler had in a row, says it is cold, and says it died of cold', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)), SEED), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    const merek: Selection = { kind: 'villager', id: 0 };
+    const row = (label: string) => readPanel(merek, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+    const seen = [row('Cold nights')];
+    while (!sim.over) {
+      step(sim);
+      if (seen.at(-1) !== row('Cold nights')) seen.push(row('Cold nights'));
+    }
+    expect(seen).toEqual(['None', '1, cold', '2, cold', '3']);
+    expect(row('Doing')).toBe('Died of cold');
+    expect(row('Missed meals')).toBe('None');
+  });
+
+  it('says a settler with two cold nights that starves on a winter night died of hunger, and one that freezes there died of cold', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)), SEED), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    toDusk(sim, 12);
+    sim.villagers.missedMeals[0] = 2;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
+    while (!sim.over) step(sim);
+    const rows = (id: number) => Object.fromEntries(readPanel({ kind: 'villager', id }, factsOf(sim)).rows.map(({ label, value }) => [label, value]));
+    expect(rows(0)).toMatchObject({ Doing: 'Died of hunger', 'Missed meals': '3', 'Cold nights': '2' });
+    expect(rows(1)).toMatchObject({ Doing: 'Died of cold', 'Missed meals': '1', 'Cold nights': '3' });
+  });
+
+  it('says a settler walks to a woodshed for firewood, carries it home, and one without a job carries it to the camp', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 40 }, () => '.'.repeat(40)), SEED), { villagers: 4, monsters: 0, campFood: 100, animals: false });
+    for (const [kind, x, y] of [[Building.House, 16, 14], [Building.Woodshed, 23, 14]] as const) {
+      expect(applyCommand(sim, { kind: 'place', building: kind, x, y })).toMatchObject({ ok: true });
+      finishBuilding(sim, sim.orders.siteOf[at(sim.map, x, y)]!);
+    }
+    const shed = sim.orders.siteOf[at(sim.map, 23, 14)]!;
+    sim.stores.held[Good.Firewood - 1]![shed] = 30;
+    const seen = new Map<string, string>();
+    while (!isNight(sim.tick)) {
+      step(sim);
+      const facts = factsOf(sim);
+      for (let id = 0; id < 4; id++) {
+        if (sim.villagers.task[id] !== task(STOCKING)) continue;
+        const panel = Object.fromEntries(readPanel({ kind: 'villager', id }, facts).rows.map(({ label, value }) => [label, value]));
+        seen.set(panel.Doing!, panel.Carries!);
+      }
+    }
+    expect(Object.fromEntries(seen)).toEqual({
+      'Walking to the camp for food': 'Nothing',
+      'Carrying food home': '1 food',
+      'Walking to a woodshed for firewood': 'Nothing',
+      'Carrying firewood home': '1 firewood',
+      'Carrying firewood to the camp': '1 firewood',
+    });
   });
 });
