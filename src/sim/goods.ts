@@ -17,8 +17,6 @@ export const GoodKind = { Stockpiled: 0, Stored: 1 } as const;
 export type GoodKind = (typeof GoodKind)[keyof typeof GoodKind];
 
 export interface GoodRow {
-  /** What the goods total calls it. */
-  readonly name: string;
   readonly kind: GoodKind;
   /** A stack of it put down on open ground is gone at this dawn after it was put down, or 0 for a good that keeps. */
   readonly keepsDawns: number;
@@ -26,10 +24,10 @@ export interface GoodRow {
 
 /** The one place a good is declared. */
 export const GOODS: Readonly<Record<Unit, GoodRow>> = {
-  [Good.Log]: { name: 'logs', kind: GoodKind.Stockpiled, keepsDawns: 0 },
-  [Good.Stone]: { name: 'stone', kind: GoodKind.Stockpiled, keepsDawns: 0 },
-  [Good.Food]: { name: 'food', kind: GoodKind.Stored, keepsDawns: 2 },
-  [Good.Firewood]: { name: 'firewood', kind: GoodKind.Stored, keepsDawns: 0 },
+  [Good.Log]: { kind: GoodKind.Stockpiled, keepsDawns: 0 },
+  [Good.Stone]: { kind: GoodKind.Stockpiled, keepsDawns: 0 },
+  [Good.Food]: { kind: GoodKind.Stored, keepsDawns: 2 },
+  [Good.Firewood]: { kind: GoodKind.Stored, keepsDawns: 0 },
 };
 /** How many goods there are, `Good.None` aside. */
 export const GOOD_KINDS = Object.keys(GOODS).length;
