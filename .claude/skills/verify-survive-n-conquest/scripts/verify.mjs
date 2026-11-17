@@ -4804,6 +4804,7 @@ const CLOTHING_SEEK = { every: 6, clicks: 12 };
 const CLOTHING_AT_STOCKPILE = 60;
 const CLOTHING_LOOK_EVERY = 12;
 const CLOTHING_CLIPS = {
+  kill: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true },
   hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 2 },
   piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 3 },
 };
@@ -5061,11 +5062,13 @@ SCENARIOS.clothing = async (session) => {
   const hunt = [];
   let read = hunter;
   let kill = null;
+  let aimFrom = null;
   for (let stop = 0; read && read.title === hunterName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.kill); stop++) {
     const seen = await follow(`clothing-hunt-${String(stop).padStart(2, '0')}`);
+    if (read.rows.Doing === 'Aiming at a deer' && hunt.at(-1)?.doing !== 'Aiming at a deer') aimFrom = play.since();
     hunt.push({ at: await at(page), doing: read.rows.Doing, seen });
     if (/^Carrying food to/.test(read.rows.Doing) && hunt.some((step) => step.doing === 'Walking to a kill to pick up food')) {
-      kill = { at: await at(page), seen, png: await session.screenshot(page, 'clothing-kill') };
+      kill = { at: await at(page), seen, png: await session.screenshot(page, 'clothing-kill'), to: play.since() };
       break;
     }
     read = await runWhile(hunterName, read.rows.Doing, CLOTHING_LOOK_EVERY, /^(Walking to a kill|Carrying food)/.test(read.rows.Doing) ? '2' : '4');
@@ -5204,6 +5207,7 @@ SCENARIOS.clothing = async (session) => {
   await page.keyboard.press('Escape');
 
   const cuts = [];
+  if (kill && aimFrom !== null) cuts.push({ label: 'clothing-kill', from: aimFrom, to: kill.to, ...CLOTHING_CLIPS.kill });
   if (delivered) cuts.push({ label: 'clothing-hide', from: hideFrom, to: hideTo, ...CLOTHING_CLIPS.hide });
   if (madeAt >= 0) cuts.push({ label: 'clothing-piece', from: pieceFrom, to: pieceTo, ...CLOTHING_CLIPS.piece });
   if (cuts.length > 0) await session.finishClips(play.context, page, cuts);
