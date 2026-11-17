@@ -10,6 +10,7 @@ import './stockpiles.css';
 const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
   { good: Good.Log, label: 'Logs' },
   { good: Good.Stone, label: 'Stone' },
+  { good: Good.Hide, label: 'Hides' },
 ];
 
 const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[] = [
@@ -42,7 +43,7 @@ export function jobCounts(orders: Orders, states: Uint8Array, workplaces: Int16A
 
 /** The units of each good on the stockpile tiles of a map. A stockpile takes no stored good, so one lying on it is not counted. */
 export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, number> {
-  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0, [Good.Firewood]: 0 };
+  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0, [Good.Firewood]: 0, [Good.Hide]: 0, [Good.Clothing]: 0 };
   for (let tile = 0; tile < claims.length; tile++) {
     if (claims[tile] === Claim.Stockpile && stockpiled(map.stackGood[tile] as Good)) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
   }

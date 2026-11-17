@@ -42,6 +42,7 @@ export const ORDER_COLORS = {
   barn: SITE,
   lodge: SITE,
   woodshed: SITE,
+  tailor: SITE,
   cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;

@@ -16,7 +16,7 @@ import { heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
 import { VillagerState } from '../sim/villagerState';
-import { type Shapes, colored, foodShape, shapeMaterial } from './shapes';
+import { type Shapes, colored, foodShape, hideShape, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */
 export const VILLAGER_COLOR = 0xf2c12e;
@@ -122,7 +122,8 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   const carriedLogs = group('carried logs', shapes.log, shapeMaterial(), population.villagers);
   const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), population.villagers);
   const carriedFood = group('carried food', foodShape(), shapeMaterial(), population.villagers);
-  const carriedMeshes = [carriedLogs, carriedStone, carriedFood];
+  const carriedHides = group('carried hides', hideShape(), shapeMaterial(), population.villagers);
+  const carriedMeshes = [carriedLogs, carriedStone, carriedFood, carriedHides];
   const posed = [villagers, arms, legs, ...carriedMeshes];
   const held: Readonly<Record<Good, InstancedMesh | null>> = {
     [Good.None]: null,
@@ -130,6 +131,8 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     [Good.Stone]: carriedStone,
     [Good.Food]: carriedFood,
     [Good.Firewood]: null,
+    [Good.Hide]: carriedHides,
+    [Good.Clothing]: null,
   };
 
   const sizes = Float32Array.from({ length: population.villagers }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));
