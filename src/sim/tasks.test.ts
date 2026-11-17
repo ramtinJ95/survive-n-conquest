@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const ENTRIES = ['./building', './carrying', './foraging', './gathering', './jobs', './needs', './sim', './stocking', './supplying', './tasks', './villagers'];
+const ENTRIES = ['./building', './carrying', './foraging', './gathering', './jobs', './needs', './sim', './stocking', './supplying', './tasks', './villagers', './workshops'];
 
 describe('the task kinds', () => {
   it.each(ENTRIES)('are all defined, each with its job, when %s is the first module loaded', async (entry) => {

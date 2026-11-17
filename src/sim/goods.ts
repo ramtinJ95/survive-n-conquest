@@ -4,7 +4,7 @@ import type { Sim } from './sim';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, setOpen } from './tileSet';
 
-export const Good = { None: 0, Log: 1, Stone: 2, Food: 3 } as const;
+export const Good = { None: 0, Log: 1, Stone: 2, Food: 3, Firewood: 4 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
 /** A good there is a unit of, `Good.None` aside. */
 export type Unit = Exclude<Good, typeof Good.None>;
@@ -29,6 +29,7 @@ export const GOODS: Readonly<Record<Unit, GoodRow>> = {
   [Good.Log]: { name: 'logs', kind: GoodKind.Stockpiled, keepsDawns: 0 },
   [Good.Stone]: { name: 'stone', kind: GoodKind.Stockpiled, keepsDawns: 0 },
   [Good.Food]: { name: 'food', kind: GoodKind.Stored, keepsDawns: 2 },
+  [Good.Firewood]: { name: 'firewood', kind: GoodKind.Stored, keepsDawns: 0 },
 };
 /** How many goods there are, `Good.None` aside. */
 export const GOOD_KINDS = Object.keys(GOODS).length;

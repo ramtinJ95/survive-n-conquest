@@ -17,12 +17,14 @@ const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[
   { kind: StoreKind.Home, label: 'Food in homes' },
 ];
 
+const FIREWOOD_SHOWN = { kind: StoreKind.Workshop, label: 'Woodshed firewood' } as const;
+
 const JOBS_SHOWN: readonly { readonly label: string }[] = [{ label: 'Settlers with a job' }, { label: 'Settlers with no job' }];
 
-/** The food in the stores of each kind, from the food in each store by store id. */
-export function foodTotals(orders: Orders, storeFood: Uint16Array): Record<StoreKind, number> {
-  const totals: Record<StoreKind, number> = { [StoreKind.None]: 0, [StoreKind.Common]: 0, [StoreKind.Home]: 0 };
-  for (let store = 0; store < storeFood.length; store++) totals[storeKind(orders, store)] += storeFood[store]!;
+/** The units of a good in the stores of each kind, from the units in each store by store id. */
+export function storeTotals(orders: Orders, held: Uint16Array): Record<StoreKind, number> {
+  const totals: Record<StoreKind, number> = { [StoreKind.None]: 0, [StoreKind.Common]: 0, [StoreKind.Home]: 0, [StoreKind.Workshop]: 0 };
+  for (let store = 0; store < held.length; store++) totals[storeKind(orders, store)] += held[store]!;
   return totals;
 }
 
@@ -40,7 +42,7 @@ export function jobCounts(orders: Orders, states: Uint8Array, workplaces: Int16A
 
 /** The units of each good on the stockpile tiles of a map. A stockpile takes no stored good, so one lying on it is not counted. */
 export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, number> {
-  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0 };
+  const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0, [Good.Firewood]: 0 };
   for (let tile = 0; tile < claims.length; tile++) {
     if (claims[tile] === Claim.Stockpile && stockpiled(map.stackGood[tile] as Good)) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
   }
@@ -51,7 +53,7 @@ export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, 
  * The panel that shows how much of each good the stockpiles hold, from the
  * main thread's copy of the map and the orders. From the newest frame it shows
  * the food in barns and at the camp as one total, the food in homes as another,
- * and the settlers with and without a job.
+ * the firewood in woodsheds, and the settlers with and without a job.
  */
 export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders) {
   const panel = document.createElement('section');
@@ -71,6 +73,7 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
   };
   const values = SHOWN.map(row);
   const foodValues = FOOD_SHOWN.map(row);
+  const firewood = row(FIREWOOD_SHOWN);
   const [withJob, withoutJob] = JOBS_SHOWN.map(row);
   panel.append(title, list);
   root.append(panel);
@@ -83,9 +86,10 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
     SHOWN.forEach(({ good }, index) => setText(values[index]!, String(totals[good])));
   };
   show();
-  const showFood = (storeFood: Uint16Array) => {
-    const totals = foodTotals(orders, storeFood);
+  const showStores = ({ storeFood, storeFirewood }: SimFrame) => {
+    const totals = storeTotals(orders, storeFood);
     FOOD_SHOWN.forEach(({ kind }, index) => setText(foodValues[index]!, String(totals[kind])));
+    setText(firewood, String(storeTotals(orders, storeFirewood)[FIREWOOD_SHOWN.kind]));
   };
 
   const showJobs = ({ states, workplaces }: SimFrame) => {
@@ -98,7 +102,7 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
     /** Takes in a frame from the worker, after the world has applied its tile and order changes. */
     heard(data: SimFrame) {
       if (data.tiles.length > 0 || data.orders.claims.length > 0) show();
-      showFood(data.storeFood);
+      showStores(data);
       showJobs(data);
     },
   };

@@ -7,6 +7,7 @@ export const BUILDING_WORDS: Readonly<Record<Building, { readonly title: string;
   [Building.Hut]: { title: "Forager's hut", noun: "forager's hut" },
   [Building.Barn]: { title: 'Barn', noun: 'barn' },
   [Building.Lodge]: { title: "Hunter's lodge", noun: "hunter's lodge" },
+  [Building.Woodshed]: { title: 'Woodshed', noun: 'woodshed' },
 };
 
 /** What the interface calls each job, as a title, and its holders, one and many. */
@@ -14,6 +15,7 @@ export const JOB_WORDS: Readonly<Record<Job, { readonly title: string; readonly 
   [Job.None]: { title: 'None', one: 'a settler', many: 'settlers' },
   [Job.Forager]: { title: 'Forager', one: 'a forager', many: 'foragers' },
   [Job.Hunter]: { title: 'Hunter', one: 'a hunter', many: 'hunters' },
+  [Job.Woodcutter]: { title: 'Woodcutter', one: 'a woodcutter', many: 'woodcutters' },
 };
 
 /** The words with their first letter in capitals. */

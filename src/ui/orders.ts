@@ -98,6 +98,16 @@ export const TOOLS: readonly Tool[] = [
     icon: '<path d="M4 9.5 20 6v4.5L4 13z"/><path d="M5.5 12.8V20h13v-9.5"/><path d="M10 20v-4h3v4"/>',
   },
   {
+    id: 'woodshed',
+    building: Building.Woodshed,
+    label: 'Woodshed',
+    face: 'Shed',
+    codes: ['KeyK'],
+    key: 'K',
+    hint: 'Click to place a woodshed on 2 by 2 tiles of open, level ground. Its woodcutter splits logs into firewood.',
+    icon: '<path d="M3.5 7 20.5 9.5"/><path d="M5 7.2V20M19 9.3V20"/><circle cx="9" cy="17.5" r="2"/><circle cx="14" cy="17.5" r="2"/><circle cx="11.5" cy="13.5" r="2"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
@@ -209,6 +219,7 @@ const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> =
   hut: () => `${BUILDING_WORDS[Building.Hut].title} site placed.`,
   barn: () => `${BUILDING_WORDS[Building.Barn].title} site placed.`,
   lodge: () => `${BUILDING_WORDS[Building.Lodge].title} site placed.`,
+  woodshed: () => `${BUILDING_WORDS[Building.Woodshed].title} site placed.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 

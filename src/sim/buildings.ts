@@ -2,17 +2,18 @@ import { TICKS_PER_SECOND } from './calendar';
 import { Good, type Unit } from './goods';
 import type { Sites } from './orders';
 import type { Sim } from './sim';
+import type { Recipe } from './workshops';
 
-export const Building = { House: 0, Hut: 1, Barn: 2, Lodge: 3 } as const;
+export const Building = { House: 0, Hut: 1, Barn: 2, Lodge: 3, Woodshed: 4 } as const;
 export type Building = (typeof Building)[keyof typeof Building];
 
 /** The work a villager does in a place at a workplace. A villager with no place has none. */
-export const Job = { None: 0, Forager: 1, Hunter: 2 } as const;
+export const Job = { None: 0, Forager: 1, Hunter: 2, Woodcutter: 3 } as const;
 export type Job = (typeof Job)[keyof typeof Job];
 /** Where a rule takes a villager with any job, or with none. */
 export const ANYONE = -1;
 
-export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge';
+export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge' | 'woodshed';
 
 export interface BuildingKind {
   /** What a place order and its outcome call it. */
@@ -29,14 +30,30 @@ export interface BuildingKind {
   readonly job: Job;
   /** Tiles from the building's center within which its workers work; 0 when it has no workers. */
   readonly reach: number;
+  /** What its workers make of what, for a workshop; null for a building that is none. */
+  readonly recipe: Recipe | null;
 }
 
-/** The one place a kind of building is declared. */
+/**
+ * The one place a kind of building is declared. A workshop is a kind with a
+ * recipe: its reach is where its worker takes the input from, and its store's
+ * limit for the output, in `stores.ts`, is when the worker stops.
+ */
 export const BUILDINGS: Readonly<Record<Building, BuildingKind>> = {
-  [Building.House]: { name: 'house', side: 3, needs: { [Good.Log]: 12, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
-  [Building.Hut]: { name: 'hut', side: 2, needs: { [Good.Log]: 8 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20 },
-  [Building.Barn]: { name: 'barn', side: 3, needs: { [Good.Log]: 16, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
-  [Building.Lodge]: { name: 'lodge', side: 2, needs: { [Good.Log]: 8, [Good.Stone]: 4 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Hunter, reach: 40 },
+  [Building.House]: { name: 'house', side: 3, needs: { [Good.Log]: 12, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0, recipe: null },
+  [Building.Hut]: { name: 'hut', side: 2, needs: { [Good.Log]: 8 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20, recipe: null },
+  [Building.Barn]: { name: 'barn', side: 3, needs: { [Good.Log]: 16, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0, recipe: null },
+  [Building.Lodge]: { name: 'lodge', side: 2, needs: { [Good.Log]: 8, [Good.Stone]: 4 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Hunter, reach: 40, recipe: null },
+  [Building.Woodshed]: {
+    name: 'woodshed',
+    side: 2,
+    needs: { [Good.Log]: 6 },
+    workTicks: 20 * TICKS_PER_SECOND,
+    places: 1,
+    job: Job.Woodcutter,
+    reach: 30,
+    recipe: { input: Good.Log, inputs: 1, output: Good.Firewood, outputs: 2, workTicks: 10 * TICKS_PER_SECOND },
+  },
 };
 
 /** The longest side of any kind, so `MAX_SIDE * MAX_SIDE` tiles hold any footprint. */

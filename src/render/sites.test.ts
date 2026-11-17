@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS, Building } from '../sim/buildings';
 import { generateMap } from '../sim/mapgen';
 import { SiteState, createOrders } from '../sim/orders';
-import { lodgeShape, primitiveShapes } from './shapes';
+import { lodgeShape, primitiveShapes, woodshedShape } from './shapes';
 import { createSites } from './sites';
 
 const SIZE = 64;
@@ -137,5 +137,39 @@ describe('sites and houses', () => {
       if (position.getZ(corner) > 0.5) frontTop = Math.max(frontTop, position.getY(corner));
     }
     expect(backTop - frontTop).toBeGreaterThan(0.4);
+  });
+
+  it('draws a woodshed on its 2 by 2 tiles, its roof rising toward its open front, the other way from the lodge', () => {
+    const map = generateMap(7, SIZE);
+    const orders = createOrders(map);
+    const { buildings, scaffolds, show } = createSites(map, primitiveShapes());
+    const sheds = buildings[Building.Woodshed]!;
+    orders.sites.x[0] = 20;
+    orders.sites.y[0] = 30;
+    orders.sites.kind[0] = Building.Woodshed;
+    orders.sites.state[0] = SiteState.Site;
+    orders.sites.work[0] = BUILDINGS[Building.Woodshed].workTicks / 2;
+    show(orders);
+    expect([sheds.count, scaffolds[Building.Woodshed]!.count, buildings[Building.Lodge]!.count]).toEqual([1, 1, 0]);
+
+    orders.sites.state[0] = SiteState.Built;
+    show(orders);
+    expect([sheds.count, scaffolds[Building.Woodshed]!.count]).toEqual([1, 0]);
+    sheds.geometry.computeBoundingBox();
+    const shed = sheds.geometry.boundingBox!;
+    expect(shed.max.x - shed.min.x).toBeLessThanOrEqual(2.1);
+    expect(shed.max.z - shed.min.z).toBeLessThanOrEqual(2.1);
+    const tops = (geometry: ReturnType<typeof woodshedShape>) => {
+      const position = geometry.getAttribute('position');
+      let back = 0;
+      let front = 0;
+      for (let corner = 0; corner < position.count; corner++) {
+        if (position.getZ(corner) < -0.5) back = Math.max(back, position.getY(corner));
+        if (position.getZ(corner) > 0.5) front = Math.max(front, position.getY(corner));
+      }
+      return front - back;
+    };
+    expect(tops(woodshedShape())).toBeGreaterThan(0.3);
+    expect(tops(lodgeShape())).toBeLessThan(-0.3);
   });
 });

@@ -18,6 +18,7 @@ import { CAMP_FOOD, type Stores, createStores } from './stores';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, createVillagers, moveVillagers, stopFallenTasks } from './villagers';
+import { type Workshops, createWorkshops } from './workshops';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -97,6 +98,10 @@ export interface Tally {
   huntedIn: number;
   /** Units of food gone from open ground at a dawn. */
   spoiled: number;
+  /** Batches workers finished at workshops, such as the logs a woodcutter split. */
+  batches: number;
+  /** Units of output those batches made, such as firewood. */
+  made: number;
 }
 
 export interface Sim {
@@ -116,6 +121,7 @@ export interface Sim {
   readonly gathering: Gathering;
   readonly foraging: Foraging;
   readonly hunting: Hunting;
+  readonly workshops: Workshops;
   readonly goods: GoodsState;
   readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
@@ -156,6 +162,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
     hunting: createHunting(population.villagers),
+    workshops: createWorkshops(),
     goods: createGoodsState(map.size),
     stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
@@ -164,6 +171,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     tally: {
       felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
       foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, spoiled: 0,
+      batches: 0, made: 0,
     },
     tick: 0,
     dawns: 0,

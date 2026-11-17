@@ -55,7 +55,7 @@ export interface Villagers {
   readonly destination: Int32Array;
   /** The store a task takes its unit of food out of, as the camp or a barn for stocking a home, or -1. */
   readonly fromStore: Int16Array;
-  /** The store a task brings its unit of food into, a common store or a home, or -1. */
+  /** The store a task brings its unit of food into, a common store or a home, or the workshop a workshop's task is for, or -1. */
   readonly toStore: Int16Array;
   /** The `Good` of the unit each villager carries, or `Good.None`. */
   readonly carried: Uint8Array;

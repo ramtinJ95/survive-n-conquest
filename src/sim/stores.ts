@@ -23,6 +23,7 @@ export const DAYS_KEPT_AT_CAMP = 1;
 export const MEALS_PER_DAY = 1;
 
 export const BARN_FOOD_LIMIT = 120;
+export const WOODSHED_FIREWOOD_LIMIT = 40;
 
 /**
  * The places under a roof that hold goods, by good at index `good - 1` and
@@ -60,9 +61,10 @@ export function createStores(campFood: number): Stores {
  * What a store is to the settlement. A common store is the camp or a barn:
  * carriers bring food to the nearest one with room, households without a home
  * eat from the camp, and households stock their homes from the nearest one
- * with food. A home is a household's own. The interface totals each kind apart.
+ * with food. A home is a household's own. A workshop's store holds what its
+ * worker makes. The interface totals each kind apart.
  */
-export const StoreKind = { None: 0, Common: 1, Home: 2 } as const;
+export const StoreKind = { None: 0, Common: 1, Home: 2, Workshop: 3 } as const;
 export type StoreKind = (typeof StoreKind)[keyof typeof StoreKind];
 
 /** What each kind of building is as a store once it is finished, and the most of each good it holds. A good left out it holds none of. A site is no store and holds nothing. */
@@ -71,6 +73,7 @@ const BUILDING_STORES: Readonly<Record<Building, { readonly kind: StoreKind; rea
   [Building.Hut]: { kind: StoreKind.None, limits: {} },
   [Building.Barn]: { kind: StoreKind.Common, limits: { [Good.Food]: BARN_FOOD_LIMIT } },
   [Building.Lodge]: { kind: StoreKind.None, limits: {} },
+  [Building.Woodshed]: { kind: StoreKind.Workshop, limits: { [Good.Firewood]: WOODSHED_FIREWOOD_LIMIT } },
 };
 
 /** The one place that says which buildings are stores. Anything that is no store holds nothing. */

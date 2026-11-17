@@ -135,4 +135,18 @@ describe('the settlement news', () => {
       `Day 1, 15:59. ${name(moved)} became a forager.`,
     ]);
   });
+
+  it('says who became the woodcutter at a finished woodshed', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 3, monsters: 0 });
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    let woodcutter = -1;
+    const { said } = listen(sim, 200, () => {
+      if (sim.tick !== 100) return;
+      expect(applyCommand(sim, { kind: 'place', building: Building.Woodshed, x: 4, y: 4 })).toMatchObject({ ok: true });
+      const slot = sim.orders.siteOf[at(sim.map, 4, 4)]!;
+      finishBuilding(sim, slot);
+      woodcutter = sim.villagers.workplace.indexOf(slot);
+    });
+    expect(said).toEqual([`Day 1, 08:47. ${name(woodcutter)} became a woodcutter.`]);
+  });
 });

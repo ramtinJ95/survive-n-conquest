@@ -51,6 +51,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly campFoodLimit: number;
   /** Units of food on their way into each store, by store id, which count against its room. */
   readonly storeInbound: Uint16Array;
+  /** The firewood in each store, by store id. */
+  readonly storeFirewood: Uint16Array;
+  /** One `Stop` per site slot: what the worker of the workshop there does, or why it stopped, as its last look for work found. */
+  readonly workshopStops: Uint8Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -100,6 +104,8 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
+    storeFirewood: sim.stores.held[Good.Firewood - 1]!.slice(),
+    workshopStops: sim.workshops.stopped.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
     outcome,
@@ -124,6 +130,8 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.missedMeals,
     frame.storeFood,
     frame.storeInbound,
+    frame.storeFirewood,
+    frame.workshopStops,
     frame.tiles,
     frame.orders.claims,
     frame.orders.sites,
