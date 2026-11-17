@@ -755,6 +755,8 @@ const FED = '?food=200';
 const SEEDS = ['7', '2026'];
 /** The game opens with 8 settlers. This opens it with the benchmark load of 1500 villagers and 3000 monsters instead. */
 const SWARM = '?swarm=on';
+/** Deer move between two pictures a check compares, so a page whose check needs the same scene twice leaves them out. */
+const NO_DEER = 'deer=off';
 /** One wheel turn of this many pixels zooms the opening view in on the camp. A wheel zoom lands on the same view on every run. */
 const SETTLER_VIEW_WHEEL = -900;
 /** A pixel differs between the settlers and the bare map when one of its channels differs by more than this. */
@@ -1236,7 +1238,7 @@ SCENARIOS.swarm = async (session) => {
   await context.close();
   seen.push(...errors);
 
-  const bare = await session.open(WIDE, { search: '?swarm=off' });
+  const bare = await session.open(WIDE, { search: `?swarm=off&${NO_DEER}` });
   await session.still(bare.page);
   const empty = await session.screenshot(bare.page, 'swarm-off');
   const panelBefore = await session.coverOf(bare.page, 'Clock');
@@ -1301,8 +1303,8 @@ SCENARIOS.settlers = async (session) => {
     await opened.context.close();
     return { shots, errors: opened.errors };
   };
-  const settled = await visit('', 'settlers');
-  const bare = await visit('?swarm=off', 'bare');
+  const settled = await visit(`?${NO_DEER}`, 'settlers');
+  const bare = await visit(`?swarm=off&${NO_DEER}`, 'bare');
   // The Stockpiles panel is left out: the food at the camp falls as the settlers eat and stays at 24 on the bare map.
   const at = Object.fromEntries(stops.map(([name]) => [name, changedPixels(bare.shots[name], settled.shots[name], CLIP.width, SETTLER_THRESHOLD, panel)]));
   const describe = (name) => `${name} ${at[name].count} pixels around (${at[name].x.toFixed(0)}, ${at[name].y.toFixed(0)}) with a spread of ${at[name].spread.toFixed(1)}`;
@@ -1515,7 +1517,7 @@ SCENARIOS.gathering = async (session) => {
     `${logs.before} log pixels in the grove before and ${logs.after} after, needs at most ${GATHER_MOST.goodsBefore} and then ${GATHER_LEAST.logs}`,
   );
 
-  const rock = await session.open(CLIP, { record: true, clock: 'paused' });
+  const rock = await session.open(CLIP, { record: true, clock: 'paused', search: `?${NO_DEER}` });
   await takeView(session, rock.page, GATHER_VIEWS.rock);
   await mark(rock.page, 'KeyM', GATHER_VIEWS.rock.area);
   await expectSaid(rock.page, 'a Quarry drag marks the rock face', /^21 rock tiles marked for quarrying/);
@@ -1547,7 +1549,7 @@ SCENARIOS.gathering = async (session) => {
   await session.finishClips(rock.context, rock.page, cuts);
   seen.push(...rock.errors);
 
-  const bare = await session.open(CLIP, { search: '?swarm=off', clock: 'paused' });
+  const bare = await session.open(CLIP, { search: `?swarm=off&${NO_DEER}`, clock: 'paused' });
   await takeView(session, bare.page, GATHER_VIEWS.rock);
   const empty = {};
   for (const [name, when] of GATHER_STOPS) {
