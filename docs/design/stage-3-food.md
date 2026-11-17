@@ -22,7 +22,7 @@ These values come from `docs/design.md` or are new in this brief. New values are
 | What a household keeps at home | 3 days of food for its members, when it can get it | Proposal |
 | Food on open ground | Gone at the second dawn after it was put down | Proposal |
 | Forager's hut | 2 by 2 tiles, 8 logs, 30 seconds of building work, 2 places, works the forest within 20 tiles | Proposal |
-| Foraging | 20 seconds of work at a forest tile with a tree gives 1 food. The tile bears again after 2 days. Nothing grows in winter. | Proposal |
+| Foraging | 30 seconds of work at a forest tile with a tree gives 1 food. The tile bears again after 2 days. Nothing grows in winter. | The owner's decision of 2026-11-17. The proposal was 20 seconds, which the owner found a bit too generous after #27 and #29. The rest is a proposal. |
 | Barn | 3 by 3 tiles, 16 logs and 6 stone, 90 seconds of building work, holds 120 food | Proposal |
 | Hunter's lodge | 2 by 2 tiles, 8 logs and 4 stone, 30 seconds of building work, 2 places, hunts within 40 tiles | Proposal |
 | Deer | 1 for every 1,500 land tiles when the map starts. 1 walks in from the map edge at each dawn while there are fewer than that. A deer gives 6 food. | Proposal |
@@ -54,6 +54,7 @@ Work times are at 1× speed and are stored as ticks. A year is 12 days, so 8 set
 
 - A villager eats when it comes home at dusk: it takes 1 unit from its household's store. A household at the camp eats from the camp store.
 - A villager that found no food at dusk has missed a meal. It eats at dawn instead if its store has food by then, and that clears the missed meals.
+- A villager with a missed meal eats before any other work. It walks to the store it eats from and eats when it arrives, at any hour, if the store has food. That clears its missed meals. A villager that did not get home at dusk therefore does not starve while its store holds food. The owner decided this on 2026-11-17, after finding it a bit too strict that such a villager starved.
 - After 1 or 2 missed meals a villager is hungry. At its 3rd missed meal in a row it dies and is removed from the map. Bodies and graves are left out.
 - A household stocks its own home. When the house holds less than 3 days of food for its members, a member carries 1 unit from the nearest barn or the camp to the house. This comes before every other kind of work, and a villager with a job does it too. Units on their way count against what the house lacks.
 - The interface says who went hungry and who died, by name. When the last villager dies, the game says that the settlement has died out and offers a new map.
@@ -84,6 +85,7 @@ Stage 2 gave orders to the land, and any free villager carried them out. That st
 - The hunter carries the food to the nearest store with room. Villagers without a job help, because it is food on the ground.
 - Deer stay through the winter, so hunting is the food of the cold season. Deer killed faster than they walk in leave the map empty.
 - Bows and arrows are not goods yet. A hunter needs nothing to hunt.
+- The stage's summary found hunting generous: on seed 7 the kills of a year leave 84 food, and the deer within the lodge's reach run out by summer. The owner decided on 2026-11-17 to leave the numbers of hunting as they are until a year has been played.
 
 ### Selecting
 
