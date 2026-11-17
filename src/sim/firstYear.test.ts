@@ -74,7 +74,7 @@ describe('the first year on seed 7 with a barn', () => {
     const slot = sim.orders.siteOf[barn.y * sim.map.size + barn.x]!;
     let barnAtAutumnsEnd = 0;
     while (dateAt(sim.tick).day <= 12) {
-      if (isNight(sim.tick) && !isNight(sim.tick - 1) && dateAt(sim.tick).day === 9) barnAtAutumnsEnd = sim.stores.food[slot]!;
+      if (isNight(sim.tick) && !isNight(sim.tick - 1) && dateAt(sim.tick).day === 9) barnAtAutumnsEnd = sim.stores.held[Good.Food - 1]![slot]!;
       step(sim);
     }
     return { sim, barnAtAutumnsEnd };
@@ -95,13 +95,13 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
     const lodge = sim.orders.siteOf[FIRST_YEAR_LODGE.y * sim.map.size + FIRST_YEAR_LODGE.x]!;
     const barns = () => {
       let food = 0;
-      for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === StoreKind.Common) food += sim.stores.food[slot]!;
+      for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === StoreKind.Common) food += sim.stores.held[Good.Food - 1]![slot]!;
       return food;
     };
     let atAutumnsEnd: number[] = [];
     let winterKills = 0;
     while (dateAt(sim.tick).day <= 12) {
-      if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) atAutumnsEnd = [barns(), sim.stores.food[CAMP_STORE]!, sim.tally.kills];
+      if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) atAutumnsEnd = [barns(), sim.stores.held[Good.Food - 1]![CAMP_STORE]!, sim.tally.kills];
       const kills = sim.tally.kills;
       step(sim);
       if (dateAt(sim.tick).season === 'Winter') winterKills += sim.tally.kills - kills;

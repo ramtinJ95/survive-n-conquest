@@ -1,3 +1,4 @@
+import { Good } from './sim/goods';
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import type { Sim, Speed } from './sim/sim';
 import { takeTileChanges } from './sim/tileChanges';
@@ -96,9 +97,9 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     workplaces: villagers.workplace.slice(),
     hired: villagers.hired.slice(),
     missedMeals: villagers.missedMeals.slice(),
-    storeFood: sim.stores.food.slice(),
+    storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
-    storeInbound: sim.stores.inbound.slice(),
+    storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
     outcome,

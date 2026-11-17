@@ -194,10 +194,10 @@ describe('a hunter', () => {
   it('waits while no store has room, and hunts once one has', () => {
     const { sim } = lodge(1);
     deerAt(sim, 30.5, 30.5);
-    sim.stores.food[CAMP_STORE] = sim.stores.campLimit;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit;
     for (let tick = 0; tick < 50; tick++) step(sim);
     expect(sim.villagers.task[0]).toBe(NO_TASK);
-    sim.stores.food[CAMP_STORE] = sim.stores.campLimit - 1;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit - 1;
     runUntil(sim, () => sim.villagers.task[0] === HUNT, 20);
   });
 
@@ -218,7 +218,7 @@ describe('a hunter', () => {
     const deer = deerAt(sim, 30.5, 30.5);
     setShot(sim, true);
     runUntil(sim, () => sim.animals.state[deer] === AnimalState.Gone, 600);
-    const campBefore = sim.stores.food[CAMP_STORE]!;
+    const campBefore = sim.stores.held[Good.Food - 1]![CAMP_STORE]!;
     let pickups = 0;
     let held = Good.None as number;
     runUntil(sim, () => foodOnGround(sim) === 0 && sim.villagers.carried[hunter] === Good.None && sim.villagers.carried[settler] === Good.None, 1000, () => {
@@ -228,7 +228,7 @@ describe('a hunter', () => {
       }
       held = sim.villagers.carried[hunter]!;
     });
-    expect(sim.stores.food[CAMP_STORE]! - campBefore).toBe(6);
+    expect(sim.stores.held[Good.Food - 1]![CAMP_STORE]! - campBefore).toBe(6);
     expect(sim.tally.huntedIn).toBe(pickups);
     expect(sim.tally.huntedIn + sim.tally.fromGround).toBe(6);
     expect(sim.tally.huntedIn).toBeGreaterThan(0);
@@ -243,10 +243,10 @@ describe('a hunter', () => {
     setShot(sim, true);
     runUntil(sim, () => sim.animals.state[deer] === AnimalState.Gone, 600);
     expect(foodOnGround(sim)).toBe(6);
-    const campBefore = sim.stores.food[CAMP_STORE]!;
+    const campBefore = sim.stores.held[Good.Food - 1]![CAMP_STORE]!;
     runUntil(sim, () => sim.hunting.kill[0] === -1, 1000);
     expect([foodOnGround(sim), sim.villagers.carried[0], sim.tally.huntedIn]).toEqual([0, Good.None, 6]);
-    expect(sim.stores.food[CAMP_STORE]! - campBefore).toBe(6);
+    expect(sim.stores.held[Good.Food - 1]![CAMP_STORE]! - campBefore).toBe(6);
   });
 
   it('shoots the same deer at the same ticks from the same seed and commands', () => {

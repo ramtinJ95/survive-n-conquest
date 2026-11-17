@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { frameOf } from '../frame';
 import { finishBuilding } from '../sim/building';
 import { Building } from '../sim/buildings';
+import { Good } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
 import { createOrders } from '../sim/orders';
@@ -48,7 +49,7 @@ describe('the settlement news', () => {
   it('says who ate again when food came in the night', () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 0 });
     const { said } = listen(sim, 3000, () => {
-      if (sim.tick === 2000) sim.stores.food[CAMP_STORE] = 1;
+      if (sim.tick === 2000) sim.stores.held[Good.Food - 1]![CAMP_STORE] = 1;
     });
     expect(said).toHaveLength(2);
     const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));

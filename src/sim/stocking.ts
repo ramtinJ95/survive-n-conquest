@@ -4,7 +4,7 @@ import { NO_HOME } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, foodLimit, nearestCommonStore, storeDoor } from './stores';
+import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, limitOf, nearestCommonStore, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 
 /**
@@ -15,8 +15,8 @@ import type { TaskKind } from './tasks';
 export function lacks(sim: Sim, household: number): number {
   const { households, stores } = sim;
   const home = households.home[household]!;
-  const wanted = Math.min(DAYS_KEPT_AT_HOME * MEALS_PER_DAY * households.living[household]!, foodLimit(sim.orders, stores.campLimit, home));
-  return wanted - stores.food[home]! - stores.inbound[home]!;
+  const wanted = Math.min(DAYS_KEPT_AT_HOME * MEALS_PER_DAY * households.living[household]!, limitOf(sim.orders, stores.campLimit, home, Good.Food));
+  return wanted - stores.held[Good.Food - 1]![home]! - stores.inbound[Good.Food - 1]![home]!;
 }
 
 /**
@@ -27,7 +27,7 @@ export function lacks(sim: Sim, household: number): number {
 export function campLacks(sim: Sim): number {
   const { stores } = sim;
   const wanted = Math.min(DAYS_KEPT_AT_CAMP * MEALS_PER_DAY * sim.households.atCamp, stores.campLimit);
-  return wanted - stores.food[CAMP_STORE]! - stores.inbound[CAMP_STORE]!;
+  return wanted - stores.held[Good.Food - 1]![CAMP_STORE]! - stores.inbound[Good.Food - 1]![CAMP_STORE]!;
 }
 
 const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.household[id]!]!;
@@ -59,8 +59,8 @@ function take(sim: Sim, id: number): boolean {
   if (pickup < 0) return false;
   const door = toCamp ? flow.goal : nearestDoor(sim, home, (pickup % size) + 0.5, Math.floor(pickup / size) + 0.5);
   if (door < 0 || !planPath(sim, id, pickup)) return false;
-  stores.outbound[from] = stores.outbound[from]! + 1;
-  stores.inbound[to] = stores.inbound[to]! + 1;
+  stores.outbound[Good.Food - 1]![from]! += 1;
+  stores.inbound[Good.Food - 1]![to]! += 1;
   villagers.fromStore[id] = from;
   villagers.toStore[id] = to;
   villagers.taskTile[id] = pickup;
@@ -88,19 +88,19 @@ function work(sim: Sim, id: number): boolean {
   const from = villagers.fromStore[id]!;
   const to = villagers.toStore[id]!;
   if (villagers.carried[id] === Good.None) {
-    stores.outbound[from] = stores.outbound[from]! - 1;
+    stores.outbound[Good.Food - 1]![from]! -= 1;
     villagers.workTile[id] = villagers.destination[id]!;
     if (planPath(sim, id, villagers.workTile[id]!)) {
-      stores.food[from] = stores.food[from]! - 1;
+      stores.held[Good.Food - 1]![from]! -= 1;
       villagers.carried[id] = Good.Food;
       return false;
     }
-    stores.inbound[to] = stores.inbound[to]! - 1;
+    stores.inbound[Good.Food - 1]![to]! -= 1;
     villagers.toStore[id] = -1;
     return true;
   }
-  stores.inbound[to] = stores.inbound[to]! - 1;
-  stores.food[to] = stores.food[to]! + 1;
+  stores.inbound[Good.Food - 1]![to]! -= 1;
+  stores.held[Good.Food - 1]![to]! += 1;
   villagers.carried[id] = Good.None;
   villagers.toStore[id] = -1;
   if (to === CAMP_STORE) sim.tally.toCamp += 1;
@@ -118,11 +118,11 @@ function release(sim: Sim, id: number): void {
   const { villagers, stores } = sim;
   const to = villagers.toStore[id]!;
   if (to < 0) return;
-  stores.inbound[to] = stores.inbound[to]! - 1;
+  stores.inbound[Good.Food - 1]![to]! -= 1;
   villagers.toStore[id] = -1;
   if (villagers.carried[id] === Good.None) {
     const from = villagers.fromStore[id]!;
-    stores.outbound[from] = stores.outbound[from]! - 1;
+    stores.outbound[Good.Food - 1]![from]! -= 1;
     return;
   }
   putDownHeld(sim, id);

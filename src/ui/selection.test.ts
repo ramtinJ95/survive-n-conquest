@@ -354,7 +354,7 @@ describe("a forager's panel", () => {
     while (!foragers.some((id) => sim.villagers.task[id] === FORAGE)) step(sim);
     for (let tick = 0; tick < 50; tick++) step(sim);
     const idle = foragers.filter((id) => sim.villagers.task[id] !== FORAGE);
-    expect([sim.stores.food[CAMP_STORE], idle.length]).toEqual([39, 1]);
+    expect([sim.stores.held[Good.Food - 1]![CAMP_STORE], idle.length]).toEqual([39, 1]);
     expect(settler(factsOf(sim), idle[0]!)).toBe('Idle, waiting for room in a store');
   });
 });
@@ -413,7 +413,7 @@ describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says a hunter waits for room while no store has room', () => {
     const { sim, hunter } = lodgeSettlement();
     addAnimal(sim.animals, AnimalKind.Deer, 30.5, 30.5);
-    sim.stores.food[CAMP_STORE] = sim.stores.campLimit;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit;
     expect(settler(factsOf(sim), hunter)).toBe('Idle, waiting for room in a store');
   });
 });
@@ -513,7 +513,7 @@ describe('a building panel', () => {
     const food = (selection: Selection) => readPanel(selection, factsOf(sim)).rows.find((entry) => entry.label === 'Food')!.value;
     const house: Selection = { kind: 'building', slot: 0, anchor: 0 };
     expect([food(house), food({ kind: 'camp' })]).toEqual(['0 of 16', '24 of 40']);
-    while (sim.stores.food[0]! < 6) step(sim);
+    while (sim.stores.held[Good.Food - 1]![0]! < 6) step(sim);
     expect([food(house), food({ kind: 'camp' })]).toEqual(['6 of 16', '18 of 40']);
     die(sim, 0);
     die(sim, 1);

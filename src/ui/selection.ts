@@ -17,7 +17,7 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, foodLimit, storeKind } from '../sim/stores';
+import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, limitOf, storeKind } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
@@ -173,7 +173,7 @@ function storeAt({ camp }: Facts, tile: number): string {
 function roomInAStore({ orders, frame }: Facts): boolean {
   for (let store = 0; store < frame.storeFood.length; store++) {
     if (storeKind(orders, store) !== StoreKind.Common) continue;
-    if (frame.storeFood[store]! + frame.storeInbound[store]! < foodLimit(orders, frame.campFoodLimit, store)) return true;
+    if (frame.storeFood[store]! + frame.storeInbound[store]! < limitOf(orders, frame.campFoodLimit, store, Good.Food)) return true;
   }
   return false;
 }

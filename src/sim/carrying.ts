@@ -53,7 +53,7 @@ function reserveStore(sim: Sim, id: number, px: number, py: number): boolean {
   const store = nearestCommonStore(sim, px, py, Wants.Room);
   const door = store < 0 ? -1 : storeDoor(sim, store, px, py);
   if (door < 0) return false;
-  stores.inbound[store] = stores.inbound[store]! + 1;
+  stores.inbound[Good.Food - 1]![store]! += 1;
   villagers.toStore[id] = store;
   villagers.destination[id] = door;
   return true;
@@ -68,7 +68,7 @@ export function takeHeld(sim: Sim, id: number): boolean {
     villagers.workTile[id] = villagers.destination[id]!;
     if (planPath(sim, id, villagers.workTile[id]!)) return true;
     const store = villagers.toStore[id]!;
-    sim.stores.inbound[store] = sim.stores.inbound[store]! - 1;
+    sim.stores.inbound[Good.Food - 1]![store]! -= 1;
     villagers.toStore[id] = -1;
     villagers.destination[id] = -1;
     villagers.workTile[id] = -1;
@@ -190,8 +190,8 @@ export function pickUpReserved(sim: Sim, id: number): boolean {
 export function putInStore(sim: Sim, id: number): void {
   const { villagers, stores } = sim;
   const store = villagers.toStore[id]!;
-  stores.inbound[store] = stores.inbound[store]! - 1;
-  stores.food[store] = stores.food[store]! + 1;
+  stores.inbound[Good.Food - 1]![store]! -= 1;
+  stores.held[Good.Food - 1]![store]! += 1;
   villagers.carried[id] = Good.None;
   villagers.toStore[id] = -1;
   villagers.destination[id] = -1;
@@ -208,7 +208,7 @@ function release(sim: Sim, id: number): void {
   if (place < 0) return;
   const store = villagers.toStore[id]!;
   if (store >= 0) {
-    stores.inbound[store] = stores.inbound[store]! - 1;
+    stores.inbound[Good.Food - 1]![store]! -= 1;
     villagers.toStore[id] = -1;
   } else {
     goods.inbound[place]! -= 1;

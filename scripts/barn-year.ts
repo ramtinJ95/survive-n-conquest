@@ -29,7 +29,7 @@ const isDusk = (tick: number) => isNight(tick) && !isNight(tick - 1);
 /** The food in the finished buildings that are stores of a kind: the barns for `Common`, the houses for `Home`. */
 function foodIn(sim: Sim, kind: StoreKind): number {
   let food = 0;
-  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === kind) food += sim.stores.food[slot]!;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === kind) food += sim.stores.held[Good.Food - 1]![slot]!;
   return food;
 }
 
@@ -49,7 +49,7 @@ function play(name: string): void {
   while (!sim.over && dateAt(sim.tick).day <= DAYS_PER_YEAR) {
     if (isDusk(sim.tick)) {
       const { day } = dateAt(sim.tick);
-      rows.push(`| ${day} | ${seasonAt(sim.tick)} | ${foodIn(sim, StoreKind.Common)} | ${sim.stores.food[CAMP_STORE]} | ${foodIn(sim, StoreKind.Home)} | ${sim.living} |`);
+      rows.push(`| ${day} | ${seasonAt(sim.tick)} | ${foodIn(sim, StoreKind.Common)} | ${sim.stores.held[Good.Food - 1]![CAMP_STORE]} | ${foodIn(sim, StoreKind.Home)} | ${sim.living} |`);
     }
     step(sim);
     const { sites } = sim.orders;

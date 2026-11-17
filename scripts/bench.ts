@@ -128,7 +128,7 @@ function built(sim: Sim, kind: Building): number {
 
 function barnFood(sim: Sim): number {
   let food = 0;
-  for (let i = 0; i < sim.stores.barnCount; i++) food += sim.stores.food[sim.stores.barns[i]!]!;
+  for (let i = 0; i < sim.stores.barnCount; i++) food += sim.stores.held[Good.Food - 1]![sim.stores.barns[i]!]!;
   return food;
 }
 
@@ -334,7 +334,7 @@ function measure(size: number): boolean {
     `  food in the measured ticks: ${fed.meals} meals eaten, ${fed.missed} meals missed, ${fed.carriedHome} units carried home, ` +
       `${fed.fromGround} carried from the ground into a store, ${fed.toCamp} carried from a barn to the camp, ` +
       `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
-      `${sim.stores.food[CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start, ${barnFood(sim)} in the barns`,
+      `${sim.stores.held[Good.Food - 1]![CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start, ${barnFood(sim)} in the barns`,
   );
   console.log(
     `  deaths in the measured ticks: ${deaths.away} at a dawn, by a third meal missed away from home, and ${deaths.atStore} at a dusk, by a third meal missed at an empty store; ` +

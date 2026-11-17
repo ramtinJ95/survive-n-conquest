@@ -13,7 +13,7 @@ import { generateMap } from './mapgen';
 import { type AreaOrder, type OrderCommand, SiteState, siteRefusal, takeOrderChanges } from './orders';
 import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { STOCKING } from './stocking';
-import { StoreKind, foodLimit, storeKind } from './stores';
+import { StoreKind, limitOf, storeKind } from './stores';
 import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
@@ -276,7 +276,7 @@ describe("a forager's hut", () => {
     }
     for (const [x, y] of [[20, 15], [23, 15], [21, 14], [22, 17]] as const) expect(walkable(sim.map, at(sim.map, x, y))).toBe(true);
     expect(Array.from(sim.households.home)).toEqual([NO_HOME]);
-    expect([storeKind(sim.orders, slot), foodLimit(sim.orders, sim.stores.campLimit, slot)]).toEqual([StoreKind.None, 0]);
+    expect([storeKind(sim.orders, slot), limitOf(sim.orders, sim.stores.campLimit, slot, Good.Food)]).toEqual([StoreKind.None, 0]);
   });
 });
 
