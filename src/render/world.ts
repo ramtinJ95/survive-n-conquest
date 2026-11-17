@@ -1,10 +1,8 @@
 import { type Material, MathUtils, Scene, Vector4 } from 'three';
 import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
-import { isColdNight, isNight } from '../sim/daylight';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
-import { CAMP_STORE } from '../sim/stores';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
@@ -76,21 +74,15 @@ export function createWorld(map: TileMap, shapes: Shapes) {
 
   const fires = createFires(map, shapes);
   scene.add(fires.mesh);
-  let campFire = false;
-
-  // The camp's fire burns on every night but a cold one, when it burns only once it has taken its firewood.
   const show = (tick: number, time = tick) => {
     clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
-    campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full), campFire || !isNight(tick) || !isColdNight(tick));
+    campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
 
-  /** Shows which fires burn tonight, from a frame's flags by store id. */
-  const showFires = (burning: Uint8Array) => {
-    campFire = burning[CAMP_STORE] === 1;
-    fires.show(orders, burning);
-  };
+  /** Shows the sign of each house whose fire burns tonight, from a frame's flags by store id. */
+  const showFires = (burning: Uint8Array) => fires.show(orders, burning);
 
   /** Applies tile changes from the simulation, as `takeTileChanges` groups them, to the map and the scene. */
   const changeTiles = (groups: Int32Array) => {
@@ -110,7 +102,6 @@ export function createWorld(map: TileMap, shapes: Shapes) {
       if (stacked) goods.refresh(tile);
     }
   };
-
 
   /** Applies order changes from the simulation to this copy of the orders and to the marks. */
   const changeOrders = (changes: OrderChanges) => {

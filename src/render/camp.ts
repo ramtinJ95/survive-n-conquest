@@ -89,8 +89,7 @@ export function flameGeometry() {
 /**
  * `show` moves the flame, the light, and the smoke with `time`, the time of
  * day in ticks, so they hold still while the clock is paused. `dark` is 0 in
- * full daylight and 1 at night. Without `lit` the fire is out: no flame, no
- * light, and no smoke.
+ * full daylight and 1 at night.
  */
 export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   const x = (tile % map.size) + 0.5;
@@ -128,8 +127,7 @@ export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   camp.add(flame, light, smoke);
 
   const puff = new Object3D();
-  const show = (time: number, dark: number, lit = true) => {
-    flame.visible = light.visible = smoke.visible = lit;
+  const show = (time: number, dark: number) => {
     const beat = Math.sin(time * FLAME.flicker);
     flame.scale.set(1 - 0.5 * FLAME.sway * beat, 1 + FLAME.sway * beat, 1 - 0.5 * FLAME.sway * beat);
     flame.rotation.y = time * FLAME.turn;
