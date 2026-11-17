@@ -4,6 +4,7 @@ import { finishBuilding } from './sim/building';
 import { Building } from './sim/buildings';
 import { FORAGING } from './sim/foraging';
 import { type Sim, applyCommand, createSim, step } from './sim/sim';
+import { CAMP_STORE } from './sim/stores';
 import { TASK_KINDS } from './sim/tasks';
 import { at, mapFrom } from './sim/testMaps';
 
@@ -36,13 +37,13 @@ describe('the frame the worker posts', () => {
     expect(Array.from(frameOf(sim).frame.workplaces)).toEqual([-1, -1, slot, -1]);
   });
 
-  it('counts the food on its way into the camp and says where each forager carries it', () => {
+  it('counts the food on its way into each store and says where each forager carries it', () => {
     const { sim } = settlersAndAHut();
     while (!sim.villagers.task.includes(FORAGE)) step(sim);
     const forager = sim.villagers.task.indexOf(FORAGE);
     const { frame } = frameOf(sim);
-    expect(frame.campFoodInbound).toBe(sim.villagers.task.filter((task) => task === FORAGE).length);
-    expect(frame.campFoodInbound).toBeGreaterThan(0);
+    expect(frame.storeInbound[CAMP_STORE]).toBe(sim.villagers.task.filter((task) => task === FORAGE).length);
+    expect(frame.storeInbound[CAMP_STORE]).toBeGreaterThan(0);
     expect(frame.destinations[forager]).toBe(sim.flow.goal);
   });
 

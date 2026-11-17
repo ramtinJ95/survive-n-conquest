@@ -5,6 +5,7 @@ import { Good } from '../sim/goods';
 export const BUILDING_WORDS: Readonly<Record<Building, { readonly title: string; readonly noun: string }>> = {
   [Building.House]: { title: 'House', noun: 'house' },
   [Building.Hut]: { title: "Forager's hut", noun: "forager's hut" },
+  [Building.Barn]: { title: 'Barn', noun: 'barn' },
 };
 
 /** What the interface calls each job, as a title, and its holders, one and many. */

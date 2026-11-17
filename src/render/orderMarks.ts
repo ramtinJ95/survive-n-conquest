@@ -39,6 +39,7 @@ export const ORDER_COLORS = {
   stockpile: '#2fd6c4',
   house: SITE,
   hut: SITE,
+  barn: SITE,
   cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;

@@ -182,21 +182,24 @@ describe('a forager', () => {
     expect(sim.foraging.ripeAt[at(sim.map, 52, 52)]).toBeGreaterThan(0);
   });
 
-  it('keeps a unit picked before dusk through the night and carries it into the camp in the morning', () => {
-    const sim = createSim(mapWith(64, [[5, 9]]), { villagers: 1, monsters: 0 });
-    finishedHut(sim, 4, 6);
+  it('puts a unit it holds at dusk down, as every carrier does, and a settler without a job carries it into the camp in the morning', () => {
+    const sim = createSim(mapWith(64, [[5, 9]]), { villagers: 2, monsters: 0 });
+    const slot = finishedHut(sim, 4, 6);
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
+    const forager = sim.villagers.workplace.indexOf(slot);
     const tree = at(sim.map, 5, 9);
     let dusk = sim.tick;
     while (!isNight(dusk)) dusk++;
     sim.foraging.ripeAt[tree] = dusk - 550;
     untilDusk(sim);
-    expect([sim.tally.foraged, sim.villagers.carried[0]]).toEqual([1, Good.Food]);
+    expect([sim.tally.foraged, sim.villagers.carried[forager]]).toEqual([1, Good.Food]);
     const beforeNight = campFood(sim);
+    step(sim);
+    expect([sim.villagers.carried[forager], foodOnGround(sim), sim.stores.inbound[CAMP_STORE]]).toEqual([Good.None, 1, 0]);
     runUntil(sim, () => isDawn(sim.tick), TICKS_PER_DAY);
-    expect([sim.villagers.carried[0], sim.villagers.state[0], foodOnGround(sim)]).toEqual([Good.Food, VillagerState.Settling, 0]);
-    expect([campFood(sim), sim.stores.inbound[CAMP_STORE]]).toEqual([beforeNight - 1, 0]);
-    runUntil(sim, () => sim.tally.foragedIn === 1, 100);
-    expect([campFood(sim), sim.villagers.carried[0]]).toEqual([beforeNight, Good.None]);
+    expect([foodOnGround(sim), campFood(sim)]).toEqual([1, beforeNight - 2]);
+    runUntil(sim, () => sim.tally.fromGround === 1, 600);
+    expect([foodOnGround(sim), campFood(sim), sim.tally.foragedIn]).toEqual([0, beforeNight - 1, 0]);
   });
 
   it('puts the unit down, and gives back its place in the camp, when the player frees its place', () => {

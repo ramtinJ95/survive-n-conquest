@@ -79,6 +79,10 @@ export interface Tally {
   foraged: number;
   /** Units of food a forager put into a store. */
   foragedIn: number;
+  /** Units of food a settler without a job carried from the ground into a store. */
+  fromGround: number;
+  /** Units of food carried from a barn into the camp for the households that live there. */
+  toCamp: number;
 }
 
 export interface Sim {
@@ -139,7 +143,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     workers: new Uint8Array(MAX_SITES),
-    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0, foraged: 0, foragedIn: 0 },
+    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0, foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0 },
     tick: 0,
     dawns: 0,
     hires: 0,

@@ -13,7 +13,7 @@ const SHOWN: readonly { readonly good: Good; readonly label: string }[] = [
 ];
 
 const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[] = [
-  { kind: StoreKind.Common, label: 'Food at the camp' },
+  { kind: StoreKind.Common, label: 'Barn and camp food' },
   { kind: StoreKind.Home, label: 'Food in homes' },
 ];
 
@@ -49,8 +49,9 @@ export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, 
 
 /**
  * The panel that shows how much of each good the stockpiles hold, from the
- * main thread's copy of the map and the orders, and the food at the camp and
- * in homes and the settlers with and without a job, from the newest frame.
+ * main thread's copy of the map and the orders. From the newest frame it shows
+ * the food in barns and at the camp as one total, the food in homes as another,
+ * and the settlers with and without a job.
  */
 export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders) {
   const panel = document.createElement('section');

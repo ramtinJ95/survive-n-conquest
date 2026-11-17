@@ -54,6 +54,12 @@ const SITE_GRID = 16;
  * forage under the foragers.
  */
 const HUT_GRID = 8;
+/**
+ * Barns stand on a grid of this many by this many cells, centered on each
+ * cell, apart from the house sites and the huts. A barn the rules refuse is
+ * left out.
+ */
+const BARN_GRID = 4;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const KINDS = [
@@ -65,7 +71,7 @@ const KINDS = [
   ['foraging', TASK_KINDS.indexOf(FORAGING) + 1],
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built', 'foraged'] as const satisfies readonly (keyof Tally)[];
-const FED = ['meals', 'missed', 'carriedHome', 'died'] as const satisfies readonly (keyof Tally)[];
+const FED = ['meals', 'missed', 'carriedHome', 'fromGround', 'toCamp', 'died'] as const satisfies readonly (keyof Tally)[];
 /** The goods a stockpile takes, at index `good - 1`. */
 const GOOD_NAMES = ['logs', 'stone'] as const;
 /** Every villager makes its dusk or dawn choice within one think cycle, so each turn of the light is measured over this many ticks. */
@@ -109,6 +115,12 @@ function built(sim: Sim, kind: Building): number {
   return count;
 }
 
+function barnFood(sim: Sim): number {
+  let food = 0;
+  for (let i = 0; i < sim.stores.barnCount; i++) food += sim.stores.food[sim.stores.barns[i]!]!;
+  return food;
+}
+
 function foragers(sim: Sim): number {
   return sim.villagers.workplace.reduce((count, place, id) => count + (place >= 0 && sim.villagers.state[id] !== VillagerState.Dead ? 1 : 0), 0);
 }
@@ -137,8 +149,8 @@ function atCamp(sim: Sim): number {
 // The generated forest has a tree on one tile in six, and 1500 villagers fell every one they can reach on the 256 map
 // before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
 // every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
-// The tiles of each site on the site grid and of each hut on the hut grid keep no tree, so the site can be placed.
-function setUp(size: number): { sim: Sim; sites: number; huts: number } {
+// The tiles of each site on the site grid, of each hut on the hut grid, and of each barn on the barn grid keep no tree, so the site can be placed.
+function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: number } {
   const map = generateMap(SEED, size);
   const camp = campTile(map);
   for (let tile = 0; tile < size * size; tile++) {
@@ -156,11 +168,16 @@ function setUp(size: number): { sim: Sim; sites: number; huts: number } {
   for (const [x, y] of anchors) {
     for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
   }
+  const barnCenters = cellCenters(size, BARN_GRID);
+  for (const [x, y] of barnCenters) {
+    for (let ty = y - 1; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x - 1, ty * size + x + 2);
+  }
   const sim = createSim(map, BENCHMARK_POPULATION);
   const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.House, x, y })!.ok).length;
   const huts = anchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })!.ok).length;
+  const barns = barnCenters.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Barn, x, y })!.ok).length;
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: size - 1, y1: size - 1 } });
-  return { sim, sites, huts };
+  return { sim, sites, huts, barns };
 }
 
 /** The straight-line length of each trip from a unit to where it goes, for the tasks of a kind taken in the measured ticks. */
@@ -171,7 +188,7 @@ interface Trips {
 
 function measure(size: number): boolean {
   const setupStart = performance.now();
-  const { sim, sites, huts } = setUp(size);
+  const { sim, sites, huts, barns } = setUp(size);
   const setupMs = performance.now() - setupStart;
 
   for (let tick = 0; tick < WARMUP_TICKS; tick++) step(sim);
@@ -180,6 +197,7 @@ function measure(size: number): boolean {
   const tallyBefore = { ...sim.tally };
   const housesBefore = built(sim, Building.House);
   const hutsBefore = built(sim, Building.Hut);
+  const barnsBefore = built(sim, Building.Barn);
   const foragersBefore = foragers(sim);
   const samples = new Float64Array(MEASURED_TICKS);
   const { task, taskTile, destination } = sim.villagers;
@@ -281,7 +299,7 @@ function measure(size: number): boolean {
   console.log(
     `  work in the measured ticks: ${work.felled} trees felled, ${work.quarried} stone quarried, ${spentRock(sim.map) - spentBefore} rock tiles spent, ` +
       `${work.stocked} units carried onto stockpile tiles, ${work.delivered} units delivered to sites, ` +
-      `${built(sim, Building.House) - housesBefore} houses and ${built(sim, Building.Hut) - hutsBefore} huts built, ${work.foraged} units of food foraged, ` +
+      `${built(sim, Building.House) - housesBefore} houses, ${built(sim, Building.Hut) - hutsBefore} huts, and ${built(sim, Building.Barn) - barnsBefore} barns built, ${work.foraged} units of food foraged, ` +
       `${sum(sim.monsters.draws) - monsterDraws} monster arrivals at the goal`,
   );
   console.log(
@@ -289,8 +307,9 @@ function measure(size: number): boolean {
   );
   console.log(
     `  food in the measured ticks: ${fed.meals} meals eaten, ${fed.missed} meals missed, ${fed.carriedHome} units carried home, ` +
+      `${fed.fromGround} carried from the ground into a store, ${fed.toCamp} carried from a barn to the camp, ` +
       `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
-      `${sim.stores.food[CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start`,
+      `${sim.stores.food[CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start, ${barnFood(sim)} in the barns`,
   );
   console.log(
     `  deaths in the measured ticks: ${deaths.away} at a dawn, by a third meal missed away from home, and ${deaths.atStore} at a dusk, by a third meal missed at an empty store; ` +
@@ -306,7 +325,11 @@ function measure(size: number): boolean {
       `${built(sim, Building.Hut) - hutsBefore} in the measured ticks, ${huts - built(sim, Building.Hut)} unfinished at the end`,
   );
   console.log(
-    `  forage in the measured ticks: ${work.foraged} units picked and ${sim.tally.foragedIn - tallyBefore.foragedIn} put into the camp by the foragers, ` +
+    `  barn sites: ${barns} placed on a grid of ${BARN_GRID} by ${BARN_GRID}, ${barnsBefore} built in the warm-up ticks, ` +
+      `${built(sim, Building.Barn) - barnsBefore} in the measured ticks, ${barns - built(sim, Building.Barn)} unfinished at the end`,
+  );
+  console.log(
+    `  forage in the measured ticks: ${work.foraged} units picked and ${sim.tally.foragedIn - tallyBefore.foragedIn} put into a store by the foragers, ` +
       `${foragersBefore} at the start and ${foragers(sim)} in the ${built(sim, Building.Hut) * places} places of the finished huts at the end`,
   );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
@@ -352,7 +375,7 @@ console.log(
 );
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
-    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites and ${HUT_GRID * HUT_GRID} hut sites, stockpile on every other open tile, ` +
+    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, and ${BARN_GRID * BARN_GRID} barn sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = SIZES.map(measure);

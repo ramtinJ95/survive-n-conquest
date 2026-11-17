@@ -15,7 +15,7 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { CAMP_STORE, HOUSE_FOOD_LIMIT } from '../sim/stores';
+import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, foodLimit, storeKind } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
@@ -50,7 +50,7 @@ export interface Facts {
     | 'missedMeals'
     | 'storeFood'
     | 'campFoodLimit'
-    | 'campFoodInbound'
+    | 'storeInbound'
   >;
 }
 
@@ -130,7 +130,10 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     if (rock) return working ? 'Quarrying stone' : 'Walking to the rock';
     return working ? 'Chopping a tree' : 'Walking to a tree';
   },
-  [CARRY]: (facts, id) => fetching(facts, id, 'to the stockpile', 'to pick up'),
+  [CARRY]: (facts, id) => {
+    const food = facts.frame.carried[id] === Good.Food || facts.map.stackGood[facts.frame.taskTiles[id]!] === Good.Food;
+    return fetching(facts, id, food ? `to ${storeAt(facts, facts.frame.destinations[id]!)}` : 'to the stockpile', 'to pick up');
+  },
   [SUPPLY]: (facts, id) => {
     const site = siteNoun(facts, facts.frame.destinations[id]!);
     return fetching(facts, id, `to a ${site} site`, 'to fetch', ` for a ${site} site`);
@@ -139,12 +142,30 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     const site = siteNoun(facts, facts.frame.taskTiles[id]!);
     return working ? `Building a ${site}` : `Walking to a ${site} site`;
   },
-  [STOCK]: ({ frame }, id) => (frame.carried[id] === Good.Food ? 'Carrying food home' : 'Walking to the camp for food'),
-  [FORAGE]: ({ frame }, id, working) => {
-    if (frame.carried[id] === Good.Food) return 'Carrying food to the camp';
+  [STOCK]: (facts, id) => {
+    const { frame, camp } = facts;
+    if (frame.carried[id] !== Good.Food) return `Walking to ${storeAt(facts, frame.taskTiles[id]!)} for food`;
+    return frame.destinations[id] === camp ? 'Carrying food to the camp' : 'Carrying food home';
+  },
+  [FORAGE]: (facts, id, working) => {
+    if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
     return working ? 'Foraging' : 'Walking to a tree to forage';
   },
 };
+
+/** The common store a carrier goes to on a tile: the camp at the camp center, and a barn at any tile beside one. */
+function storeAt({ camp }: Facts, tile: number): string {
+  return tile === camp ? 'the camp' : 'a barn';
+}
+
+/** Whether some common store, the camp or a finished barn, takes one more unit, counting the units on their way. */
+function roomInAStore({ orders, frame }: Facts): boolean {
+  for (let store = 0; store < frame.storeFood.length; store++) {
+    if (storeKind(orders, store) !== StoreKind.Common) continue;
+    if (frame.storeFood[store]! + frame.storeInbound[store]! < foodLimit(orders, frame.campFoodLimit, store)) return true;
+  }
+  return false;
+}
 
 function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, purpose = ''): string {
   const carried = frame.carried[id] as Good;
@@ -160,9 +181,10 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
 /** What a villager with no task does by day, by its job: a forager says why it is not out foraging. */
 const IDLE_WORDS: Readonly<Record<Job, (facts: Facts) => string>> = {
   [Job.None]: () => 'Idle',
-  [Job.Forager]: ({ frame }) => {
+  [Job.Forager]: (facts) => {
+    const { frame } = facts;
     if (seasonIndexAt(frame.tick) === WINTER) return 'Idle, nothing grows until spring';
-    if (frame.storeFood[CAMP_STORE]! + frame.campFoodInbound >= frame.campFoodLimit) return 'Idle, waiting for room at the camp';
+    if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
     return 'Looking for forage';
   },
 };
@@ -324,7 +346,16 @@ const PANELS: Panels = {
     ],
   },
   hutSite: sitePanel(Building.Hut),
-  hut: workplacePanel(Building.Hut, `Its foragers pick food in the forest within ${BUILDINGS[Building.Hut].reach} tiles and carry it to the camp.`),
+  hut: workplacePanel(
+    Building.Hut,
+    `Its foragers pick food in the forest within ${BUILDINGS[Building.Hut].reach} tiles and carry it to the nearest store with room.`,
+  ),
+  barnSite: sitePanel(Building.Barn),
+  barn: {
+    title: 'Barn',
+    note: 'A finished barn. Food in it keeps.',
+    rows: [{ label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${BARN_FOOD_LIMIT}` }],
+  },
   camp: {
     title: 'Camp',
     rows: [

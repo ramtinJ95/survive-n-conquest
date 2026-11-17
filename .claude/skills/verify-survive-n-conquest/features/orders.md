@@ -4,7 +4,7 @@ The player tells the land what should happen on it. A toolbar at the right edge 
 
 ## Sub-features
 
-- `orders-tools` picks a tool by its button, by its key (`C` Chop, `M` Quarry, `P` Stockpile, `H` House, `G` Forager's hut, `Delete` or `Backspace` Cancel), or from the keyboard. The toolbar is one stop in the Tab order, the arrow keys, Home, and End move between its tools without moving the camera, and Enter picks one. Escape or a second press puts it away.
+- `orders-tools` picks a tool by its button, by its key (`C` Chop, `M` Quarry, `P` Stockpile, `H` House, `G` Forager's hut, `B` Barn, `Delete` or `Backspace` Cancel), or from the keyboard. The toolbar is one stop in the Tab order, the arrow keys, Home, and End move between its tools without moving the camera, and Enter picks one. Escape or a second press puts it away.
 - `orders-drag` outlines the dragged rectangle on the tile grid and counts the tiles it would change before the release.
 - `orders-chop` marks exactly the forest tiles that draw a tree.
 - `orders-quarry` marks rock tiles.

@@ -79,6 +79,15 @@ export const TOOLS: readonly Tool[] = [
     icon: '<path d="M4.5 13h15L12 3.5z"/><path d="M7 13v7h10v-7"/><path d="M10.5 20v-3.5h3V20"/>',
   },
   {
+    id: 'barn',
+    building: Building.Barn,
+    label: 'Barn',
+    codes: ['KeyB'],
+    key: 'B',
+    hint: 'Click to place a barn site on 3 by 3 tiles of open, level ground. A finished barn stores food.',
+    icon: '<path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M9 20v-6h6v6"/><path d="m9 14 6 6m0-6-6 6"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
@@ -188,6 +197,7 @@ const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> =
   stockpile: (tiles) => `${plural(tiles, 'tile joins', 'tiles join')} the stockpile zone.`,
   house: () => `${BUILDING_WORDS[Building.House].title} site placed.`,
   hut: () => `${BUILDING_WORDS[Building.Hut].title} site placed.`,
+  barn: () => `${BUILDING_WORDS[Building.Barn].title} site placed.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 

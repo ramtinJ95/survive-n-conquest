@@ -1,6 +1,5 @@
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import type { Sim, Speed } from './sim/sim';
-import { CAMP_STORE } from './sim/stores';
 import { takeTileChanges } from './sim/tileChanges';
 
 export interface ClockSnapshot {
@@ -43,8 +42,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
   readonly campFoodLimit: number;
-  /** Units of food on their way into the camp, which count against its room. */
-  readonly campFoodInbound: number;
+  /** Units of food on their way into each store, by store id, which count against its room. */
+  readonly storeInbound: Uint16Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -90,7 +89,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     missedMeals: villagers.missedMeals.slice(),
     storeFood: sim.stores.food.slice(),
     campFoodLimit: sim.stores.campLimit,
-    campFoodInbound: sim.stores.inbound[CAMP_STORE]!,
+    storeInbound: sim.stores.inbound.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
     outcome,
@@ -111,6 +110,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.hired,
     frame.missedMeals,
     frame.storeFood,
+    frame.storeInbound,
     frame.tiles,
     frame.orders.claims,
     frame.orders.sites,
