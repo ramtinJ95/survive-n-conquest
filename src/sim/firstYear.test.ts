@@ -73,18 +73,18 @@ describe('the first year on seed 7 with a barn', () => {
     for (const command of barnYearCommands(barn)) expect(applyCommand(sim, command)).toMatchObject({ ok: true });
     const slot = sim.orders.siteOf[barn.y * sim.map.size + barn.x]!;
     let barnAtAutumnsEnd = 0;
-    while (dateAt(sim.tick).day <= 12) {
+    while (!sim.over && dateAt(sim.tick).day <= 12) {
       if (isNight(sim.tick) && !isNight(sim.tick - 1) && dateAt(sim.tick).day === 9) barnAtAutumnsEnd = sim.stores.held[Good.Food - 1]![slot]!;
       step(sim);
     }
     return { sim, barnAtAutumnsEnd };
   }
 
-  it('has two foragers pick more with the barn beside the hut than with it far away, where the camp stays nearer every tree', () => {
+  it('has two foragers pick more with the barn beside the hut than with it far away, where the camp stays nearer every tree, and all 8 freeze in the last night of winter', () => {
     const beside = yearWith(FIRST_YEAR_BARNS.beside);
     const far = yearWith(FIRST_YEAR_BARNS.far);
-    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([78, 30, 0, 8]);
-    expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([56, 0, 16, 8]);
+    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.tally.froze, beside.sim.living]).toEqual([78, 30, 0, 8, 0]);
+    expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.tally.froze, far.sim.living]).toEqual([56, 0, 16, 8, 0]);
   });
 });
 
@@ -99,32 +99,36 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
       return food;
     };
     let atAutumnsEnd: number[] = [];
+    let huntersAtAutumnsEnd = 0;
     let winterKills = 0;
-    while (dateAt(sim.tick).day <= 12) {
-      if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) atAutumnsEnd = [barns(), sim.stores.held[Good.Food - 1]![CAMP_STORE]!, sim.tally.kills];
+    while (!sim.over && dateAt(sim.tick).day <= 12) {
+      if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) {
+        atAutumnsEnd = [barns(), sim.stores.held[Good.Food - 1]![CAMP_STORE]!, sim.tally.kills];
+        huntersAtAutumnsEnd = Array.from(sim.villagers.workplace).filter((place) => place === lodge).length;
+      }
       const kills = sim.tally.kills;
       step(sim);
       if (dateAt(sim.tick).season === 'Winter') winterKills += sim.tally.kills - kills;
     }
-    return { sim, lodge, atAutumnsEnd, winterKills };
+    return { sim, huntersAtAutumnsEnd, atAutumnsEnd, winterKills };
   }
 
-  it('brings all 8 settlers through the winter with the hut, the barn beside it, and the lodge, on stored forage and hunted deer', () => {
-    const { sim, lodge, atAutumnsEnd, winterKills } = huntYear(true);
-    expect(Array.from(sim.villagers.workplace).filter((place) => place === lodge).length).toBe(2);
+  it('feeds all 8 settlers through the winter with the hut, the barn beside it, and the lodge, on stored forage and hunted deer, and all 8 freeze in its last night', () => {
+    const { sim, huntersAtAutumnsEnd, atAutumnsEnd, winterKills } = huntYear(true);
+    expect(huntersAtAutumnsEnd).toBe(2);
     const { tally } = sim;
     expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([73, 17, 14, 84, 28, 57, 0]);
     expect(atAutumnsEnd).toEqual([97, 6, 13]);
     expect(winterKills).toBe(1);
-    expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
+    expect([tally.meals, tally.missed, tally.coldNights, tally.froze, sim.living]).toEqual([96, 0, 24, 8, 0]);
   });
 
-  it('brings all 8 through the year on hunted deer alone with the barn and the lodge and no hut', () => {
+  it('feeds all 8 through the year on hunted deer alone with the barn and the lodge and no hut, and all 8 freeze in the last night of winter', () => {
     const { sim, atAutumnsEnd, winterKills } = huntYear(false);
     const { tally } = sim;
-    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([0, 15, 12, 72, 16, 56, 0]);
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([0, 15, 12, 72, 15, 57, 0]);
     expect(atAutumnsEnd).toEqual([18, 0, 11]);
     expect(winterKills).toBe(1);
-    expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
+    expect([tally.meals, tally.missed, tally.coldNights, tally.froze, sim.living]).toEqual([96, 0, 24, 8, 0]);
   });
 });

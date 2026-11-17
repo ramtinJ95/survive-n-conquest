@@ -22,6 +22,15 @@ export function isNight(tick: number): boolean {
   return time < dawn || time >= TICKS_PER_DAY - dawn;
 }
 
+/** The season whose nights are cold. */
+export const COLD_SEASON: Season = 'Winter';
+
+/** Whether the night that holds `tick` is cold: one whose dusk fell in the cold season. After midnight that is the dusk of the day before. */
+export function isColdNight(tick: number): boolean {
+  const time = tickOfDay(tick);
+  return seasonAt(time < TICKS_PER_DAY / 2 ? tick - time - 1 : tick) === COLD_SEASON;
+}
+
 /** Whether the tick is the first of a day. */
 export function isDawn(tick: number): boolean {
   return !isNight(tick) && isNight(tick - 1);

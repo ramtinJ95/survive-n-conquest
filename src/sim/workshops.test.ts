@@ -209,7 +209,7 @@ describe('a woodshed', () => {
     );
     expect(miscounts).toEqual([]);
     runUntil(sim, () => sim.workshops.stopped[shed] === Stop.NoInput, TICKS_PER_DAY);
-    expect([sim.tally.batches, firewood(sim, shed), arrived(sim.map, sim.orders, house, Good.Log)]).toEqual([3, 6, 12]);
+    expect([sim.tally.batches, sim.tally.made, arrived(sim.map, sim.orders, house, Good.Log)]).toEqual([3, 6, 12]);
     expect(stops.has(Stop.ForSites)).toBe(true);
   });
 
