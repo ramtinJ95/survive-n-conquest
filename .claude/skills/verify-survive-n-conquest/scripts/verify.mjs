@@ -492,13 +492,15 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
 /**
  * Converts a video to a GIF that starts `from` seconds in and is no wider than `width`, and steps its size down until
  * it is under the limit. `crop`, a box in video pixels, keeps only that part of the picture, and `colors` caps the
- * palette of every step.
+ * palette of every step. `decimate` drops every frame that repeats the one before and shows each frame that is left
+ * once, so a paused stop passes in one frame. With `decimate`, `speed` keeps one of every `speed` frames that are left.
  */
-function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1 } = {}) {
+function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
   const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
-  const cut = (crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '') + (speed === 1 ? '' : `setpts=PTS/${speed},`);
+  const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
-    const palette = `${cut}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+    const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
+    const palette = `${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg(['-ss', from.toFixed(2), ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }
@@ -3941,6 +3943,400 @@ SCENARIOS.storing = async (session) => {
   await ground.context.close();
   seen.push(...ground.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `hunting` scenario plays a hunter's lodge on seed 7 through the page, with the camp's own 24 food and no
+ * forager's hut, so every unit that enters a store on day 2 comes from a kill. A Chop drag over the trees from
+ * (141, 100) to (150, 112) and a Quarry drag over the rock from (124, 105) to (125, 108) give the logs and the stone,
+ * and the barn goes on (134, 108). Once the barn stands, the lodge goes on (129, 100), at the north meadow's southern
+ * edge, so the deer nearest its hunters graze in the meadow and the barn is the store nearest their kills. The orders
+ * go in from 42 m from the south. The flight is watched from 23 m looking east over the meadow, the distance of the
+ * foraging clip, where north is to the left, and the hunt from 23 m looking west over the lodge. `scripts/aim.ts`
+ * found the spots: `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7
+ * '{"wheel":-700,"turn":{"x":0,"y":20},"target":[137,110]}' '[[141,100],[150,112],[124,105],[125,108],[134,108]]'`,
+ * then `'{"wheel":-1100,"turn":{"x":424,"y":20},"target":[128,99]}'` with the tiles
+ * '[[129,100],[129.5,100.5,1.2],[129.5,100.5,0.5],[135,109,1.6],[135,109,0.8]]' for the lodge, its roof and wall, and
+ * the barn's roof and wall, and `'{"wheel":-1100,"turn":{"x":-300,"y":50},"target":[131,102]}'` with the tiles
+ * '[[135,109,1.6],[135,109,0.8]]'. Each later view is the difference of two of these: the near view's pan of 820, 0
+ * from the opening less the order view's of 509, 179 at the same zoom and turn, and the hunt view's of -613, -332 less
+ * -728, -303 at the near view's target.
+ */
+const HUNT_SEARCH = '?seed=7';
+const HUNT_ORDER_VIEW = { wheel: -700, turn: { x: 0, y: 20 }, pan: { x: -265, y: 116 } };
+const HUNT_CLOSER = { wheel: -400, turn: { x: 424, y: 0 }, pan: { x: 311, y: -179 } };
+/**
+ * The hunt's view looks west over the lodge to the meadow and the lake, so the trees at the meadow's western edge stand
+ * behind the deer and not in front of them, and the barn lies to the left. It is a turn of the near view about its
+ * look-at point and a pan to (131, 102).
+ */
+const HUNT_VIEW = { wheel: 0, turn: { x: -724, y: 30 }, pan: { x: 115, y: -29 } };
+const HUNT_ORDERS = {
+  chop: [{ x: 605, y: 208 }, { x: 675, y: 368 }],
+  quarry: [{ x: 369, y: 161 }, { x: 357, y: 210 }],
+  barn: { x: 460, y: 248 },
+};
+const HUNT_SPOTS = {
+  lodge: { x: 520, y: 238 },
+  lodgeRoof: [{ x: 535, y: 202 }, { x: 534, y: 217 }],
+  barnRoof: [{ x: 741, y: 84 }, { x: 735, y: 102 }],
+  huntBarnRoof: [{ x: 205, y: 236 }, { x: 214, y: 251 }],
+};
+/**
+ * Deer 11 of seed 7 walks south toward the quarry on the morning of day 2 and runs north from the settler who
+ * quarries there. In `src/sim` terms it starts to flee at 05:55 to 05:57 from (128.6, 100.1), 6.1 tiles from her, for
+ * every delay of the orders from 5 to 90 ticks, and stops at about (132, 89) by 06:16. The stops come every 2 game
+ * minutes from 05:40 to 06:20.
+ */
+const FLIGHT_STOPS = Array.from({ length: 21 }, (_, step) => clockAt(clockMinutes({ day: 2, time: '05:40' }) + 2 * step));
+/**
+ * The coat of `deerShape` in `src/render/shapes.ts`, 0x9b6a3d. In the light of 06:04 on day 2 it read 89, 58, 31 lit
+ * and 74, 46, 23 in shade, and its legs 43, 26, 13. A settler's skin, 131, 94, 67, has too little green over blue.
+ */
+const DEER_COAT = ([r, g, b]) => r >= 55 && r >= 1.3 * g && r <= 1.85 * g && g >= 1.6 * b && g <= 2.5 * b;
+/** The least and the most pixels of coat a deer shows at 23 m. A deer read 219 to 533; tree trunks read about 250 but stand still. */
+const DEER_PIXELS = { least: 120, most: 900 };
+/** A tunic in the light of the morning of day 2: it read 147, 109, 21 and 126, 92, 15 at 05:56, where daylight's test needs red over 170. */
+const MORNING_TUNIC = ([r, g, b]) => r > 100 && g > 0.6 * r && g < 0.8 * r && b < 0.18 * r;
+/**
+ * At the near view a tile of the meadow, from (124, 84) to (136, 101), is at most 33 pixels across, so a move of
+ * `HUNT_TILE_PX` pixels is at least one tile. The nearest row is the widest.
+ */
+const HUNT_TILE_PX = 34;
+/** Tiles a deer walks in a game minute as it wanders: 0.8 a second, and a day of 1440 minutes takes 300 seconds at 1×. */
+const DEER_WALK_PER_MINUTE = 0.8 * (300 / MINUTES_PER_DAY);
+/** The chained steps of a flight the check needs, each faster than a deer walks, and the most a deer may jump between two stops. */
+const FLIGHT = { steps: 3, jump: 120, settlerPx: 220 };
+const HUNT_FINISHED = { after: { day: 2, time: '06:00' }, before: { day: 2, time: '18:00' } };
+const HUNT_UNTIL = { day: 2, time: '19:05' };
+const HUNTER_DOING = /^(Stalking a deer|Aiming at a deer|Walking to a kill to pick up food|Carrying food to (a barn|the camp)|Looking for deer|Idle, no deer within 40 tiles of the lodge|Idle, waiting for room in a store)$/;
+/** The view the follow keeps the hunter near, inside the clip's crop. */
+const HUNT_AIM_AT = { x: 500, y: 270 };
+const HUNT_RECENTRE = 150;
+/** Game minutes the follow runs before it pauses to look where the hunter went. A hunter walks about 1.5 tiles a second. */
+const HUNT_LOOK_EVERY = 12;
+/** While the hunter stalks or aims, the follow frames it with the deer nearest it within this many pixels, a deer showing at least `least` pixels of coat. */
+const HUNT_FRAME_DEER = 360;
+const HUNT_DEER_PIXELS = { least: 60 };
+const HUNT_CLIP = { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 1.5 };
+const FLIGHT_CLIP = { crop: { x: 216, y: 0, width: 584, height: 400 }, width: 560, colors: 32, decimate: true };
+/** The flight clip runs from the deer's walk toward the quarry to the end of its run, right of the Stockpiles panel. */
+const FLIGHT_CUT = { from: { day: 2, time: '05:48' }, to: { day: 2, time: '06:18' } };
+
+SCENARIOS.hunting = async (session) => {
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, markOf, click } = selectionDriver(session);
+  const { food, lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const play = await session.open(CLIP, { record: true, search: HUNT_SEARCH, clock: 'paused' });
+  const { page } = play;
+  // Drags in pieces of at most 250 pixels about the middle, so no piece starts on the toolbar or a panel.
+  const move = async ({ wheel, turn, pan }) => {
+    await page.mouse.move(middle.x, middle.y);
+    if (wheel) {
+      await page.mouse.wheel(0, wheel);
+      await session.still(page);
+    }
+    for (const [step, button] of [[turn, 'right'], [pan, 'left']]) {
+      const pieces = Math.ceil(Math.hypot(step.x, step.y) / 250);
+      for (let piece = 0; piece < pieces; piece++) {
+        const part = { x: step.x / pieces, y: step.y / pieces };
+        const from = { x: middle.x - part.x / 2, y: middle.y - part.y / 2 };
+        await session.drag(page, from, { x: from.x + part.x, y: from.y + part.y }, button);
+      }
+      await session.still(page);
+    }
+  };
+  const away = async () => {
+    const toolbar = await page.getByRole('toolbar', { name: 'Orders' }).boundingBox();
+    await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + 2);
+  };
+  const readOne = async (spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) return read;
+    }
+    return read;
+  };
+  const count = (read) => Number(/^(\d+) of \d+$/.exec(read?.rows?.Food ?? '')?.[1] ?? NaN);
+  const jobs = async () =>
+    page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+    });
+  const labelGone = async (name, minutes) => {
+    const deadline = Date.now() + minutes * 60_000;
+    while ((await page.getByRole('status', { name }).count()) > 0) {
+      if (Date.now() > deadline) fail(`the ${name} still stood ${minutes} minutes after its order at 8×`);
+      await page.waitForTimeout(100);
+    }
+    return session.gameMinutes(page);
+  };
+
+  await move(HUNT_ORDER_VIEW);
+  const orders = [];
+  for (const [key, spots, done] of [['KeyC', HUNT_ORDERS.chop, /trees? marked for felling/], ['KeyM', HUNT_ORDERS.quarry, /rock tiles? marked for quarrying/]]) {
+    await away();
+    await page.keyboard.press(key);
+    await session.drag(page, ...spots, 'left');
+    orders.push(await said(page, done));
+  }
+  await away();
+  await page.keyboard.press('KeyB');
+  await page.mouse.move(HUNT_ORDERS.barn.x, HUNT_ORDERS.barn.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  orders.push(await said(page, /^Barn site placed/));
+  await page.keyboard.press('Escape');
+  session.check(
+    'the Chop and Quarry drags mark trees and rock, and the barn site is placed',
+    /marked for felling/.test(orders[0]) && /marked for quarrying/.test(orders[1]) && /^Barn site placed/.test(orders[2]),
+    orders.map((line) => `"${line}"`).join(', '),
+  );
+  await move(HUNT_CLOSER);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+
+  const frames = [];
+  const cut = {};
+  for (const stop of FLIGHT_STOPS) {
+    await session.reach(page, stop);
+    await session.still(page);
+    for (const [end, time] of Object.entries(FLIGHT_CUT)) if (clockMinutes(time) === clockMinutes(stop)) cut[end] = play.since();
+    const png = await session.screenshot(page, `hunting-flight-${stop.time.replace(':', '')}`);
+    const skip = skipOf(await uiBoxes(page));
+    frames.push({
+      minutes: await session.gameMinutes(page),
+      deer: spotsOf(png, CLIP, DEER_COAT, skip).filter((spot) => spot.count >= DEER_PIXELS.least && spot.count <= DEER_PIXELS.most),
+      settlers: spotsOf(png, CLIP, MORNING_TUNIC, skip),
+    });
+  }
+  // A flight is a chain of deer spots across stops, each step faster than a deer walks and in about the same direction.
+  const fast = (from, to, minutes) => Math.hypot(to.x - from.x, to.y - from.y) / HUNT_TILE_PX > DEER_WALK_PER_MINUTE * (minutes + 1);
+  const nearest = (spots, point) => spots.reduce((best, spot) => (!best || Math.hypot(spot.x - point.x, spot.y - point.y) < Math.hypot(best.x - point.x, best.y - point.y) ? spot : best), null);
+  let flight = null;
+  for (let start = 0; start + FLIGHT.steps < frames.length && !flight; start++) {
+    for (const first of frames[start].deer) {
+      const chain = [first];
+      for (let index = start + 1; index < frames.length; index++) {
+        const last = chain[chain.length - 1];
+        const next = nearest(frames[index].deer, last);
+        if (!next || Math.hypot(next.x - last.x, next.y - last.y) > FLIGHT.jump || !fast(last, next, frames[index].minutes - frames[index - 1].minutes)) break;
+        if (chain.length > 1) {
+          const before = chain[chain.length - 2];
+          if ((last.x - before.x) * (next.x - last.x) + (last.y - before.y) * (next.y - last.y) <= 0) break;
+        }
+        chain.push(next);
+      }
+      if (chain.length > FLIGHT.steps) {
+        flight = { start, chain };
+        break;
+      }
+    }
+  }
+  if (flight) {
+    const { start, chain } = flight;
+    const end = start + chain.length - 1;
+    const from = chain[0];
+    const to = chain[chain.length - 1];
+    const settler = nearest(frames[start].settlers, from);
+    const settlerLater = settler && nearest(frames[end].settlers, settler);
+    const minutes = frames[end].minutes - frames[start].minutes;
+    const tiles = Math.hypot(to.x - from.x, to.y - from.y) / HUNT_TILE_PX;
+    const before = settler ? Math.hypot(settler.x - from.x, settler.y - from.y) : Infinity;
+    const after = settlerLater ? Math.hypot(settlerLater.x - to.x, settlerLater.y - to.y) : 0;
+    session.check(
+      'a deer runs from a settler near it faster than a deer walks',
+      settler !== null && before <= FLIGHT.settlerPx && after > before && tiles > DEER_WALK_PER_MINUTE * (minutes + 1),
+      `from ${clockText(frames[start].minutes)} to ${clockText(frames[end].minutes)} a deer ran from ${Math.round(from.x)},${Math.round(from.y)} to ${Math.round(to.x)},${Math.round(to.y)} in ${chain.length - 1} steps, at least ${tiles.toFixed(1)} tiles in ${minutes} game minutes, where a walking deer covers at most ${(DEER_WALK_PER_MINUTE * (minutes + 1)).toFixed(1)}; the nearest settler stood ${Math.round(before)} pixels from it at the start, needs at most ${FLIGHT.settlerPx}, and ${Math.round(after)} at the end`,
+    );
+  } else {
+    session.check('a deer runs from a settler near it faster than a deer walks', false, `no chain of ${FLIGHT.steps} fast steps in ${frames.length} stops; deer spots per stop ${frames.map((frame) => frame.deer.length).join(', ')}`);
+  }
+  // The deer that ran stands where its run ended at the last stop, clear of every settler, and a click on its coat leaves no panel.
+  const last = frames[frames.length - 1];
+  const ran = flight && nearest(last.deer, flight.chain[flight.chain.length - 1]);
+  const lone = ran && Math.hypot(ran.x - flight.chain[flight.chain.length - 1].x, ran.y - flight.chain[flight.chain.length - 1].y) <= 60 && last.settlers.every((settler) => Math.hypot(settler.x - ran.x, settler.y - ran.y) > 60) ? ran : null;
+  const onDeer = lone ? await click(page, lone) : undefined;
+  session.check(
+    'a click on a deer selects nothing',
+    lone !== null && onDeer === null,
+    lone ? `a click at ${Math.round(lone.x)},${Math.round(lone.y)}, the middle of the coat of the deer that ran, ${onDeer ? `opened "${text(onDeer)}"` : 'left no panel'}` : 'the deer that ran was not found clear of the settlers at the last stop',
+  );
+
+  await page.keyboard.press('4');
+  const barnAt = await labelGone('Barn site', 6);
+  await session.pause(page);
+  await session.still(page);
+  await away();
+  await page.keyboard.press('KeyL');
+  const lodgeTool = await page.getByRole('button', { name: "Hunter's lodge", exact: true, pressed: true }).count();
+  const lodgeHint = await said(page, /hunter's lodge on 2 by 2 tiles/);
+  await page.mouse.move(HUNT_SPOTS.lodge.x, HUNT_SPOTS.lodge.y, { steps: 3 });
+  const fits = await said(page, /Click to place the hunter's lodge site here/);
+  await page.mouse.down();
+  await page.mouse.up();
+  const placed = await said(page, /^Hunter's lodge site placed/);
+  session.check(
+    `once the barn stands, at ${await at(page)}, L picks the Hunter's lodge tool, which places a lodge site with a click`,
+    lodgeTool === 1 && /hunter's lodge on 2 by 2 tiles/.test(lodgeHint) && /Click to place the hunter's lodge site here/.test(fits) && /^Hunter's lodge site placed/.test(placed),
+    `the barn's label went at ${clockText(barnAt)}; ${lodgeTool ? 'the tool is pressed' : 'no tool is pressed'}; the status line read "${lodgeHint}", then "${fits}", then "${placed}"`,
+  );
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const site = page.getByRole('status', { name: "Hunter's lodge site" });
+  const siteLabel = (await site.count()) === 1 ? (await site.innerText()).replace(/\s+/g, ' ') : null;
+  session.check(
+    "the lodge site's label reads 0 of 8 logs, 0 of 4 stone, and waits for materials",
+    siteLabel !== null && /Logs\s*0\/8/.test(siteLabel) && /Stone\s*0\/4/.test(siteLabel) && /Waiting for materials/.test(siteLabel),
+    `the label reads "${siteLabel ?? 'nothing'}"`,
+  );
+
+  await page.keyboard.press('4');
+  const lodgeAt = await labelGone("Hunter's lodge site", 6);
+  await session.pause(page);
+  await session.still(page);
+  session.check(
+    `the lodge is finished on day 2 between ${HUNT_FINISHED.after.time} and ${HUNT_FINISHED.before.time}`,
+    lodgeAt >= clockMinutes(HUNT_FINISHED.after) && lodgeAt <= clockMinutes(HUNT_FINISHED.before),
+    `the label was gone at ${clockText(lodgeAt)}; paused at ${await at(page)}`,
+  );
+  const lodge = await readOne(HUNT_SPOTS.lodgeRoof, "Hunter's lodge");
+  const hunters = (lodge?.rows?.Hunters ?? '').split(' and ').filter(Boolean);
+  session.check(
+    `at ${await at(page)} the lodge's panel says what it does and names its two hunters, with both places filled`,
+    lodge?.title === "Hunter's lodge" && /hunt deer within 40 tiles/.test(lodge.note ?? '') && hunters.length === 2 && lodge.rows.Places === '2 of 2',
+    `the panel reads "${text(lodge)}"`,
+  );
+  await session.screenshot(page, 'hunting-lodge-panel');
+  const hired = { jobs: await jobs(), news: await lines(page) };
+  session.check(
+    'the Stockpiles panel counts 2 settlers with a job, and the news names the two who became hunters',
+    hired.jobs.withJob === 2 && hired.jobs.withoutJob === 6 && hired.news.some((line) => /became hunters\.$/.test(line) && hunters.every((name) => line.includes(name))),
+    `${hired.jobs.withJob} with a job and ${hired.jobs.withoutJob} with none; the news reads ${hired.news.map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+  const barnBefore = await readOne(HUNT_SPOTS.barnRoof, 'Barn');
+  const totalBefore = await food(page);
+  await page.keyboard.press('Escape');
+  await move(HUNT_VIEW);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+
+  // The hunters stand at the lodge's corners when it is finished. A click on the fullest cells of tunic pixels finds one.
+  const findHunter = async () => {
+    const png = await session.screenshot(page, 'hunting-hunter-aim');
+    const skip = skipOf(await uiBoxes(page));
+    for (const spot of spotsOf(png, CLIP, UNIT_COLORS.villagers, skip).slice(0, 12)) {
+      const read = await click(page, { x: spot.x + SELECT_OFFSET / 2, y: spot.y });
+      if (read?.rows?.Job === 'Hunter') return read;
+    }
+    return null;
+  };
+  let hunter = await findHunter();
+  for (let tries = 0; !hunter && tries < 4; tries++) {
+    await page.keyboard.press('Escape');
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + 3));
+    await session.still(page);
+    hunter = await findHunter();
+  }
+  session.check(
+    `at ${await at(page)} a hunter's panel reads its job and what a hunter does`,
+    hunter?.rows?.Job === 'Hunter' && hunters.includes(hunter.title) && HUNTER_DOING.test(hunter.rows.Doing ?? ''),
+    `the panel reads "${text(hunter)}"`,
+  );
+  const name = hunter?.title;
+
+  // A main-button drag moves the ground by the drag, wherever it starts, so the drags start at the middle in pieces.
+  const panned = { x: 0, y: 0 };
+  const panBy = async (by) => {
+    const pieces = Math.ceil(Math.hypot(by.x, by.y) / 250);
+    for (let piece = 0; piece < pieces; piece++) {
+      const part = { x: Math.round(by.x / pieces), y: Math.round(by.y / pieces) };
+      await session.drag(page, middle, { x: middle.x + part.x, y: middle.y + part.y });
+      panned.x += part.x;
+      panned.y += part.y;
+    }
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+  };
+  // Keeps the hunter, and while it stalks or aims the deer nearest it, near `HUNT_AIM_AT`.
+  const follow = async (label, doing) => {
+    const png = await session.screenshot(page, label);
+    const boxes = await uiBoxes(page);
+    const ring = markOf(page, png, boxes);
+    if (!ring.center) return;
+    let focus = ring.center;
+    if (/deer/.test(doing ?? '')) {
+      const deer = spotsOf(png, CLIP, DEER_COAT, skipOf(boxes)).filter((spot) => spot.count >= HUNT_DEER_PIXELS.least && spot.count <= DEER_PIXELS.most);
+      const prey = deer.reduce((best, spot) => {
+        const away = Math.hypot(spot.x - ring.center.x, spot.y - ring.center.y);
+        return away <= HUNT_FRAME_DEER && (!best || away < best.away) ? { ...spot, away } : best;
+      }, null);
+      if (prey) focus = { x: (ring.center.x + prey.x) / 2, y: (ring.center.y + prey.y) / 2 };
+    }
+    if (Math.hypot(focus.x - HUNT_AIM_AT.x, focus.y - HUNT_AIM_AT.y) >= HUNT_RECENTRE) await panBy({ x: HUNT_AIM_AT.x - focus.x, y: HUNT_AIM_AT.y - focus.y });
+  };
+  // Runs at 2× while the hunter stalks and aims and at 4× while it walks with the food, until its panel reads something
+  // else or for at most `minutes`, and pauses there.
+  const runWhileDoing = async (doing, minutes) => {
+    const until = (await session.gameMinutes(page)) + minutes;
+    await page.keyboard.press(/^(Walking to a kill|Carrying food)/.test(doing) ? '3' : '2');
+    for (;;) {
+      const read = await reads(page);
+      if (read?.title !== name || read.rows.Doing !== doing || (await session.gameMinutes(page)) >= until) break;
+      await page.waitForTimeout(60);
+    }
+    await session.pause(page);
+    await session.still(page);
+    return reads(page);
+  };
+  const hunt = [];
+  let huntFrom = null;
+  let read = hunter;
+  let delivered = null;
+  for (let stop = 0; read?.title === name && (await session.gameMinutes(page)) < clockMinutes(HUNT_UNTIL); stop++) {
+    hunt.push({ at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries });
+    if (huntFrom === null && read.rows.Doing === 'Stalking a deer') huntFrom = play.since();
+    await follow(`hunting-follow-${String(stop).padStart(2, '0')}`, read.rows.Doing);
+    if (delivered) break;
+    const next = await runWhileDoing(read.rows.Doing, HUNT_LOOK_EVERY);
+    if (/^Carrying food to/.test(read.rows.Doing) && next?.rows?.Doing !== read.rows.Doing) delivered = { at: await at(page), from: read.rows.Doing };
+    read = next;
+  }
+  const huntTo = play.since();
+  const seenDoing = hunt.map((step) => step.doing);
+  const order = ['Stalking a deer', 'Aiming at a deer', 'Walking to a kill to pick up food', 'Carrying food to a barn'];
+  const firsts = order.map((doing) => seenDoing.indexOf(doing));
+  const steps = hunt.map((step) => `${step.at} "${step.doing}"`).join(', ');
+  session.check(
+    `${name ?? 'the hunter'}'s panel reads the hunt at paused stops: stalking, aiming, walking to the kill, and carrying its food to a barn, in that order`,
+    firsts.every((index) => index >= 0) && firsts.every((index, place) => place === 0 || index > firsts[place - 1]) && hunt.every((step) => HUNTER_DOING.test(step.doing ?? '')),
+    steps,
+  );
+  session.check(
+    'the hunter carries the food 1 unit at a time',
+    hunt.filter((step) => /^Carrying food/.test(step.doing ?? '')).every((step) => step.carries === '1 food'),
+    hunt.filter((step) => /^Carrying food/.test(step.doing ?? '')).map((step) => `${step.at} carries ${step.carries}`).join(', ') || 'no stop read a carrier',
+  );
+  await page.keyboard.press('Escape');
+  await panBy({ x: -panned.x, y: -panned.y });
+  const barnAfter = await readOne(HUNT_SPOTS.huntBarnRoof, 'Barn');
+  const totalAfter = await food(page);
+  await session.screenshot(page, 'hunting-barn-after');
+  session.check(
+    `the food of the kill rises in the barn's panel and in the Barn and camp food total, from ${clockText(lodgeAt)} to ${delivered?.at ?? 'the end'}`,
+    delivered?.from === 'Carrying food to a barn' && count(barnAfter) > count(barnBefore) && totalAfter.camp > totalBefore.camp,
+    `the barn's panel read "${barnBefore?.rows?.Food}" and then "${barnAfter?.rows?.Food}"; Barn and camp food read ${totalBefore.camp} and then ${totalAfter.camp}`,
+  );
+
+  await session.finishClips(play.context, page, [
+    { label: 'hunting-deer-runs', ...cut, ...FLIGHT_CLIP },
+    { label: 'hunting-hunt', from: huntFrom ?? cut.to, to: huntTo, ...HUNT_CLIP },
+  ]);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
 function scenarioNamed(name) {
