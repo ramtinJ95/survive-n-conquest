@@ -4798,14 +4798,14 @@ const WITH_HIDE = 'Carrying a hide to the stockpile';
 /** Where the follows keep the one they follow, and how far it may stray before the view pans after it. */
 const CLOTHING_AIM_AT = { x: 520, y: 290 };
 const CLOTHING_RECENTRE = 140;
-/** While it waits at the kill, it clicks the tunics within this many pixels of the hunter's spot there, every `every` game minutes. */
-const CLOTHING_AT_KILL = { px: 170, every: 6, clicks: 8 };
+/** While the hide waits at the kill, the search clicks up to `clicks` tunics in view every `every` game minutes. */
+const CLOTHING_SEEK = { every: 6, clicks: 12 };
 /** The most pixels the carrier's ring stands from the stockpile's middle when it puts the hide down, its 9 tiles about 20 pixels each. */
 const CLOTHING_AT_STOCKPILE = 60;
 const CLOTHING_LOOK_EVERY = 12;
 const CLOTHING_CLIPS = {
-  hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 520, colors: 32, decimate: true },
-  piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 520, colors: 32, decimate: true, speed: 2 },
+  hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 2 },
+  piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 3 },
 };
 const TOOLBAR_TEN = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
 
@@ -4864,15 +4864,14 @@ SCENARIOS.clothing = async (session) => {
     }
     return session.gameMinutes(page);
   };
-  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels, within
-  // `near` of a point when one is given, and pass over the cells beside a click that opened another settler.
-  const seek = async (shot, wanted, { near = null, clicks = 16 } = {}) => {
+  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels, and pass
+  // over the cells beside a click that opened another settler.
+  const seek = async (shot, wanted, { clicks = 16 } = {}) => {
     const png = await session.screenshot(page, shot);
     const boxes = skipOf(await uiBoxes(page));
     const cells = new Map();
     for (const { x, y } of await tunicPixels(page, png)) {
       if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
-      if (near && Math.hypot(x - near.x, y - near.y) > CLOTHING_AT_KILL.px) continue;
       const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
       const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
       cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
@@ -5002,6 +5001,9 @@ SCENARIOS.clothing = async (session) => {
     hutAt >= clockMinutes(CLOTHING_FINISHED.hut.after) && hutAt <= clockMinutes(CLOTHING_FINISHED.hut.before),
     `the label was gone at ${clockText(hutAt)}; paused at ${await at(page)}`,
   );
+  // The tailor's first look for a hide comes on its next think tick, and its panel reads `Looking for a hide` until then.
+  await session.reach(page, clockAt(hutAt + 3));
+  await session.still(page);
   const hut = await clickOne(CLOTHING_SPOTS.hutRoof, "Tailor's hut");
   const name = hut?.rows?.Tailor;
   session.check(
@@ -5059,15 +5061,13 @@ SCENARIOS.clothing = async (session) => {
   const hunt = [];
   let read = hunter;
   let kill = null;
-  let killFrom = null;
-  for (let stop = 0; read?.title === hunterName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.kill); stop++) {
+  for (let stop = 0; read && read.title === hunterName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.kill); stop++) {
     const seen = await follow(`clothing-hunt-${String(stop).padStart(2, '0')}`);
     hunt.push({ at: await at(page), doing: read.rows.Doing, seen });
     if (/^Carrying food to/.test(read.rows.Doing) && hunt.some((step) => step.doing === 'Walking to a kill to pick up food')) {
       kill = { at: await at(page), seen, png: await session.screenshot(page, 'clothing-kill') };
       break;
     }
-    if (read.rows.Doing === 'Walking to a kill to pick up food' && killFrom === null) killFrom = play.since();
     read = await runWhile(hunterName, read.rows.Doing, CLOTHING_LOOK_EVERY, /^(Walking to a kill|Carrying food)/.test(read.rows.Doing) ? '2' : '4');
   }
   session.check(
@@ -5076,27 +5076,27 @@ SCENARIOS.clothing = async (session) => {
     hunt.map((step) => `${step.at} "${step.doing}"`).join(', ') || `no hunter found; the panel read "${text(hunter)}"`,
   );
   await page.keyboard.press('Escape');
-  await session.still(page);
+  await dragBy({ x: -panned.x, y: -panned.y }, 'left');
 
-  // The hide lies on the tile beside the kill. A settler without a job comes for it, and the follow takes it from there.
-  const killSpot = kill?.seen ? { x: kill.seen.x + panned.x, y: kill.seen.y + panned.y } : null;
+  // The hide lies on the tile beside the kill, often under the trees. The settlers without a job wait near the camp, on
+  // open ground, and one of them sets out for it: the search looks for it there, and the follow takes it to the hide and back.
   let carrier = null;
   const waited = [];
-  for (let look = 0; killSpot && !carrier && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); look++) {
-    carrier = await seek(`clothing-at-kill-${String(look).padStart(2, '0')}`, (seen) => seen?.rows?.Doing === TO_HIDE || seen?.rows?.Doing === WITH_HIDE, {
-      near: killSpot,
-      clicks: CLOTHING_AT_KILL.clicks,
+  for (let look = 0; kill && !carrier && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); look++) {
+    carrier = await seek(`clothing-carrier-aim-${String(look).padStart(2, '0')}`, (seen) => seen?.rows?.Doing === TO_HIDE || seen?.rows?.Doing === WITH_HIDE, {
+      clicks: CLOTHING_SEEK.clicks,
     });
     if (carrier) break;
     waited.push(await at(page));
-    await session.reach(page, clockAt((await session.gameMinutes(page)) + CLOTHING_AT_KILL.every));
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + CLOTHING_SEEK.every));
     await session.still(page);
   }
   const carrierName = carrier?.title;
+  const hideFrom = play.since();
   const walk = [];
   read = carrier;
   let delivered = null;
-  for (let stop = 0; read?.title === carrierName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); stop++) {
+  for (let stop = 0; read && read.title === carrierName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); stop++) {
     const seen = await follow(`clothing-hide-${String(stop).padStart(2, '0')}`);
     const step = { at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries, hides: (await stockpiles(page)).hides, seen };
     walk.push(step);
@@ -5108,7 +5108,7 @@ SCENARIOS.clothing = async (session) => {
   }
   const hideTo = play.since();
   session.check(
-    `a settler without a job, ${carrierName ?? 'nobody'}, comes to the kill for its hide and carries 1 hide to the stockpile`,
+    `after the kill a settler without a job, ${carrierName ?? 'nobody'}, walks out to a kill's hide and carries 1 hide to the stockpile`,
     carrier?.rows?.Job === 'None' &&
       walk.some((step) => step.doing === WITH_HIDE) &&
       walk.filter((step) => step.doing === WITH_HIDE).every((step) => step.carries === '1 hide') &&
@@ -5130,7 +5130,7 @@ SCENARIOS.clothing = async (session) => {
   const pieceFrom = play.since();
   const work = [];
   read = hutRead;
-  for (let stop = 0; read?.title === "Tailor's hut" && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.piece); stop++) {
+  for (let stop = 0; read && read.title === "Tailor's hut" && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.piece); stop++) {
     await session.screenshot(page, `clothing-tailor-${String(stop).padStart(2, '0')}`);
     work.push({ at: await at(page), doing: read.rows.Doing, clothing: clothingOf(read), hides: (await stockpiles(page)).hides });
     if (clothingOf(read) >= 1) break;
@@ -5144,7 +5144,7 @@ SCENARIOS.clothing = async (session) => {
   session.check(
     `with the tailor's hut's panel open, ${name ?? 'the tailor'} walks to the stockpile and carries hides to the hut one at a time, at least twice, makes clothing, and the panel reads 1 of 8 clothing`,
     work.every((step) => TAILOR_DOING.test(step.doing ?? '') || /^Walking to the camp|^Resting at the camp/.test(step.doing ?? '')) &&
-      carries >= 1 &&
+      carries >= 2 &&
       making >= 0 &&
       madeAt > making &&
       work[madeAt].clothing === 1,
@@ -5152,7 +5152,7 @@ SCENARIOS.clothing = async (session) => {
   );
 
   read = work.at(-1)?.clothing >= 1 ? await reads(page) : null;
-  for (let stop = 0; read?.title === "Tailor's hut" && read.rows.Doing !== NO_HIDE && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.stopped); stop++) {
+  for (let stop = 0; read && read.title === "Tailor's hut" && read.rows.Doing !== NO_HIDE && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.stopped); stop++) {
     read = await runWhile("Tailor's hut", read.rows.Doing, 240, '4');
   }
   const stopped = await reads(page);
@@ -5204,7 +5204,7 @@ SCENARIOS.clothing = async (session) => {
   await page.keyboard.press('Escape');
 
   const cuts = [];
-  if (killFrom !== null && delivered) cuts.push({ label: 'clothing-hide', from: killFrom, to: hideTo, ...CLOTHING_CLIPS.hide });
+  if (delivered) cuts.push({ label: 'clothing-hide', from: hideFrom, to: hideTo, ...CLOTHING_CLIPS.hide });
   if (madeAt >= 0) cuts.push({ label: 'clothing-piece', from: pieceFrom, to: pieceTo, ...CLOTHING_CLIPS.piece });
   if (cuts.length > 0) await session.finishClips(play.context, page, cuts);
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
