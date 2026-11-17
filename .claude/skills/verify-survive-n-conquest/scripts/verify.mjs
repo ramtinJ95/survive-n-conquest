@@ -359,6 +359,47 @@ function meanColor(png) {
   return mean;
 }
 
+/**
+ * The boxes, in page pixels, of every visible element over the world that
+ * paints a background: the panels, the toolbar, the clock, and the hints.
+ */
+function interfaceBoxes(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('body *')]
+      .filter((node) => node.id !== 'world' && !node.closest('canvas'))
+      .filter((node) => {
+        const style = getComputedStyle(node);
+        return style.visibility !== 'hidden' && style.display !== 'none' && style.backgroundColor !== 'rgba(0, 0, 0, 0)';
+      })
+      .map((node) => node.getBoundingClientRect())
+      .filter((box) => box.width > 0 && box.height > 0)
+      .map(({ x, y, width, height }) => ({ x, y, width, height })),
+  );
+}
+
+/**
+ * The mean color of the pixels of a screenshot of a page of `size` that lie
+ * outside every box, so that a reading of the world's light does not move
+ * when a panel grows.
+ */
+function meanColorOutside(png, size, boxes) {
+  const pixels = ffmpeg(['-i', png, '-vf', `scale=${size.width}:${size.height}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  const covered = new Uint8Array(size.width * size.height);
+  for (const box of boxes) {
+    for (let y = Math.max(Math.floor(box.y), 0); y < Math.min(Math.ceil(box.y + box.height), size.height); y++) {
+      covered.fill(1, y * size.width + Math.max(Math.floor(box.x), 0), y * size.width + Math.min(Math.ceil(box.x + box.width), size.width));
+    }
+  }
+  const sum = [0, 0, 0];
+  let count = 0;
+  for (let pixel = 0; pixel < covered.length; pixel++) {
+    if (covered[pixel] === 1) continue;
+    for (let channel = 0; channel < 3; channel++) sum[channel] += pixels[pixel * 3 + channel];
+    count++;
+  }
+  return sum.map((total) => total / count);
+}
+
 const brightness = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const blueness = ([red, , blue]) => blue / red;
 
@@ -1110,7 +1151,7 @@ const SCENARIOS = {
       await session.reach(paused.page, stop.when);
       await session.still(paused.page);
       stop.png = await session.screenshot(paused.page, `day-${index + 1}-${stop.name}`);
-      const color = meanColor(stop.png);
+      const color = meanColorOutside(stop.png, CLIP, await interfaceBoxes(paused.page));
       stop.light = brightness(color);
       stop.blue = blueness(color);
     }
