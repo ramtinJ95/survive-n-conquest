@@ -3,13 +3,28 @@ import { Good } from './goods';
 import { eat, storeOf } from './needs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { free, storeDoor } from './stores';
+import { tileAt } from './map';
+import { CAMP_STORE, free, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 
-/** Whether the villager missed a meal, has empty hands, and the store it eats from holds a unit no carrier has spoken for. */
+/**
+ * Whether the villager missed a meal, has empty hands, and the store it eats
+ * from holds a unit no carrier has spoken for behind a door it can walk to.
+ * The camp's flow field tells that at no cost: the villager's tile and the
+ * door both have a walk to the camp, or the walk between them does not exist.
+ * A villager cut off from its store keeps its task, and no route is searched.
+ */
 export function wantsMeal(sim: Sim, id: number): boolean {
-  const { villagers } = sim;
-  return villagers.missedMeals[id]! > 0 && villagers.carried[id] === Good.None && free(sim.stores, storeOf(sim, id), Good.Food) > 0;
+  const { villagers, flow, map } = sim;
+  if (villagers.missedMeals[id] === 0 || villagers.carried[id] !== Good.None) return false;
+  const store = storeOf(sim, id);
+  if (free(sim.stores, store, Good.Food) <= 0) return false;
+  const x = villagers.x[id]!;
+  const y = villagers.y[id]!;
+  if (flow.walk[tileAt(map, x, y)] === Infinity) return false;
+  if (store === CAMP_STORE) return true;
+  const door = storeDoor(sim, store, x, y);
+  return door >= 0 && flow.walk[door] !== Infinity;
 }
 
 /** Sends a villager that wants a meal to the door of the store it eats from, the camp center for the camp, and reserves the unit there. */

@@ -183,6 +183,24 @@ describe('eating first', () => {
     runUntil(sim, () => sim.tally.meals === 1, 400);
   });
 
+  it('keeps a hungry settler at work while its house holds food behind water it cannot cross, and searches no route to it', () => {
+    const rows = open(32).map((row, y) => Array.from(row, (c, x) => ((x === 22 && y <= 12) || (y === 12 && x >= 22) ? '~' : c)).join(''));
+    const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0, campFood: 0 });
+    const house = finished(sim, Building.House, 27, 5);
+    expect(sim.households.home[sim.villagers.household[0]!]).toBe(house);
+    sim.stores.held[Good.Food - 1]![house] = 2;
+    chopTrees(sim, 8, 20, 8, 20);
+    standAt(sim, 0, 8, 22);
+    sim.villagers.missedMeals[0] = 1;
+    runUntil(sim, () => sim.villagers.state[0] === VillagerState.Working, 100);
+    const searches = sim.pathSearch.searches;
+    for (let tick = 0; tick < 100; tick++) {
+      step(sim);
+      expect(sim.villagers.task[0]).toBe(GATHER);
+    }
+    expect([sim.gathering.progress[at(sim.map, 8, 20)], sim.pathSearch.searches - searches, sim.tally.meals]).toEqual([50, 0, 0]);
+  });
+
   it('keeps the dawn meal: a settler that came home hungry eats at dawn when food came in the night, and not again before dusk', () => {
     const sim = createSim(mapFrom(open(24)), { villagers: 1, monsters: 0, campFood: 0 });
     untilDusk(sim);
