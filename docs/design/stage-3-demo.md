@@ -135,7 +135,7 @@ The first year on seed 7 has a hut at (136, 127) and Chop on its 4 nearest trees
 | Day 11 | Winter | 19 | 0 | 8 |
 | Day 12 | Winter | 11 | 0 | 8 |
 
-Nobody dies. The foragers pick 75 units, and the settlers eat 96 meals and miss none. The camp never reaches its limit of 40. (#27) With 3.5's dusk rule the same year picks 74 units and carries 1 from the ground, and the camp's food at every dusk is the same. (#29)
+Nobody dies. The foragers pick 75 units, and the settlers eat 96 meals and miss none. The camp never reaches its limit of 40. (#27) #29 ran the same year again with its dusk rule. The foragers still pick 75 units. They deliver 74 themselves, a settler without a job carries the other 1 in from the ground, and the camp's food at every dusk is the same. (#29)
 
 ### A barn beside the hut and a barn far away
 
@@ -158,7 +158,7 @@ These runs add a barn to #27's year, with Chop on 8 more trees and Quarry on one
 
 | Run | Barn finished | Picked | From the ground | Barn to camp | Meals | Missed | Deaths |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| No barn (#27) | none | 75 | 1 | 0 | 96 | none | none |
+| No barn, #27's year run again by #29 | none | 75 | 1 | 0 | 96 | none | none |
 | Barn beside the hut | day 2 14:33 | 102 | 1 | 62 | 96 | none | none |
 | Barn far from the hut | day 2 18:58 | 71 | 7 | 0 | 95 | Ulvar, day 12 17:52 | none |
 
@@ -270,7 +270,7 @@ The largest tick in the 10 ticks after a dusk and after a dawn, in ms:
 
 #22 reports no tick at dusk or dawn. The largest dawn tick on the 512 map is over the 12.5 ms tick at 8× after every pull request that reports it. Only the p99 has a limit.
 
-Deaths in the benchmark's measured ticks on the 512 map, split by cause. A death at a dawn is a villager that never got home and missed its third meal away from it. A death at a dusk is a villager at an empty store. No forager or hunter died. The 256 map had no deaths. (#26, #27, #29, #30)
+Deaths in the benchmark's measured ticks on the 512 map, split by cause. A death at a dawn is a villager that never got home and missed its third meal away from it. A death at a dusk is a villager at an empty store. No forager died in the runs of #27 and #29, and no hunter in the runs of #30, which does not report foragers. The 256 map had no deaths. (#26, #27, #29, #30)
 
 | Pull request | Deaths, 512 map | Never got home (at a dawn) | Empty store (at a dusk) |
 | --- | --- | --- | --- |
@@ -294,8 +294,8 @@ Every moved reading still passes. #26, #27, #29, and #30 say that no limit chang
 | Scenario and reading | Readings | Why it moved |
 | --- | --- | --- |
 | `terrain`, water on seed 7 | 37.1% before #27, 35.6% after #27, 35.0% after #29, 34.6% after #30 | The top-left panel grew and the toolbar gained a button in each, so the box the count leaves out is taller. #30 read 34.6% with deer left out too. (#27, #29, #30) |
-| `window`, plants at 1280 by 720 | 74.6%, 73.1% after #27, 72.6% after #29, 72.1% after #30 | The same panels and toolbar. (#27, #29, #30) |
-| `orders`, chop pixels at the near view | 4,390, 4,034 after #27, 3,430 after #29, 3,283 after #30 | The taller toolbar box. #30 did not run it again without deer. (#27, #29, #30) |
+| `window`, plants at 1280 by 720 | 74.6%, 73.1% after #27, 72.6% after #29, 72.1% after #30 | The same panels and toolbar. #30 did not run it again without deer, and says that the toolbar moving it is likely but not measured. (#27, #29, #30) |
+| `orders`, chop pixels at the near view | 4,390, 4,034 after #27, 3,430 after #29, 3,283 after #30 | The taller toolbar box. #30 did not run it again without deer, and says that the toolbar moving it is likely but not measured. (#27, #29, #30) |
 | `camera`, `seasons`, `daylight`, `swarm` | Moved by under 2 points or 2% | The taller panels. (#27) |
 | `building`, the house's finish | 17:56 before #25, 17:57 after | Households walk other paths once a household has a home. (#25) |
 | `building`, villager pixels around the house on day 2 at 08:30, 09:30, 10:30 | 63, 50, 10 before #25, and 105, 3, 123 after, against a need of 45 at one of them | The same. (#25) |
@@ -379,7 +379,7 @@ The recommendations below are the orchestrator's. The owner has not agreed to an
 - The news log can overlap the selection panel in windows narrower than about 560 px. (#26)
 - Scenarios other than `foraging` did not run again at #27's last commit, which changed only when a forager's task stands. (#27)
 - A barn that a carrier reaches only by a long detour was not tested. (#29)
-- The hunt page never reaches the second dawn after a kill or a winter. Unit tests and the first-year tests cover them. (#30)
+- The hunt page never reaches the second dawn after a kill or a winter. Unit tests cover the dusk, and the first-year tests cover the winter. (#30)
 - The 6 food sacks at a kill were not checked by pixels. (#30)
 - The hunt clip comes from an earlier run than the one whose checks passed last, and it ends before the delivery. (#30)
 - The 25 and 30 second runs of foraging were made on a copy of the source, not in the game. (#30)
