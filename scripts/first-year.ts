@@ -28,7 +28,7 @@ const isDusk = (tick: number) => isNight(tick) && !isNight(tick - 1);
 
 function homeFood(sim: Sim): number {
   let food = 0;
-  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === StoreKind.Home) food += sim.stores.food[slot]!;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === StoreKind.Home) food += sim.stores.held[Good.Food - 1]![slot]!;
   return food;
 }
 
@@ -91,7 +91,7 @@ function play(withOrders: boolean): Year {
         .filter(([place, id]) => place >= 0 && sim.villagers.state[id] !== VillagerState.Dead)
         .map(([, id]) => `${nameOfId(sim, id)} ${sim.villagers.carried[id] === Good.Food ? 1 : 0}`);
       lines.push(
-        `dusk of ${clock(sim.tick)} (${seasonAt(sim.tick)}): camp ${sim.stores.food[CAMP_STORE]}, homes ${homeFood(sim)}, ` +
+        `dusk of ${clock(sim.tick)} (${seasonAt(sim.tick)}): camp ${sim.stores.held[Good.Food - 1]![CAMP_STORE]}, homes ${homeFood(sim)}, ` +
           `${sim.living} living` +
           (withOrders ? `; units in foragers' hands: ${held.join(', ') || 'no foragers'}` : ''),
       );

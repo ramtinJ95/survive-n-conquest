@@ -1,7 +1,7 @@
 import { type BufferGeometry, DynamicDrawUsage, Group, InstancedMesh, type Material, Matrix4, Object3D, Vector3 } from 'three';
-import { Good, STACK_LIMIT } from '../sim/goods';
+import { Good, STACK_LIMIT, type Unit } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
-import { type Shapes, foodShape, shapeMaterial } from './shapes';
+import { type Shapes, firewoodShape, foodShape, shapeMaterial } from './shapes';
 
 const FIRST_BLOCKS = 256;
 /** A unit rests this share of its own height above the unit under it, so a stack settles a little. */
@@ -57,17 +57,18 @@ const placeStones = (size: Vector3) => (unit: number, pose: Object3D) => {
 };
 
 /**
- * Draws the goods on the ground: up to 8 logs, stones, or sacks of food on a tile, one
+ * Draws the goods on the ground: up to 8 logs, stones, sacks of food, or bundles of firewood on a tile, one
  * instance each. Each tile that holds goods owns a block of 8 instances of its
  * good's mesh, and `refresh` rewrites that block from the map's stack. A mesh
  * that runs out of blocks is replaced by one twice its size inside `group`.
  */
 export function createGoods(map: TileMap, shapes: Shapes) {
   const half = map.size / 2;
-  const piles: Partial<Record<Good, Pile>> = {
+  const piles: Readonly<Record<Unit, Pile>> = {
     [Good.Log]: createPile('logs', shapes.log, placeLogs),
     [Good.Stone]: createPile('stone', shapes.stone, placeStones),
     [Good.Food]: createPile('food', foodShape(), placeFood),
+    [Good.Firewood]: createPile('firewood', firewoodShape(), placeFood),
   };
   const group = new Group();
   group.name = 'goods';
@@ -115,8 +116,8 @@ export function createGoods(map: TileMap, shapes: Shapes) {
     for (const [kind, pile] of Object.entries(piles)) {
       if (Number(kind) !== good || size === 0) release(pile, tile);
     }
+    if (good === Good.None || size === 0) return;
     const pile = piles[good];
-    if (!pile || size === 0) return;
     const block = blockFor(pile, tile);
     const x = (tile % map.size) + 0.5;
     const y = Math.floor(tile / map.size) + 0.5;

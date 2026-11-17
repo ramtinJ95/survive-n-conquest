@@ -9,11 +9,11 @@ import { CARRYING } from '../sim/carrying';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { shotHits } from '../sim/hunting';
-import { Good } from '../sim/goods';
+import { Good, refreshStack } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
 import { TileKind } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
-import { SiteState, applyOrder, createOrders } from '../sim/orders';
+import { MAX_SITES, SiteState, applyOrder, createOrders } from '../sim/orders';
 import { type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
 import { CAMP_STORE, STORES } from '../sim/stores';
@@ -22,6 +22,7 @@ import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { at, mapFrom } from '../sim/testMaps';
 import { die } from '../sim/villagers';
 import { NO_TASK, VillagerState } from '../sim/villagerState';
+import { Stop } from '../sim/workshops';
 import { type Facts, type Selection, keepSelection, markPlace, readPanel } from './selection';
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
@@ -136,6 +137,8 @@ describe("a settler's panel", () => {
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
+        storeFirewood: new Uint16Array(STORES),
+        workshopStops: new Uint8Array(MAX_SITES),
         animals: new Float32Array(0),
         animalStates: new Uint8Array(0),
       },
@@ -354,7 +357,7 @@ describe("a forager's panel", () => {
     while (!foragers.some((id) => sim.villagers.task[id] === FORAGE)) step(sim);
     for (let tick = 0; tick < 50; tick++) step(sim);
     const idle = foragers.filter((id) => sim.villagers.task[id] !== FORAGE);
-    expect([sim.stores.food[CAMP_STORE], idle.length]).toEqual([39, 1]);
+    expect([sim.stores.held[Good.Food - 1]![CAMP_STORE], idle.length]).toEqual([39, 1]);
     expect(settler(factsOf(sim), idle[0]!)).toBe('Idle, waiting for room in a store');
   });
 });
@@ -413,7 +416,7 @@ describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says a hunter waits for room while no store has room', () => {
     const { sim, hunter } = lodgeSettlement();
     addAnimal(sim.animals, AnimalKind.Deer, 30.5, 30.5);
-    sim.stores.food[CAMP_STORE] = sim.stores.campLimit;
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit;
     expect(settler(factsOf(sim), hunter)).toBe('Idle, waiting for room in a store');
   });
 });
@@ -443,11 +446,103 @@ function siteFacts() {
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
+    storeFirewood: new Uint16Array(STORES),
+    workshopStops: new Uint8Array(MAX_SITES),
     animals: new Float32Array(0),
     animalStates: new Uint8Array(0),
   });
   return { map, camp, orders, slot, building, frame };
 }
+
+/**
+ * A woodcutter and a settler without a job at the camp of an open map of 38
+ * by 38 tiles, with a woodshed at (24, 12) whose one place takes the settler
+ * nearest it, and a stockpile of `logs` logs at (28, 14).
+ */
+function woodshedSettlement(logs: number): { sim: Sim; slot: number; woodcutter: number; shed: Selection } {
+  const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 2, monsters: 0 });
+  applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 28, y0: 14, x1: 28, y1: 14 } });
+  sim.map.stackGood[at(sim.map, 28, 14)] = Good.Log;
+  sim.map.stackSize[at(sim.map, 28, 14)] = logs;
+  refreshStack(sim, at(sim.map, 28, 14));
+  expect(applyCommand(sim, { kind: 'place', building: Building.Woodshed, x: 24, y: 12 })).toMatchObject({ ok: true });
+  const slot = sim.orders.siteOf[at(sim.map, 24, 12)]!;
+  finishBuilding(sim, slot);
+  return { sim, slot, woodcutter: workersOf(sim, slot)[0]!, shed: { kind: 'building', slot, anchor: at(sim.map, 24, 12) } };
+}
+
+const NO_LOG = 'Idle, no log in a stockpile within 30 tiles of the woodshed';
+
+describe("a woodshed's panel and a woodcutter's panel", () => {
+  it('says what the shed does, names its woodcutter, its firewood, and why the woodcutter stopped', () => {
+    const { sim, woodcutter, shed } = woodshedSettlement(0);
+    for (let tick = 0; tick < 10; tick++) step(sim);
+    expect(readPanel(shed, factsOf(sim))).toMatchObject({
+      kind: 'woodshed',
+      title: 'Woodshed',
+      note: 'Its woodcutter carries logs from the stockpiles within 30 tiles and splits each into 2 firewood.',
+      rows: [
+        { label: 'Woodcutter', value: nameOfId(sim, woodcutter) },
+        { label: 'Places', value: '1 of 1' },
+        { label: 'Firewood', value: '0 of 40' },
+        { label: 'Doing', value: NO_LOG },
+      ],
+    });
+    expect(readPanel({ kind: 'villager', id: woodcutter }, factsOf(sim)).rows.find(({ label }) => label === 'Job')!.value).toBe('Woodcutter');
+    expect(settler(factsOf(sim), woodcutter)).toBe(NO_LOG);
+  });
+
+  it('reads what a woodcutter does through a split: to the stockpile for a log, carrying it to the shed, splitting it, then idle with 2 firewood in the shed', () => {
+    const { sim, slot, woodcutter, shed } = woodshedSettlement(1);
+    const seen = new Set<string>();
+    const doing = new Set<string>();
+    while (sim.workshops.stopped[slot] !== Stop.NoInput || sim.tally.made === 0) {
+      step(sim);
+      seen.add(settler(factsOf(sim), woodcutter));
+      doing.add(readPanel(shed, factsOf(sim)).rows.find(({ label }) => label === 'Doing')!.value);
+    }
+    expect(seen).toEqual(new Set(['Looking for a log', 'Walking to a stockpile for a log', 'Carrying a log to the woodshed', 'Splitting a log', NO_LOG]));
+    expect(doing).toEqual(seen);
+    expect(readPanel(shed, factsOf(sim)).rows.find(({ label }) => label === 'Firewood')!.value).toBe('2 of 40');
+  });
+
+  it('says the woodshed is full, and that the building sites need the logs', () => {
+    const full = woodshedSettlement(4);
+    full.sim.stores.held[Good.Firewood - 1]![full.slot] = 39;
+    for (let tick = 0; tick < 10; tick++) step(full.sim);
+    expect(settler(factsOf(full.sim), full.woodcutter)).toBe('Idle, the woodshed is full');
+
+    const kept = woodshedSettlement(4);
+    expect(applyCommand(kept.sim, { kind: 'place', building: Building.House, x: 8, y: 30 })).toMatchObject({ ok: true });
+    for (let tick = 0; tick < 10; tick++) step(kept.sim);
+    expect(settler(factsOf(kept.sim), kept.woodcutter)).toBe('Idle, the building sites need the logs');
+    expect(readPanel(kept.shed, factsOf(kept.sim)).rows.find(({ label }) => label === 'Doing')!.value).toBe('Idle, the building sites need the logs');
+  });
+
+  it('says nobody works at a shed whose place the player emptied', () => {
+    const { sim, slot, shed } = woodshedSettlement(0);
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 0 });
+    expect(readPanel(shed, factsOf(sim)).rows.filter(({ label }) => label !== 'Places' && label !== 'Firewood')).toEqual([
+      { label: 'Woodcutter', value: 'Nobody' },
+      { label: 'Doing', value: 'Nobody works here' },
+    ]);
+  });
+
+  it('is the panel of a woodshed site, with its 6 logs and no stone, until the woodshed is finished', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 0, monsters: 0 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.Woodshed, x: 24, y: 12 })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[at(sim.map, 24, 12)]!;
+    expect(readPanel({ kind: 'building', slot, anchor: at(sim.map, 24, 12) }, factsOf(sim))).toEqual({
+      kind: 'woodshedSite',
+      title: 'Woodshed site',
+      rows: [
+        { label: 'Logs', value: '0/6' },
+        { label: 'Work', value: 'Waiting for materials' },
+        { label: 'Builders', value: '0' },
+      ],
+    });
+  });
+});
 
 describe('a building panel', () => {
   it('shows what has arrived at a site, its work, and its builders', () => {
@@ -513,7 +608,7 @@ describe('a building panel', () => {
     const food = (selection: Selection) => readPanel(selection, factsOf(sim)).rows.find((entry) => entry.label === 'Food')!.value;
     const house: Selection = { kind: 'building', slot: 0, anchor: 0 };
     expect([food(house), food({ kind: 'camp' })]).toEqual(['0 of 16', '24 of 40']);
-    while (sim.stores.food[0]! < 6) step(sim);
+    while (sim.stores.held[Good.Food - 1]![0]! < 6) step(sim);
     expect([food(house), food({ kind: 'camp' })]).toEqual(['6 of 16', '18 of 40']);
     die(sim, 0);
     die(sim, 1);

@@ -1,6 +1,6 @@
 import { deliver, lacking, siteAnchor } from './building';
 import { Job, siteMidX, siteMidY } from './buildings';
-import { GOOD_KINDS, Good, pickUp, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
+import { GOOD_KINDS, Good, type Unit, pickUp, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { SiteState } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -16,7 +16,7 @@ function fetchable(sim: Sim, good: Good): boolean {
 function wants(sim: Sim, slot: number, good: Good): boolean {
   if (good !== Good.None) return lacking(sim, slot, good) > 0;
   for (let index = 0; index < GOOD_KINDS; index++) {
-    const kind = (index + 1) as Good;
+    const kind = (index + 1) as Unit;
     if (fetchable(sim, kind) && lacking(sim, slot, kind) > 0) return true;
   }
   return false;
@@ -55,7 +55,7 @@ function nearestUnit(sim: Sim, slot: number): number {
   let best = -1;
   let bestDistance = Infinity;
   for (let index = 0; index < GOOD_KINDS; index++) {
-    if (lacking(sim, slot, (index + 1) as Good) <= 0) continue;
+    if (lacking(sim, slot, (index + 1) as Unit) <= 0) continue;
     for (let kept = 0; kept < 2; kept++) {
       const tile = nearestOpen(kept === 0 ? goods.loose[index]! : goods.stocked[index]!, size, cx, cy);
       if (tile < 0) continue;

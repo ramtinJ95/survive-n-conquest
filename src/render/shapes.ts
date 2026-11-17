@@ -66,6 +66,16 @@ export function primitiveShapes(): Shapes {
 /** A unit of food, on the ground or in hands: a plain grain sack, with no model behind it. */
 export const foodShape = (): BufferGeometry => colored(new BoxGeometry(0.34, 0.28, 0.3).translate(0, 0.14, 0), 0xc8a86b);
 
+/** A split piece of firewood lying along x: a wedge, a third of a log cut lengthwise. */
+const firewoodPiece = (length: number, radius: number) => new CylinderGeometry(radius, radius, length, 3).rotateZ(Math.PI / 2);
+
+/** A unit of firewood, on the ground or in hands: three pale split pieces, two side by side and one on top, with no model behind it. */
+export function firewoodShape(): BufferGeometry {
+  const radius = 0.09;
+  const piece = (x: number, y: number) => colored(firewoodPiece(0.48, radius).translate(0, y, x), 0xe8d2a2);
+  return mergeGeometries([piece(-radius, radius / 2), piece(radius, radius / 2), piece(0, 1.4 * radius)]);
+}
+
 /**
  * The forager's hut, in meters: a low square of `courses` logs a side, of the
  * stockpiled logs' color, under a steep roof of eight sides in a darker shade
@@ -193,6 +203,53 @@ export function lodgeShape(): BufferGeometry {
     colored(pole(frame.x + frame.width / 2), colors.timber),
     colored(new BoxGeometry(frame.width, frame.pole, frame.pole).translate(frame.x, frame.height - frame.pole / 2, half + 0.12), colors.timber),
     colored(new BoxGeometry(frame.width - frame.pole, frame.height - 0.22, 0.02).translate(frame.x, frame.height / 2 + 0.06, half + 0.12), colors.hide),
+  ]);
+}
+
+/**
+ * The woodshed: an open-fronted lean-to of dark posts under a single-pitch
+ * roof that rises toward its open front, over a stack of pale split-log ends
+ * that faces out. It has no walls on its front, so it reads apart from the
+ * closed house, hut, barn, and lodge, and its roof falls the other way from the lodge's.
+ */
+export const WOODSHED_LOOK = {
+  side: 1.8,
+  post: 0.09,
+  front: 1.3,
+  back: 0.85,
+  roof: { thickness: 0.07, overhang: 0.14 },
+  stack: { width: 1.5, depth: 0.9, piece: 0.11, rows: 4 },
+  colors: { timber: 0x4a3220, wall: 0x6e5034, roof: 0x5b4836, wood: 0xe8d2a2, backing: 0x8a6a45 },
+};
+
+/** The woodshed, with no model behind it, standing on the origin and centered on its footprint, its open side facing +z. */
+export function woodshedShape(): BufferGeometry {
+  const { side, post, front, back, roof, stack, colors } = WOODSHED_LOOK;
+  const half = side / 2;
+  const inner = half - post / 2;
+  const postAt = (x: number, z: number, height: number) => new BoxGeometry(post, height, post).translate(x, height / 2, z);
+  const posts = [postAt(-inner, inner, front), postAt(inner, inner, front), postAt(-inner, -inner, back), postAt(inner, -inner, back)];
+  const slope = Math.atan2(front - back, side);
+  const plane = new BoxGeometry(side + 2 * roof.overhang, roof.thickness, Math.hypot(side, front - back) + 2 * roof.overhang)
+    .rotateX(-slope)
+    .translate(0, (front + back) / 2 + roof.thickness / 2, 0);
+  const across = Math.floor(stack.width / (2 * stack.piece));
+  const pieces = Array.from({ length: across * stack.rows }, (_, index) => {
+    const row = Math.floor(index / across);
+    const column = index % across;
+    const x = -stack.width / 2 + stack.piece * (2 * column + 1);
+    const piece = firewoodPiece(stack.depth, stack.piece).rotateY(Math.PI / 2).rotateZ(index * 2.1);
+    return colored(piece.translate(x, stack.piece * (1 + 1.7 * row), half - stack.depth / 2 - 0.02), colors.wood);
+  });
+  const stackHeight = stack.piece * (1.7 * stack.rows + 0.3);
+  return mergeGeometries([
+    colored(new BoxGeometry(side, back, 0.06).translate(0, back / 2, -half + 0.03), colors.wall),
+    colored(new BoxGeometry(0.06, back, side).translate(-half + 0.03, back / 2, 0), colors.wall),
+    colored(new BoxGeometry(0.06, back, side).translate(half - 0.03, back / 2, 0), colors.wall),
+    ...posts.map((part) => colored(part, colors.timber)),
+    colored(plane, colors.roof),
+    colored(new BoxGeometry(stack.width, stackHeight, stack.depth - 0.06).translate(0, stackHeight / 2, half - stack.depth / 2 - 0.06), colors.backing),
+    ...pieces,
   ]);
 }
 

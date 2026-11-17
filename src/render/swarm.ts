@@ -129,6 +129,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     [Good.Log]: carriedLogs,
     [Good.Stone]: carriedStone,
     [Good.Food]: carriedFood,
+    [Good.Firewood]: null,
   };
 
   const sizes = Float32Array.from({ length: population.villagers }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));

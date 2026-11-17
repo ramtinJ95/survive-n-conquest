@@ -17,10 +17,11 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, foodLimit, storeKind } from '../sim/stores';
+import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, WOODSHED_FIREWOOD_LIMIT, limitOf, storeKind } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
+import { Stop, WORKSHOP } from '../sim/workshops';
 import type { SimFrame } from '../frame';
 import { BUILDING_WORDS, JOB_WORDS, capital, neededGoods } from './buildings';
 import { listNames } from './news';
@@ -53,6 +54,8 @@ export interface Facts {
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
+    | 'storeFirewood'
+    | 'workshopStops'
     | 'animals'
     | 'animalStates'
   >;
@@ -119,9 +122,37 @@ const STOCK = task(STOCKING);
 const FORAGE = task(FORAGING);
 const FETCH_KILL = task(FETCHING_KILL);
 const HUNT = task(HUNTING);
+const WORK = task(WORKSHOP);
 const WINTER = SEASONS.indexOf('Winter');
 
-const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food' };
+const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood' };
+
+/** What the worker at each kind of workshop does, in words: on its way to a unit of input, carrying it in, on its way to a batch that waits, and at work on a batch, and what it says, idle, of each reason it stopped. */
+interface WorkshopWords {
+  readonly fetching: string;
+  readonly carrying: string;
+  readonly going: string;
+  readonly working: string;
+  readonly stops: Readonly<Record<Stop, string>>;
+}
+
+const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
+  [Building.Woodshed]: {
+    fetching: 'Walking to a stockpile for a log',
+    carrying: 'Carrying a log to the woodshed',
+    going: 'Walking to the woodshed to split a log',
+    working: 'Splitting a log',
+    stops: {
+      [Stop.Working]: 'Looking for a log',
+      [Stop.Full]: 'Idle, the woodshed is full',
+      [Stop.NoInput]: `Idle, no log in a stockpile within ${BUILDINGS[Building.Woodshed].reach} tiles of the woodshed`,
+      [Stop.ForSites]: 'Idle, the building sites need the logs',
+    },
+  },
+};
+
+/** The words of the workshop in `slot`. */
+const workshopWords = ({ orders }: Facts, slot: number): WorkshopWords => WORKSHOP_WORDS[orders.sites.kind[slot] as Building]!;
 
 /** The word for the kind of the site or building on a tile, such as the anchor a task goes to. */
 function siteNoun({ orders }: Facts, tile: number): string {
@@ -162,6 +193,13 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     return 'Walking to a kill to pick up food';
   },
   [HUNT]: (_facts, _id, working) => (working ? 'Aiming at a deer' : 'Stalking a deer'),
+  [WORK]: (facts, id, working) => {
+    const { frame } = facts;
+    const words = workshopWords(facts, frame.workplaces[id]!);
+    if (frame.carried[id] !== Good.None) return words.carrying;
+    if (frame.taskTiles[id]! >= 0) return words.fetching;
+    return working ? words.working : words.going;
+  },
 };
 
 /** The common store a carrier goes to on a tile: the camp at the camp center, and a barn at any tile beside one. */
@@ -173,7 +211,7 @@ function storeAt({ camp }: Facts, tile: number): string {
 function roomInAStore({ orders, frame }: Facts): boolean {
   for (let store = 0; store < frame.storeFood.length; store++) {
     if (storeKind(orders, store) !== StoreKind.Common) continue;
-    if (frame.storeFood[store]! + frame.storeInbound[store]! < foodLimit(orders, frame.campFoodLimit, store)) return true;
+    if (frame.storeFood[store]! + frame.storeInbound[store]! < limitOf(orders, frame.campFoodLimit, store, Good.Food)) return true;
   }
   return false;
 }
@@ -211,6 +249,10 @@ const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = 
     if (!preyInReach(facts, facts.frame.workplaces[id]!)) return `Idle, no deer within ${BUILDINGS[Building.Lodge].reach} tiles of the lodge`;
     return 'Looking for deer';
   },
+  [Job.Woodcutter]: (facts, id) => {
+    const slot = facts.frame.workplaces[id]!;
+    return workshopWords(facts, slot).stops[facts.frame.workshopStops[slot] as Stop];
+  },
 };
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
@@ -238,7 +280,13 @@ function missedMeals({ frame }: Facts, id: number): string {
   return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
 }
 
-const CARRIED_WORDS: Readonly<Record<Good, string>> = { [Good.None]: 'Nothing', [Good.Log]: '1 log', [Good.Stone]: '1 stone', [Good.Food]: '1 food' };
+const CARRIED_WORDS: Readonly<Record<Good, string>> = {
+  [Good.None]: 'Nothing',
+  [Good.Log]: '1 log',
+  [Good.Stone]: '1 stone',
+  [Good.Food]: '1 food',
+  [Good.Firewood]: '1 firewood',
+};
 
 const builders = ({ frame }: Facts, anchor: number) => {
   let count = 0;
@@ -312,15 +360,24 @@ function sitePanel(building: Building): Panel<BuildingSelection> {
   };
 }
 
-/** The panel of a finished workplace: what it does, who works there, and the control that sets how many of its places are filled. */
-function workplacePanel(building: Building, note: string): Panel<BuildingSelection> {
+/** What the worker at a workshop does, in the words of its own panel, or that nobody works there. */
+function workAt(facts: Facts, slot: number): string {
+  const id = facts.frame.workplaces.indexOf(slot);
+  return id < 0 ? 'Nobody works here' : doing(facts, id);
+}
+
+/**
+ * The panel of a finished workplace: what it does, who works there, and the
+ * control that sets how many of its places are filled, then its own `rows`.
+ */
+function workplacePanel(building: Building, note: string, rows: readonly Row<BuildingSelection>[] = []): Panel<BuildingSelection> {
   const { places, job } = BUILDINGS[building];
   const wanted = ({ orders }: Facts, slot: number) => orders.sites.places[slot]!;
   return {
     title: BUILDING_WORDS[building].title,
     note,
     rows: [
-      { label: capital(JOB_WORDS[job].many), read: (facts, { slot }) => workersAt(facts, slot) },
+      { label: places === 1 ? JOB_WORDS[job].title : capital(JOB_WORDS[job].many), read: (facts, { slot }) => workersAt(facts, slot) },
       {
         label: 'Places',
         read: (facts, { slot }) => `${wanted(facts, slot)} of ${places}`,
@@ -339,6 +396,7 @@ function workplacePanel(building: Building, note: string): Panel<BuildingSelecti
           },
         ],
       },
+      ...rows,
     ],
   };
 }
@@ -384,6 +442,15 @@ const PANELS: Panels = {
   lodge: workplacePanel(
     Building.Lodge,
     `Its hunters hunt deer within ${BUILDINGS[Building.Lodge].reach} tiles and carry the food to the nearest store with room.`,
+  ),
+  woodshedSite: sitePanel(Building.Woodshed),
+  woodshed: workplacePanel(
+    Building.Woodshed,
+    `Its woodcutter carries logs from the stockpiles within ${BUILDINGS[Building.Woodshed].reach} tiles and splits each into 2 firewood.`,
+    [
+      { label: 'Firewood', read: ({ frame }, { slot }) => `${frame.storeFirewood[slot]} of ${WOODSHED_FIREWOOD_LIMIT}` },
+      { label: 'Doing', read: (facts, { slot }) => workAt(facts, slot) },
+    ],
   ),
   camp: {
     title: 'Camp',

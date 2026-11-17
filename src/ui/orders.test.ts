@@ -67,3 +67,17 @@ describe("the forager's hut tool", () => {
     expect(outcomeWords(map, orders, applyOrder(map, orders, area), area)).toBe('No unmarked trees stand there.');
   });
 });
+
+describe('the woodshed tool', () => {
+  it('is picked with K, says what the woodcutter does, places a woodshed site, and says so', () => {
+    const shed = toolFor('KeyK');
+    expect(shed).toMatchObject({ id: 'woodshed', label: 'Woodshed', key: 'K' });
+    expect(shed.hint).toBe('Click to place a woodshed on 2 by 2 tiles of open, level ground. Its woodcutter splits logs into firewood.');
+    const tile = { x: 4, y: 5, onMap: true };
+    const command = orderFor(shed, tile, tile)!;
+    expect(command).toEqual({ kind: 'place', building: Building.Woodshed, x: 4, y: 5 });
+    const { map, orders } = ground();
+    expect(outcomeWords(map, orders, applyOrder(map, orders, command), command)).toBe('Woodshed site placed.');
+    expect(sitePreview(map, orders, Building.Hut, 5, 5).line).toBe('Cannot build here. A woodshed stands in the way.');
+  });
+});

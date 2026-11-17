@@ -40,7 +40,7 @@ function finishedHut(sim: Sim, x: number, y: number): number {
   return slot;
 }
 
-const campFood = (sim: Sim) => sim.stores.food[CAMP_STORE]!;
+const campFood = (sim: Sim) => sim.stores.held[Good.Food - 1]![CAMP_STORE]!;
 const untilDusk = (sim: Sim, each?: () => void) => runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY, each);
 
 function foodOnGround(sim: Sim): number {
@@ -195,7 +195,7 @@ describe('a forager', () => {
     expect([sim.tally.foraged, sim.villagers.carried[forager]]).toEqual([1, Good.Food]);
     const beforeNight = campFood(sim);
     step(sim);
-    expect([sim.villagers.carried[forager], foodOnGround(sim), sim.stores.inbound[CAMP_STORE]]).toEqual([Good.None, 1, 0]);
+    expect([sim.villagers.carried[forager], foodOnGround(sim), sim.stores.inbound[Good.Food - 1]![CAMP_STORE]]).toEqual([Good.None, 1, 0]);
     runUntil(sim, () => isDawn(sim.tick), TICKS_PER_DAY);
     expect([foodOnGround(sim), campFood(sim)]).toEqual([1, beforeNight - 2]);
     runUntil(sim, () => sim.tally.fromGround === 1, 600);
@@ -206,16 +206,16 @@ describe('a forager', () => {
     const sim = createSim(mapWith(40, [[26, 12]]), { villagers: 1, monsters: 0 });
     const slot = finishedHut(sim, 24, 14);
     runUntil(sim, () => sim.villagers.carried[0] === Good.Food, TICKS_PER_DAY);
-    expect(sim.stores.inbound[CAMP_STORE]).toBe(1);
+    expect(sim.stores.inbound[Good.Food - 1]![CAMP_STORE]).toBe(1);
     applyCommand(sim, { kind: 'setPlaces', slot, places: 0 });
     expect([sim.villagers.workplace[0], sim.villagers.task[0], sim.villagers.carried[0]]).toEqual([-1, NO_TASK, Good.None]);
-    expect([foodOnGround(sim), sim.stores.inbound[CAMP_STORE]]).toEqual([1, 0]);
+    expect([foodOnGround(sim), sim.stores.inbound[Good.Food - 1]![CAMP_STORE]]).toEqual([1, 0]);
   });
 
   it('picks nothing while the camp is full, and puts no food on the ground', () => {
     const sim = createSim(mapWith(40, [[26, 12], [27, 12], [26, 13]]), { villagers: 2, monsters: 0, campFood: 39 });
     finishedHut(sim, 24, 14);
-    untilDusk(sim, () => expect(campFood(sim) + sim.stores.inbound[CAMP_STORE]!).toBeLessThanOrEqual(40));
+    untilDusk(sim, () => expect(campFood(sim) + sim.stores.inbound[Good.Food - 1]![CAMP_STORE]!).toBeLessThanOrEqual(40));
     expect([sim.tally.foraged, campFood(sim), foodOnGround(sim)]).toEqual([1, 40, 0]);
   });
 
@@ -238,7 +238,7 @@ describe('a forager', () => {
     });
     expect(taken.slice(0, 2)).toEqual([STOCK, STOCK]);
     expect(taken).toContain(FORAGE);
-    expect(sim.stores.food[0]).toBe(6);
+    expect(sim.stores.held[Good.Food - 1]![0]).toBe(6);
   });
 
   it('leaves a marked tree standing on the tile it forages and beside it', () => {

@@ -11,6 +11,7 @@ import type { Sim } from './sim';
 import { STOCKING } from './stocking';
 import { SUPPLYING } from './supplying';
 import { NO_TASK } from './villagerState';
+import { WORKSHOP } from './workshops';
 
 
 /**
@@ -51,7 +52,7 @@ export interface TaskKind {
  * first kind its job allows that has one open. A kind added later goes last,
  * so the task column values of the others stay.
  */
-export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING];
+export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING, WORKSHOP];
 
 export function allows(kind: TaskKind, job: Job): boolean {
   return kind.job === ANYONE || kind.job === job;

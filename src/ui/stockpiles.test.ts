@@ -5,7 +5,7 @@ import { SiteState, applyOrder, createOrders } from '../sim/orders';
 import { CAMP_STORE, STORES, StoreKind } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
 import { VillagerState } from '../sim/villagerState';
-import { foodTotals, jobCounts, stockpileTotals } from './stockpiles';
+import { storeTotals, jobCounts, stockpileTotals } from './stockpiles';
 
 const ROWS = Array.from({ length: 12 }, () => '.'.repeat(12));
 
@@ -33,7 +33,7 @@ describe('stockpileTotals', () => {
   });
 });
 
-describe('foodTotals', () => {
+describe('storeTotals', () => {
   it('counts the camp as one total and the houses as another, and no food in a site that is not a house', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
     const orders = createOrders(map);
@@ -47,7 +47,23 @@ describe('foodTotals', () => {
     storeFood[first!] = 6;
     storeFood[second!] = 3;
     storeFood[site!] = 5;
-    expect(foodTotals(orders, storeFood)).toMatchObject({ [StoreKind.Common]: 17, [StoreKind.Home]: 9 });
+    expect(storeTotals(orders, storeFood)).toMatchObject({ [StoreKind.Common]: 17, [StoreKind.Home]: 9 });
+  });
+});
+
+describe('storeTotals of firewood', () => {
+  it('counts the firewood in finished woodsheds as one total, and none in a woodshed site', () => {
+    const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)));
+    const orders = createOrders(map);
+    for (const x of [2, 6, 10]) expect(applyOrder(map, orders, { kind: 'place', building: Building.Woodshed, x, y: 2 })).toMatchObject({ ok: true });
+    const [first, second, site] = [2, 6, 10].map((x) => orders.siteOf[at(map, x, 2)]!);
+    orders.sites.state[first!] = SiteState.Built;
+    orders.sites.state[second!] = SiteState.Built;
+    const storeFirewood = new Uint16Array(STORES);
+    storeFirewood[first!] = 12;
+    storeFirewood[second!] = 7;
+    storeFirewood[site!] = 4;
+    expect(storeTotals(orders, storeFirewood)).toMatchObject({ [StoreKind.Workshop]: 19, [StoreKind.Common]: 0, [StoreKind.Home]: 0 });
   });
 });
 

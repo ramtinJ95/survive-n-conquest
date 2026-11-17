@@ -33,7 +33,7 @@ const isDusk = (tick: number) => isNight(tick) && !isNight(tick - 1);
 
 function foodIn(sim: Sim, kind: StoreKind): number {
   let food = 0;
-  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === kind) food += sim.stores.food[slot]!;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === kind) food += sim.stores.held[Good.Food - 1]![slot]!;
   return food;
 }
 
@@ -41,8 +41,8 @@ function foodIn(sim: Sim, kind: StoreKind): number {
 function groundFood(sim: Sim): number {
   const { goods, map } = sim;
   let food = 0;
-  for (let i = 0; i < goods.foodCount; i++) {
-    const tile = goods.foodTiles[i]!;
+  for (let i = 0; i < goods.spoilingCount; i++) {
+    const tile = goods.spoilingTiles[i]!;
     if (map.stackGood[tile] === Good.Food) food += map.stackSize[tile]!;
   }
   return food;
@@ -122,7 +122,7 @@ function play(name: string): void {
   let dropped = 0;
   const row = (when: string) =>
     rows.push(
-      `| ${when} | ${seasonAt(sim.tick)} | ${foodIn(sim, StoreKind.Common)} | ${sim.stores.food[CAMP_STORE]} | ${foodIn(sim, StoreKind.Home)} | ` +
+      `| ${when} | ${seasonAt(sim.tick)} | ${foodIn(sim, StoreKind.Common)} | ${sim.stores.held[Good.Food - 1]![CAMP_STORE]} | ${foodIn(sim, StoreKind.Home)} | ` +
         `${groundFood(sim)} | ${sim.animals.living[AnimalKind.Deer]} | ${deerInReach(sim)} | ${sim.tally.foraged} | ${sim.tally.kills} | ${sim.living} |`,
     );
   while (!sim.over && dateAt(sim.tick).day <= DAYS_PER_YEAR) {

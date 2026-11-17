@@ -115,7 +115,7 @@ function take(sim: Sim, id: number): boolean {
     villagers.taskTile[id] = tile;
     villagers.workTile[id] = tile;
   }
-  stores.inbound[store] = stores.inbound[store]! + 1;
+  stores.inbound[Good.Food - 1]![store]! += 1;
   villagers.toStore[id] = store;
   villagers.destination[id] = door;
   return true;
@@ -154,8 +154,8 @@ function work(sim: Sim, id: number): boolean {
     return !planPath(sim, id, villagers.workTile[id]!);
   }
   const store = villagers.toStore[id]!;
-  stores.inbound[store] = stores.inbound[store]! - 1;
-  stores.food[store] = stores.food[store]! + 1;
+  stores.inbound[Good.Food - 1]![store]! -= 1;
+  stores.held[Good.Food - 1]![store]! += 1;
   villagers.carried[id] = Good.None;
   villagers.toStore[id] = -1;
   villagers.destination[id] = -1;
@@ -174,7 +174,7 @@ function release(sim: Sim, id: number): void {
   const tile = villagers.taskTile[id]!;
   if (tile >= 0 && sim.foraging.taker[tile] === id) sim.foraging.taker[tile] = -1;
   const store = villagers.toStore[id]!;
-  if (store >= 0) stores.inbound[store] = stores.inbound[store]! - 1;
+  if (store >= 0) stores.inbound[Good.Food - 1]![store]! -= 1;
   if (villagers.carried[id] !== Good.None) putDownHeld(sim, id);
 }
 

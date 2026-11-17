@@ -1,6 +1,7 @@
+import { Good } from './goods';
 import { NO_HOME } from './households';
 import type { Sim } from './sim';
-import { CAMP_STORE, freeFood } from './stores';
+import { CAMP_STORE, free } from './stores';
 import { type Villagers, die } from './villagers';
 
 /**
@@ -45,8 +46,8 @@ export function storeOf(sim: Sim, id: number): number {
 /** Takes one meal from the store the villager came home to, when it holds one no carrier has spoken for. Returns whether it ate. */
 export function eat(sim: Sim, id: number, store: number): boolean {
   const { stores } = sim;
-  if (freeFood(stores, store) <= 0) return false;
-  stores.food[store] = stores.food[store]! - 1;
+  if (free(stores, store, Good.Food) <= 0) return false;
+  stores.held[Good.Food - 1]![store]! -= 1;
   meetNeed(sim, id, HUNGER);
   sim.tally.meals += 1;
   return true;

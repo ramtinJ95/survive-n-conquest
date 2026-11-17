@@ -1,9 +1,9 @@
 import { BUILDINGS, type Building, type BuildingName, footprintStart, kindOf, siteX0, siteY0 } from './buildings';
 import { campTile, underCamp } from './camp';
+import { Claim } from './claims';
 import { TileKind, type TileMap, walkable } from './map';
 
-export const Claim = { None: 0, Chop: 1, Quarry: 2, Stockpile: 3, Site: 4 } as const;
-export type Claim = (typeof Claim)[keyof typeof Claim];
+export { Claim };
 
 /** Built: a finished building. */
 export const SiteState = { Free: 0, Site: 1, Built: 2 } as const;

@@ -41,6 +41,7 @@ export const ORDER_COLORS = {
   hut: SITE,
   barn: SITE,
   lodge: SITE,
+  woodshed: SITE,
   cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;

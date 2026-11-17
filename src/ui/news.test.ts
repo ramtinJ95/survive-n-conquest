@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { frameOf } from '../frame';
 import { finishBuilding } from '../sim/building';
 import { Building } from '../sim/buildings';
+import { Good } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
 import { createOrders } from '../sim/orders';
@@ -48,7 +49,7 @@ describe('the settlement news', () => {
   it('says who ate again when food came in the night', () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 0 });
     const { said } = listen(sim, 3000, () => {
-      if (sim.tick === 2000) sim.stores.food[CAMP_STORE] = 1;
+      if (sim.tick === 2000) sim.stores.held[Good.Food - 1]![CAMP_STORE] = 1;
     });
     expect(said).toHaveLength(2);
     const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
@@ -133,5 +134,19 @@ describe('the settlement news', () => {
       `Day 1, 15:59. ${name(moved)} left the forager's hut.`,
       `Day 1, 15:59. ${name(moved)} became a forager.`,
     ]);
+  });
+
+  it('says who became the woodcutter at a finished woodshed', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 3, monsters: 0 });
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    let woodcutter = -1;
+    const { said } = listen(sim, 200, () => {
+      if (sim.tick !== 100) return;
+      expect(applyCommand(sim, { kind: 'place', building: Building.Woodshed, x: 4, y: 4 })).toMatchObject({ ok: true });
+      const slot = sim.orders.siteOf[at(sim.map, 4, 4)]!;
+      finishBuilding(sim, slot);
+      woodcutter = sim.villagers.workplace.indexOf(slot);
+    });
+    expect(said).toEqual([`Day 1, 08:47. ${name(woodcutter)} became a woodcutter.`]);
   });
 });
