@@ -6,7 +6,7 @@ import { isDawn, isNight } from './daylight';
 import { type FlowField, createFlowField } from './flowField';
 import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
-import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
+import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
 import { type Households, createHouseholds } from './households';
 import { type Hunting, createHunting } from './hunting';
 import { setPlaces } from './jobs';
@@ -225,7 +225,7 @@ export function step(sim: Sim): void {
   const dawn = isDawn(sim.tick);
   if (dawn) {
     sim.dawns += 1;
-    spoilFood(sim);
+    spoilGoods(sim);
     reopenTasks(sim);
   }
   moveVillagers(sim, night, dawn);

@@ -1,4 +1,5 @@
 import { TICKS_PER_SECOND } from './calendar';
+import { Good, type Unit } from './goods';
 import type { Sites } from './orders';
 import type { Sim } from './sim';
 
@@ -18,8 +19,8 @@ export interface BuildingKind {
   readonly name: BuildingName;
   /** Tiles along each side of its square footprint. */
   readonly side: number;
-  /** Units of each good it needs, at index `good - 1` (logs, stone, food). */
-  readonly needs: readonly number[];
+  /** Units of each good it needs. A good left out is needed 0 times. */
+  readonly needs: Readonly<Partial<Record<Unit, number>>>;
   /** Ticks of building work once every unit has arrived, shared by its builders. */
   readonly workTicks: number;
   /** Places of work in the finished building; 0 for a building that is no workplace. */
@@ -32,14 +33,19 @@ export interface BuildingKind {
 
 /** The one place a kind of building is declared. */
 export const BUILDINGS: Readonly<Record<Building, BuildingKind>> = {
-  [Building.House]: { name: 'house', side: 3, needs: [12, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
-  [Building.Hut]: { name: 'hut', side: 2, needs: [8, 0, 0], workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20 },
-  [Building.Barn]: { name: 'barn', side: 3, needs: [16, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
-  [Building.Lodge]: { name: 'lodge', side: 2, needs: [8, 4, 0], workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Hunter, reach: 40 },
+  [Building.House]: { name: 'house', side: 3, needs: { [Good.Log]: 12, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
+  [Building.Hut]: { name: 'hut', side: 2, needs: { [Good.Log]: 8 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20 },
+  [Building.Barn]: { name: 'barn', side: 3, needs: { [Good.Log]: 16, [Good.Stone]: 6 }, workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
+  [Building.Lodge]: { name: 'lodge', side: 2, needs: { [Good.Log]: 8, [Good.Stone]: 4 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Hunter, reach: 40 },
 };
 
 /** The longest side of any kind, so `MAX_SIDE * MAX_SIDE` tiles hold any footprint. */
 export const MAX_SIDE = Math.max(...Object.values(BUILDINGS).map((kind) => kind.side));
+
+/** Units of a good a kind of building needs. */
+export function needOf(kind: BuildingKind, good: Unit): number {
+  return kind.needs[good] ?? 0;
+}
 
 export function kindOf(sites: Sites, slot: number): BuildingKind {
   return BUILDINGS[sites.kind[slot] as Building];

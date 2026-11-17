@@ -1,5 +1,5 @@
 import { Job, jobAt } from '../sim/buildings';
-import { Good } from '../sim/goods';
+import { Good, stockpiled } from '../sim/goods';
 import type { TileMap } from '../sim/map';
 import { Claim, type Orders } from '../sim/orders';
 import { StoreKind, storeKind } from '../sim/stores';
@@ -38,11 +38,11 @@ export function jobCounts(orders: Orders, states: Uint8Array, workplaces: Int16A
   return { withJob, withoutJob };
 }
 
-/** The units of each good on the stockpile tiles of a map. A stockpile takes no food, so food lying on one is not counted. */
+/** The units of each good on the stockpile tiles of a map. A stockpile takes no stored good, so one lying on it is not counted. */
 export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, number> {
   const totals: Record<Good, number> = { [Good.None]: 0, [Good.Log]: 0, [Good.Stone]: 0, [Good.Food]: 0 };
   for (let tile = 0; tile < claims.length; tile++) {
-    if (claims[tile] === Claim.Stockpile && map.stackGood[tile] !== Good.Food) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
+    if (claims[tile] === Claim.Stockpile && stockpiled(map.stackGood[tile] as Good)) totals[map.stackGood[tile] as Good] += map.stackSize[tile]!;
   }
   return totals;
 }

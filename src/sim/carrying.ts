@@ -1,5 +1,5 @@
 import { Job } from './buildings';
-import { GOOD_KINDS, Good, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
+import { GOOD_KINDS, Good, type Unit, pickUp, putDown, putDownHeld, refreshStack, reopenGoods, setAsideGoods } from './goods';
 import { Claim } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -161,7 +161,7 @@ function work(sim: Sim, id: number): boolean {
   }
   goods.inbound[place]! -= 1;
   refreshStack(sim, place);
-  if (putDown(sim, place, villagers.carried[id]! as Good, 1)) {
+  if (putDown(sim, place, villagers.carried[id]! as Unit, 1)) {
     villagers.carried[id] = Good.None;
     sim.tally.stocked += 1;
   }

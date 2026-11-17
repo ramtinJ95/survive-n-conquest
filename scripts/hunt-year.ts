@@ -41,8 +41,8 @@ function foodIn(sim: Sim, kind: StoreKind): number {
 function groundFood(sim: Sim): number {
   const { goods, map } = sim;
   let food = 0;
-  for (let i = 0; i < goods.foodCount; i++) {
-    const tile = goods.foodTiles[i]!;
+  for (let i = 0; i < goods.spoilingCount; i++) {
+    const tile = goods.spoilingTiles[i]!;
     if (map.stackGood[tile] === Good.Food) food += map.stackSize[tile]!;
   }
   return food;

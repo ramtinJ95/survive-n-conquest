@@ -1,6 +1,6 @@
-import { Building, Job, MAX_SIDE, footprintStart, kindOf, siteX0, siteY0 } from './buildings';
+import { Building, Job, MAX_SIDE, footprintStart, kindOf, needOf, siteX0, siteY0 } from './buildings';
 import { closeFlowTiles } from './flowField';
-import { GOOD_KINDS, Good, STACK_LIMIT } from './goods';
+import { GOOD_KINDS, Good, STACK_LIMIT, type Unit } from './goods';
 import { moveInto } from './households';
 import { openWorkplace } from './jobs';
 import { TileKind, type TileMap } from './map';
@@ -78,15 +78,15 @@ export function arrived(map: TileMap, orders: Orders, slot: number, good: Good):
 }
 
 /** Units of `good` that a site still lacks and that are not on their way to it. */
-export function lacking(sim: Sim, slot: number, good: Good): number {
-  const needs = kindOf(sim.orders.sites, slot).needs[good - 1]!;
-  return needs - arrived(sim.map, sim.orders, slot, good) - sim.siteTasks.inbound[slot * GOOD_KINDS + good - 1]!;
+export function lacking(sim: Sim, slot: number, good: Unit): number {
+  return needOf(kindOf(sim.orders.sites, slot), good) - arrived(sim.map, sim.orders, slot, good) - sim.siteTasks.inbound[slot * GOOD_KINDS + good - 1]!;
 }
 
 function allArrived(sim: Sim, slot: number): boolean {
-  const { needs } = kindOf(sim.orders.sites, slot);
+  const kind = kindOf(sim.orders.sites, slot);
   for (let index = 0; index < GOOD_KINDS; index++) {
-    if (arrived(sim.map, sim.orders, slot, (index + 1) as Good) < needs[index]!) return false;
+    const good = (index + 1) as Unit;
+    if (arrived(sim.map, sim.orders, slot, good) < needOf(kind, good)) return false;
   }
   return true;
 }

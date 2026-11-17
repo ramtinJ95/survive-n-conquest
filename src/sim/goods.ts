@@ -1,15 +1,40 @@
-import { DIRECTIONS, stepTo, tileAt, walkable } from './map';
-import { Claim } from './orders';
+import { DIRECTIONS, type TileMap, stepTo, tileAt, walkable } from './map';
+import { Claim } from './claims';
 import type { Sim } from './sim';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, setOpen } from './tileSet';
 
 export const Good = { None: 0, Log: 1, Stone: 2, Food: 3 } as const;
 export type Good = (typeof Good)[keyof typeof Good];
+/** A good there is a unit of, `Good.None` aside. */
+export type Unit = Exclude<Good, typeof Good.None>;
+
+/**
+ * Where a good is kept. A stockpiled good lies on stockpile zones. A stored
+ * good is kept in a building's store and is never taken onto a stockpile.
+ */
+export const GoodKind = { Stockpiled: 0, Stored: 1 } as const;
+export type GoodKind = (typeof GoodKind)[keyof typeof GoodKind];
+
+export interface GoodRow {
+  /** What the goods total calls it. */
+  readonly name: string;
+  readonly kind: GoodKind;
+  /** A stack of it put down on open ground is gone at this dawn after it was put down, or 0 for a good that keeps. */
+  readonly keepsDawns: number;
+}
+
+/** The one place a good is declared. */
+export const GOODS: Readonly<Record<Unit, GoodRow>> = {
+  [Good.Log]: { name: 'logs', kind: GoodKind.Stockpiled, keepsDawns: 0 },
+  [Good.Stone]: { name: 'stone', kind: GoodKind.Stockpiled, keepsDawns: 0 },
+  [Good.Food]: { name: 'food', kind: GoodKind.Stored, keepsDawns: 2 },
+};
 /** How many goods there are, `Good.None` aside. */
-export const GOOD_KINDS = 3;
-/** Food put down on open ground is gone at this dawn after it was put down: the second. */
-export const FOOD_KEEPS_DAWNS = 2;
+export const GOOD_KINDS = Object.keys(GOODS).length;
+
+/** Whether a good lies on stockpile zones. */
+export const stockpiled = (good: Good): boolean => good !== Good.None && GOODS[good].kind === GoodKind.Stockpiled;
 
 /** A tile holds up to this many units of one good. */
 export const STACK_LIMIT = 8;
@@ -37,12 +62,12 @@ export interface GoodsState {
   /** The first `setAsideCount` are the tiles set aside. */
   readonly setAsideTiles: Int32Array;
   setAsideCount: number;
-  /** The value of `Sim.dawns` at which the food stack on each tile is gone, where a stack of food lies. */
-  readonly foodGoneAt: Uint16Array;
-  /** 1 where a tile is among the first `foodCount` of `foodTiles`, the tiles that held food when it was put down. */
-  readonly foodListed: Uint8Array;
-  readonly foodTiles: Int32Array;
-  foodCount: number;
+  /** The value of `Sim.dawns` at which the stack on each tile is gone, where a stack of a good that spoils lies. */
+  readonly goneAt: Uint16Array;
+  /** 1 where a tile is among the first `spoilingCount` of `spoilingTiles`, the tiles that held a good that spoils when it was put down. */
+  readonly spoilingListed: Uint8Array;
+  readonly spoilingTiles: Int32Array;
+  spoilingCount: number;
 }
 
 export function createGoodsState(size: number): GoodsState {
@@ -57,10 +82,10 @@ export function createGoodsState(size: number): GoodsState {
     setAside: new Uint8Array(tiles),
     setAsideTiles: new Int32Array(tiles),
     setAsideCount: 0,
-    foodGoneAt: new Uint16Array(tiles),
-    foodListed: new Uint8Array(tiles),
-    foodTiles: new Int32Array(tiles),
-    foodCount: 0,
+    goneAt: new Uint16Array(tiles),
+    spoilingListed: new Uint8Array(tiles),
+    spoilingTiles: new Int32Array(tiles),
+    spoilingCount: 0,
   };
 }
 
@@ -83,15 +108,17 @@ export function createPutDownSearch(tiles: number): PutDownSearch {
  * How many units of `good` a tile can still take: walkable, no site or house,
  * and a stack that is empty or holds that good. A place reserved for a unit on
  * its way is taken, and an empty stack with units on their way holds their good.
- * A stockpile takes no food, and food joins only a stack put down since the
- * same dawn, so each unit is gone on the day its own night set.
+ * A stockpile takes no stored good, and a good that spoils joins only a stack
+ * put down since the same dawn, so each unit is gone on the day its own night set.
  */
-function room(sim: Sim, tile: number, good: Good): number {
+function room(sim: Sim, tile: number, good: Unit): number {
   const { map, goods } = sim;
   const claim = sim.orders.claims[tile];
   if (!walkable(map, tile) || claim === Claim.Site) return 0;
   const size = map.stackSize[tile]!;
-  if (good === Good.Food && (claim === Claim.Stockpile || (size > 0 && goods.foodGoneAt[tile] !== sim.dawns + FOOD_KEEPS_DAWNS))) return 0;
+  const { kind, keepsDawns } = GOODS[good];
+  if (kind === GoodKind.Stored && claim === Claim.Stockpile) return 0;
+  if (keepsDawns > 0 && size > 0 && goods.goneAt[tile] !== sim.dawns + keepsDawns) return 0;
   const inbound = goods.inbound[tile]!;
   const held = size > 0 ? map.stackGood[tile] : inbound > 0 ? goods.inboundGood[tile] : Good.None;
   return held === Good.None || held === good ? STACK_LIMIT - size - inbound : 0;
@@ -103,12 +130,12 @@ export function refreshStack(sim: Sim, tile: number): void {
   const reached = sim.flow.next[tile] !== -1 && goods.setAside[tile] === 0;
   const claim = sim.orders.claims[tile];
   const stockpile = claim === Claim.Stockpile;
-  const unreserved = reached && map.stackSize[tile]! > goods.outbound[tile]! ? map.stackGood[tile] : Good.None;
-  // Food is never stocked, so food lying on a stockpile tile is loose.
-  const stocked = stockpile && unreserved !== Good.Food ? unreserved : Good.None;
+  const unreserved = reached && map.stackSize[tile]! > goods.outbound[tile]! ? (map.stackGood[tile]! as Good) : Good.None;
+  // A stored good is never stocked, so one lying on a stockpile tile is loose.
+  const stocked = stockpile && stockpiled(unreserved) ? unreserved : Good.None;
   const loose = claim === Claim.Site || stocked !== Good.None ? Good.None : unreserved;
   for (let index = 0; index < GOOD_KINDS; index++) {
-    const good = (index + 1) as Good;
+    const good = (index + 1) as Unit;
     setOpen(goods.loose[index]!, map.size, tile, loose === good);
     setOpen(goods.stocked[index]!, map.size, tile, stocked === good);
     setOpen(goods.room[index]!, map.size, tile, reached && stockpile && room(sim, tile, good) > 0);
@@ -153,7 +180,7 @@ export function pickUp(sim: Sim, tile: number): Good {
  * from `from` reach lacks room for all of them, nothing is put down and it
  * returns false. It records in `PutDownSearch.reach` how far the units spread.
  */
-export function putDown(sim: Sim, from: number, good: Good, units: number): boolean {
+export function putDown(sim: Sim, from: number, good: Unit, units: number): boolean {
   const { map } = sim;
   const { size, stackGood, stackSize } = map;
   const { queue, reached } = sim.putDownSearch;
@@ -187,7 +214,7 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     if (placed === 0) continue;
     const x = tile % size;
     reach = Math.max(reach, Math.abs(x - fromX), Math.abs((tile - x) / size - fromY));
-    if (good === Good.Food && stackSize[tile] === 0) listFood(sim, tile);
+    if (GOODS[good].keepsDawns > 0 && stackSize[tile] === 0) listSpoiling(sim, tile, GOODS[good].keepsDawns);
     stackGood[tile] = good;
     stackSize[tile] = stackSize[tile]! + placed;
     left -= placed;
@@ -198,44 +225,50 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
   return true;
 }
 
-/** Starts a stack of food on a tile: it is gone at the second dawn from now. */
-function listFood(sim: Sim, tile: number): void {
+/** Starts a stack of a good that spoils on a tile: it is gone at the dawn `keepsDawns` from now. */
+function listSpoiling(sim: Sim, tile: number, keepsDawns: number): void {
   const { goods } = sim;
-  goods.foodGoneAt[tile] = sim.dawns + FOOD_KEEPS_DAWNS;
-  if (goods.foodListed[tile] === 1) return;
-  goods.foodListed[tile] = 1;
-  goods.foodTiles[goods.foodCount++] = tile;
+  goods.goneAt[tile] = sim.dawns + keepsDawns;
+  if (goods.spoilingListed[tile] === 1) return;
+  goods.spoilingListed[tile] = 1;
+  goods.spoilingTiles[goods.spoilingCount++] = tile;
+}
+
+/** Whether a tile holds a stack of a good that spoils. */
+function spoiling(map: TileMap, tile: number): boolean {
+  const good = map.stackGood[tile]! as Good;
+  return good !== Good.None && GOODS[good].keepsDawns > 0 && map.stackSize[tile]! > 0;
 }
 
 /**
- * Takes away the food on open ground whose day has come, at a dawn after
- * `Sim.dawns` counted it. Tiles whose food is not yet due stay listed, and
- * tiles that no longer hold food leave the list.
+ * Takes away the goods on open ground whose day has come, at a dawn after
+ * `Sim.dawns` counted it. Tiles whose goods are not yet due stay listed, and
+ * tiles that no longer hold a good that spoils leave the list.
  */
-export function spoilFood(sim: Sim): void {
+export function spoilGoods(sim: Sim): void {
   const { map, goods } = sim;
   let kept = 0;
-  for (let i = 0; i < goods.foodCount; i++) {
-    const tile = goods.foodTiles[i]!;
-    const food = map.stackGood[tile] === Good.Food && map.stackSize[tile]! > 0;
-    if (food && goods.foodGoneAt[tile]! > sim.dawns) {
-      goods.foodTiles[kept++] = tile;
+  for (let i = 0; i < goods.spoilingCount; i++) {
+    const tile = goods.spoilingTiles[i]!;
+    const holds = spoiling(map, tile);
+    if (holds && goods.goneAt[tile]! > sim.dawns) {
+      goods.spoilingTiles[kept++] = tile;
       continue;
     }
-    goods.foodListed[tile] = 0;
-    if (!food) continue;
+    goods.spoilingListed[tile] = 0;
+    if (!holds) continue;
     sim.tally.spoiled += map.stackSize[tile]!;
     map.stackGood[tile] = Good.None;
     map.stackSize[tile] = 0;
     noteTileChange(sim, tile);
     refreshStack(sim, tile);
   }
-  goods.foodCount = kept;
+  goods.spoilingCount = kept;
 }
 
 /** Puts the unit in the villager's hands down where it stands. It stays in its hands when the land has no room for it. */
 export function putDownHeld(sim: Sim, id: number): void {
   const { villagers } = sim;
-  const good = villagers.carried[id]! as Good;
+  const good = villagers.carried[id]! as Unit;
   if (putDown(sim, tileAt(sim.map, villagers.x[id]!, villagers.y[id]!), good, 1)) villagers.carried[id] = Good.None;
 }

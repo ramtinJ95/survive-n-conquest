@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING, arrived } from './building';
-import { BUILDINGS, Building } from './buildings';
+import { BUILDINGS, Building, needOf } from './buildings';
 import { TICKS_PER_DAY } from './calendar';
 import { CARRYING } from './carrying';
 import { isDawn, isNight } from './daylight';
@@ -108,7 +108,7 @@ describe('supplying a site', () => {
         watch();
         for (const good of [Good.Log, Good.Stone]) {
           const onTheirWay = holding(sim, SUPPLY).filter((id) => supplied(sim, id) === good).length;
-          if (units(sim, slot, good) + onTheirWay > BUILDINGS[Building.House].needs[good - 1]!) overbooked.push(`good ${good} on tick ${sim.tick}`);
+          if (units(sim, slot, good) + onTheirWay > needOf(BUILDINGS[Building.House], good)) overbooked.push(`good ${good} on tick ${sim.tick}`);
         }
       },
     );
