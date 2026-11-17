@@ -146,6 +146,86 @@ export function barnShape(): BufferGeometry {
   ]);
 }
 
+/**
+ * The hunter's lodge: low walls of dark logs under a single-pitch roof of
+ * hide that falls from the back to the door, with a hide stretched on a pole
+ * frame beside the door. It is lower than the hut and its roof slopes one way,
+ * so it reads apart from the house, the hut, and the barn.
+ */
+export const LODGE_LOOK = {
+  side: 1.7,
+  log: 0.1,
+  front: 0.7,
+  back: 1.3,
+  roof: { thickness: 0.08, overhang: 0.16 },
+  door: { width: 0.42, height: 0.56 },
+  frame: { x: 0.52, width: 0.5, height: 0.72, pole: 0.05 },
+  colors: { log: 0x6f5235, timber: 0x3f2a1a, roof: 0x4f3222, hide: 0xcfae80 },
+};
+
+/** The hunter's lodge, with no model behind it, standing on the origin and centered on its footprint, its door facing +z. */
+export function lodgeShape(): BufferGeometry {
+  const { side, log, front, back, roof, door, frame, colors } = LODGE_LOOK;
+  const half = side / 2;
+  // Drawn across the lodge with the door's side at -u, the outline turns a quarter about y so the door faces +z.
+  const outline = new Shape();
+  outline.moveTo(-half, 0);
+  outline.lineTo(half, 0);
+  outline.lineTo(half, back);
+  outline.lineTo(-half, front);
+  outline.closePath();
+  const body = new ExtrudeGeometry(outline, { depth: side, bevelEnabled: false }).translate(0, 0, -half).rotateY(Math.PI / 2);
+  const courses = Math.floor(front / (2 * log));
+  const logs = Array.from({ length: courses }, (_, course) =>
+    new CylinderGeometry(log, log, side + log, 6).rotateZ(Math.PI / 2).translate(0, log + 2 * log * course, half),
+  );
+  const slope = Math.atan2(back - front, side);
+  const plane = new BoxGeometry(side + 2 * roof.overhang, roof.thickness, Math.hypot(side, back - front) + 2 * roof.overhang)
+    .rotateX(slope)
+    .translate(0, (front + back) / 2 + roof.thickness / 2, 0);
+  const pole = (x: number) => new BoxGeometry(frame.pole, frame.height, frame.pole).translate(x, frame.height / 2, half + 0.12);
+  return mergeGeometries([
+    colored(body, colors.log),
+    ...logs.map((part) => colored(part, colors.log)),
+    colored(plane, colors.roof),
+    colored(new BoxGeometry(door.width, door.height, 0.04).translate(-0.2, door.height / 2, half + log + 0.01), colors.timber),
+    colored(pole(frame.x - frame.width / 2), colors.timber),
+    colored(pole(frame.x + frame.width / 2), colors.timber),
+    colored(new BoxGeometry(frame.width, frame.pole, frame.pole).translate(frame.x, frame.height - frame.pole / 2, half + 0.12), colors.timber),
+    colored(new BoxGeometry(frame.width - frame.pole, frame.height - 0.22, 0.02).translate(frame.x, frame.height / 2 + 0.06, half + 0.12), colors.hide),
+  ]);
+}
+
+/**
+ * A deer, about 1.2 m from nose to tail and facing +z: a tan-brown body on
+ * four thin legs, a neck and head reaching forward and up, a pale tail, and
+ * small antlers, so it reads as a deer and not as a settler from the game's camera.
+ */
+export const DEER_LOOK = {
+  legs: 0.56,
+  body: { width: 0.3, height: 0.34, length: 0.78 },
+  colors: { coat: 0x9b6a3d, legs: 0x5e4129, tail: 0xf1e8d6, antler: 0xdccbaa, nose: 0x2c211a },
+};
+
+export function deerShape(): BufferGeometry {
+  const { legs, body, colors } = DEER_LOOK;
+  const back = legs + body.height;
+  const leg = (x: number, z: number) => new BoxGeometry(0.07, legs, 0.07).translate(x, legs / 2, z);
+  const antler = (side: 1 | -1) => [
+    new BoxGeometry(0.03, 0.22, 0.03).rotateZ(side * -0.4).translate(side * 0.08, back + 0.5, 0.47),
+    new BoxGeometry(0.025, 0.1, 0.025).rotateX(0.7).translate(side * 0.11, back + 0.53, 0.52),
+  ];
+  return mergeGeometries([
+    colored(new BoxGeometry(body.width, body.height, body.length).translate(0, legs + body.height / 2, 0), colors.coat),
+    ...[leg(-0.1, 0.28), leg(0.1, 0.28), leg(-0.1, -0.28), leg(0.1, -0.28)].map((part) => colored(part, colors.legs)),
+    colored(new BoxGeometry(0.13, 0.4, 0.13).rotateX(0.55).translate(0, back + 0.1, 0.4), colors.coat),
+    colored(new BoxGeometry(0.15, 0.15, 0.3).translate(0, back + 0.32, 0.55), colors.coat),
+    colored(new BoxGeometry(0.08, 0.07, 0.04).translate(0, back + 0.3, 0.71), colors.nose),
+    colored(new BoxGeometry(0.12, 0.14, 0.05).rotateX(-0.4).translate(0, back - 0.06, -body.length / 2 - 0.02), colors.tail),
+    ...[...antler(1), ...antler(-1)].map((part) => colored(part, colors.antler)),
+  ]);
+}
+
 function plain(geometry: BufferGeometry): BufferGeometry {
   const flat = geometry.index ? geometry.toNonIndexed() : geometry;
   const from = flat.getAttribute('color');

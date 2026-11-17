@@ -3,6 +3,7 @@ import { ANYONE, type Job } from './buildings';
 import { CARRYING } from './carrying';
 import { FORAGING } from './foraging';
 import { GATHERING } from './gathering';
+import { FETCHING_KILL, HUNTING } from './hunting';
 import { jobOf } from './jobs';
 import { sideOf } from './map';
 import { type TileArea, clip } from './orders';
@@ -29,6 +30,12 @@ export interface TaskKind {
   take(sim: Sim, id: number): boolean;
   /** Whether the villager's task still stands, as an order cancelled under it does not. */
   holds(sim: Sim, id: number): boolean;
+  /**
+   * Brings the villager's route up to date with a work tile that moves, as a
+   * stalked deer does, each tick before it walks. Returns false when the task
+   * can no longer be done, which ends it. A kind whose work stays put has none.
+   */
+  follow?(sim: Sim, id: number): boolean;
   /** One tick of work by the villager standing on its work tile. Returns true when the task is over, done or not. */
   work(sim: Sim, id: number): boolean;
   /** Ends the villager's hold on its task and frees what the task reserved. */
@@ -44,7 +51,7 @@ export interface TaskKind {
  * first kind its job allows that has one open. A kind added later goes last,
  * so the task column values of the others stay.
  */
-export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING];
+export const TASK_KINDS: readonly TaskKind[] = [STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING];
 
 export function allows(kind: TaskKind, job: Job): boolean {
   return kind.job === ANYONE || kind.job === job;

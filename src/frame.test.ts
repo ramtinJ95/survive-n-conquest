@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { frameOf } from './frame';
+import { AnimalKind, AnimalState, MAX_ANIMALS, addAnimal } from './sim/animals';
 import { finishBuilding } from './sim/building';
 import { Building } from './sim/buildings';
 import { FORAGING } from './sim/foraging';
@@ -56,5 +57,16 @@ describe('the frame the worker posts', () => {
     expect(frame.workplaces.length).toBe(0);
     expect(frame.hired.length).toBe(0);
     expect(sim.villagers.workplace.length).toBe(4);
+  });
+
+  it('copies the position, kind, and state of every row of the animal table, living or gone', () => {
+    const { sim } = settlersAndAHut();
+    const deer = addAnimal(sim.animals, AnimalKind.Deer, 20.5, 6.25);
+    const { frame, transfer } = frameOf(sim);
+    expect([frame.animals.length, frame.animalKinds.length, frame.animalStates.length]).toEqual([2 * MAX_ANIMALS, MAX_ANIMALS, MAX_ANIMALS]);
+    expect([frame.animals[deer * 2], frame.animals[deer * 2 + 1], frame.animalKinds[deer], frame.animalStates[deer]]).toEqual([20.5, 6.25, AnimalKind.Deer, AnimalState.Grazing]);
+    expect(frame.animalStates[deer + 1]).toBe(AnimalState.Gone);
+    structuredClone(frame, { transfer });
+    expect([frame.animals.length, frame.animalKinds.length, frame.animalStates.length]).toEqual([0, 0, 0]);
   });
 });

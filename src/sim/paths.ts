@@ -110,3 +110,13 @@ export function planPath(sim: Sim, id: number, to: number): boolean {
   villagers.pathCursor[id] = 0;
   return true;
 }
+
+/** Ends the villager's route at the point it stands on, so it is at work on its own tile without a step to the tile's middle. */
+export function stopWhereItStands(sim: Sim, id: number): void {
+  const { map, villagers } = sim;
+  const here = tileAt(map, villagers.x[id]!, villagers.y[id]!);
+  villagers.path[id * MAX_PATH] = here;
+  villagers.pathLength[id] = 1;
+  villagers.pathCursor[id] = 1;
+  villagers.workTile[id] = here;
+}

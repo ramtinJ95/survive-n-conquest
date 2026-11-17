@@ -66,6 +66,7 @@ const BUILDING_STORES: Readonly<Record<Building, { readonly kind: StoreKind; rea
   [Building.House]: { kind: StoreKind.Home, limit: HOUSE_FOOD_LIMIT },
   [Building.Hut]: { kind: StoreKind.None, limit: 0 },
   [Building.Barn]: { kind: StoreKind.Common, limit: BARN_FOOD_LIMIT },
+  [Building.Lodge]: { kind: StoreKind.None, limit: 0 },
 };
 
 /** The one place that says which buildings are stores. Anything that is no store holds nothing. */

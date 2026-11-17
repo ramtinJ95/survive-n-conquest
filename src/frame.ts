@@ -14,6 +14,12 @@ export interface ClockSnapshot {
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
+  /** One position pair for every row of the animal table, living or not. */
+  readonly animals: Float32Array;
+  /** One `AnimalKind` per animal row. */
+  readonly animalKinds: Uint8Array;
+  /** One `AnimalState` per animal row. A row that is `AnimalState.Gone` holds no animal. */
+  readonly animalStates: Uint8Array;
   /** One `Good` per villager in id order: what each one carries. */
   readonly carried: Uint8Array;
   /** One `VillagerState` per villager in id order. A villager in its house at night is `VillagerState.Inside`, on the tile it went in on. */
@@ -75,6 +81,9 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     over: sim.over,
     villagers: positions(villagers),
     monsters: positions(sim.monsters),
+    animals: positions(sim.animals),
+    animalKinds: sim.animals.kind.slice(),
+    animalStates: sim.animals.state.slice(),
     carried: villagers.carried.slice(),
     states: villagers.state.slice(),
     tasks: villagers.task.slice(),
@@ -97,6 +106,9 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
   const transfer = [
     frame.villagers,
     frame.monsters,
+    frame.animals,
+    frame.animalKinds,
+    frame.animalStates,
     frame.carried,
     frame.states,
     frame.tasks,

@@ -1,3 +1,4 @@
+import { AnimalState, MAX_ANIMALS, grazes } from './animals';
 import { nearestDoor } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
 import type { FlowField } from './flowField';
@@ -12,14 +13,12 @@ import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
 import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
-import { NO_TASK, VillagerState } from './villagerState';
+import { NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
 /** By day an idle villager picks its next point within this many tiles of the camp center, on both axes. */
 export const WANDER_REACH = 8;
-/** An idle villager looks for work on one tick in this many, the tick of its group. Villager `id` is in group `id % THINK_GROUPS`. */
-export const THINK_GROUPS = 10;
 /** Each villager's spot at the camp lies this many tiles from the camp center. */
 const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
@@ -384,35 +383,39 @@ export function stopFallenTasks(sim: Sim): void {
   }
 }
 
-/** The tile with a walk to the camp nearest `from`, counted in side steps over tiles of any kind, or -1. */
-function nearestReached(sim: Sim, from: number): number {
+/** Whether a tile has a walk to the camp, where a villager or a monster may stand. */
+const reached = (sim: Sim, tile: number) => sim.flow.next[tile] !== -1;
+/** Whether an animal may stand on a tile. */
+const grazed = (sim: Sim, tile: number) => grazes(sim.map, tile);
+
+/** The tile that `fits` accepts nearest `from`, counted in side steps over tiles of any kind, or -1. */
+function nearestFitting(sim: Sim, from: number, fits: (sim: Sim, tile: number) => boolean): number {
   const { size } = sim.map;
-  const { next } = sim.flow;
-  const { queue, reached } = sim.putDownSearch;
+  const { queue, reached: seen } = sim.putDownSearch;
   const search = ++sim.putDownSearch.searches;
-  reached[from] = search;
+  seen[from] = search;
   queue[0] = from;
   for (let head = 0, tail = 1; head < tail; head++) {
     const tile = queue[head]!;
-    if (next[tile] !== -1) return tile;
+    if (fits(sim, tile)) return tile;
     const x = tile % size;
     const y = (tile - x) / size;
     for (let side = 0; side < 4; side++) {
       const neighbor = sideOf(size, x, y, side);
-      if (neighbor < 0 || reached[neighbor] === search) continue;
-      reached[neighbor] = search;
+      if (neighbor < 0 || seen[neighbor] === search) continue;
+      seen[neighbor] = search;
       queue[tail++] = neighbor;
     }
   }
   return -1;
 }
 
-/** Moves a unit that stands where no walk reaches the camp to the center of the nearest tile with one. Returns whether it moved. */
-function standOnReach(sim: Sim, xs: Float32Array, ys: Float32Array, id: number): boolean {
+/** Moves a unit that stands on a tile `fits` refuses to the center of the nearest tile it accepts. Returns whether it moved. */
+function standOn(sim: Sim, xs: Float32Array, ys: Float32Array, id: number, fits: (sim: Sim, tile: number) => boolean): boolean {
   const { map } = sim;
   const tile = tileAt(map, xs[id]!, ys[id]!);
-  if (sim.flow.next[tile] !== -1) return false;
-  const to = nearestReached(sim, tile);
+  if (fits(sim, tile)) return false;
+  const to = nearestFitting(sim, tile, fits);
   if (to < 0) return false;
   xs[id] = (to % map.size) + 0.5;
   ys[id] = (to - (to % map.size)) / map.size + 0.5;
@@ -434,18 +437,19 @@ function routeStands(map: TileMap, villagers: Villagers, id: number): boolean {
 /**
  * Settles every unit after a finished house closed tiles, in the tick it was
  * finished, before the next unit moves. Tasks on land that lost its walk to
- * the camp close. A unit that stands where no walk reaches the camp moves to
- * the nearest tile with one, as on the house or on land that reached the camp
- * only across its site. A villager whose task fell, or whose work tile lost its
+ * the camp close. A villager or a monster that stands where no walk reaches
+ * the camp moves to the nearest tile with one, as on the house or on land that
+ * reached the camp only across its site. An animal on the house moves to the
+ * nearest grass or forest. A villager whose task fell, or whose work tile lost its
  * walk, gives the task up. One that moved, or whose route crossed what closed,
  * plans its route again.
  */
 function leaveClosedLand(sim: Sim): void {
-  const { map, flow, villagers, monsters } = sim;
+  const { map, flow, villagers, monsters, animals } = sim;
   loseTasks(sim);
   for (let id = 0; id < villagers.task.length; id++) {
     if (villagers.state[id] === VillagerState.Dead) continue;
-    const moved = standOnReach(sim, villagers.x, villagers.y, id);
+    const moved = standOn(sim, villagers.x, villagers.y, id, reached);
     if (moved) {
       villagers.targetX[id] = villagers.x[id]!;
       villagers.targetY[id] = villagers.y[id]!;
@@ -455,13 +459,15 @@ function leaveClosedLand(sim: Sim): void {
     if (!stands(sim, id) || flow.next[workTile] === -1) stopTask(sim, id);
     else if ((moved || !routeStands(map, villagers, id)) && !planPath(sim, id, workTile)) stopTask(sim, id);
   }
-  for (let id = 0; id < monsters.x.length; id++) standOnReach(sim, monsters.x, monsters.y, id);
+  for (let id = 0; id < monsters.x.length; id++) standOn(sim, monsters.x, monsters.y, id, reached);
+  for (let row = 0; row < MAX_ANIMALS; row++) if (animals.state[row] !== AnimalState.Gone) standOn(sim, animals.x, animals.y, row, grazed);
 }
 
-/** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */
+/** One tick of a villager that holds a task: it gives the task up when it no longer stands or its kind can no longer follow it, walks its route, then works. */
 function doTask(sim: Sim, id: number): void {
   const { villagers } = sim;
-  if (!stands(sim, id)) {
+  const kind = taskKind(sim, id);
+  if (!stands(sim, id) || (kind.follow !== undefined && !kind.follow(sim, id))) {
     stopTask(sim, id);
     return;
   }
@@ -476,7 +482,7 @@ function doTask(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Working;
   // A wanting villager works at half the rate: on even ticks only.
   if (wanting(villagers, id) && (sim.tick & 1) === 1) return;
-  if (!taskKind(sim, id).work(sim, id)) return;
+  if (!kind.work(sim, id)) return;
   stopTask(sim, id);
   if (sim.flow.lostCount > 0) leaveClosedLand(sim);
 }

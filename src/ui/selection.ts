@@ -1,8 +1,9 @@
 import type { PerspectiveCamera } from 'three';
 import { type Selection, pickSelection } from '../render/pickSelection';
 import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
+import { AnimalState } from '../sim/animals';
 import { BUILDING } from '../sim/building';
-import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY } from '../sim/buildings';
+import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY, withinReach } from '../sim/buildings';
 import { SEASONS, seasonIndexAt } from '../sim/calendar';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
@@ -10,6 +11,7 @@ import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
+import { FETCHING_KILL, HUNTING } from '../sim/hunting';
 import { TileKind, type TileMap, tileAt } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
@@ -51,6 +53,8 @@ export interface Facts {
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
+    | 'animals'
+    | 'animalStates'
   >;
 }
 
@@ -113,6 +117,8 @@ const SUPPLY = task(SUPPLYING);
 const BUILD = task(BUILDING);
 const STOCK = task(STOCKING);
 const FORAGE = task(FORAGING);
+const FETCH_KILL = task(FETCHING_KILL);
+const HUNT = task(HUNTING);
 const WINTER = SEASONS.indexOf('Winter');
 
 const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food' };
@@ -151,6 +157,11 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
     return working ? 'Foraging' : 'Walking to a tree to forage';
   },
+  [FETCH_KILL]: (facts, id) => {
+    if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
+    return 'Walking to a kill to pick up food';
+  },
+  [HUNT]: (_facts, _id, working) => (working ? 'Aiming at a deer' : 'Stalking a deer'),
 };
 
 /** The common store a carrier goes to on a tile: the camp at the camp center, and a barn at any tile beside one. */
@@ -167,6 +178,14 @@ function roomInAStore({ orders, frame }: Facts): boolean {
   return false;
 }
 
+/** Whether an animal lives within the reach of the workplace in `slot`. */
+function preyInReach({ orders, frame }: Facts, slot: number): boolean {
+  for (let row = 0; row < frame.animalStates.length; row++) {
+    if (frame.animalStates[row] !== AnimalState.Gone && withinReach(orders.sites, slot, frame.animals[row * 2]!, frame.animals[row * 2 + 1]!)) return true;
+  }
+  return false;
+}
+
 function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, purpose = ''): string {
   const carried = frame.carried[id] as Good;
   if (carried !== Good.None) return `Carrying ${GOOD_NAMES[carried]} ${to}`;
@@ -178,14 +197,19 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
   return jobAt(orders.sites, frame.workplaces[id]!);
 }
 
-/** What a villager with no task does by day, by its job: a forager says why it is not out foraging. */
-const IDLE_WORDS: Readonly<Record<Job, (facts: Facts) => string>> = {
+/** What a villager with no task does by day, by its job: a forager or a hunter says why it is not out at its work. */
+const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = {
   [Job.None]: () => 'Idle',
   [Job.Forager]: (facts) => {
     const { frame } = facts;
     if (seasonIndexAt(frame.tick) === WINTER) return 'Idle, nothing grows until spring';
     if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
     return 'Looking for forage';
+  },
+  [Job.Hunter]: (facts, id) => {
+    if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
+    if (!preyInReach(facts, facts.frame.workplaces[id]!)) return `Idle, no deer within ${BUILDINGS[Building.Lodge].reach} tiles of the lodge`;
+    return 'Looking for deer';
   },
 };
 
@@ -204,7 +228,7 @@ function doing(facts: Facts, id: number): string {
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[facts.frame.tasks[id]!];
-  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts);
+  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
   return task(facts, id, state === VillagerState.Working);
 }
 
@@ -356,6 +380,11 @@ const PANELS: Panels = {
     note: 'A finished barn. Food in it keeps.',
     rows: [{ label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${BARN_FOOD_LIMIT}` }],
   },
+  lodgeSite: sitePanel(Building.Lodge),
+  lodge: workplacePanel(
+    Building.Lodge,
+    `Its hunters hunt deer within ${BUILDINGS[Building.Lodge].reach} tiles and carry the food to the nearest store with room.`,
+  ),
   camp: {
     title: 'Camp',
     rows: [

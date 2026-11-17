@@ -1,4 +1,4 @@
-import { Job, kindOf, siteMidX, siteMidY } from './buildings';
+import { Job, kindOf, siteMidX, siteMidY, withinReach } from './buildings';
 import { SEASONS, TICKS_PER_DAY, TICKS_PER_SECOND, seasonIndexAt } from './calendar';
 import { Good, putDownHeld } from './goods';
 import { TileKind } from './map';
@@ -43,14 +43,10 @@ export function bears(sim: Sim, tile: number): boolean {
   );
 }
 
-/** Whether a tile's center lies within the reach of the workplace in `slot`, measured from the workplace's middle. */
+/** Whether a tile's center lies within the reach of the workplace in `slot`. */
 function inReach(sim: Sim, slot: number, tile: number): boolean {
-  const { sites } = sim.orders;
   const { size } = sim.map;
-  const { reach } = kindOf(sites, slot);
-  const dx = (tile % size) + 0.5 - siteMidX(sites, slot);
-  const dy = (tile - (tile % size)) / size + 0.5 - siteMidY(sites, slot);
-  return dx * dx + dy * dy <= reach * reach;
+  return withinReach(sim.orders.sites, slot, (tile % size) + 0.5, (tile - (tile % size)) / size + 0.5);
 }
 
 /**

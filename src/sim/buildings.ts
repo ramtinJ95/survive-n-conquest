@@ -2,16 +2,16 @@ import { TICKS_PER_SECOND } from './calendar';
 import type { Sites } from './orders';
 import type { Sim } from './sim';
 
-export const Building = { House: 0, Hut: 1, Barn: 2 } as const;
+export const Building = { House: 0, Hut: 1, Barn: 2, Lodge: 3 } as const;
 export type Building = (typeof Building)[keyof typeof Building];
 
 /** The work a villager does in a place at a workplace. A villager with no place has none. */
-export const Job = { None: 0, Forager: 1 } as const;
+export const Job = { None: 0, Forager: 1, Hunter: 2 } as const;
 export type Job = (typeof Job)[keyof typeof Job];
 /** Where a rule takes a villager with any job, or with none. */
 export const ANYONE = -1;
 
-export type BuildingName = 'house' | 'hut' | 'barn';
+export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge';
 
 export interface BuildingKind {
   /** What a place order and its outcome call it. */
@@ -35,6 +35,7 @@ export const BUILDINGS: Readonly<Record<Building, BuildingKind>> = {
   [Building.House]: { name: 'house', side: 3, needs: [12, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
   [Building.Hut]: { name: 'hut', side: 2, needs: [8, 0, 0], workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Forager, reach: 20 },
   [Building.Barn]: { name: 'barn', side: 3, needs: [16, 6, 0], workTicks: 90 * TICKS_PER_SECOND, places: 0, job: Job.None, reach: 0 },
+  [Building.Lodge]: { name: 'lodge', side: 2, needs: [8, 4, 0], workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Hunter, reach: 40 },
 };
 
 /** The longest side of any kind, so `MAX_SIDE * MAX_SIDE` tiles hold any footprint. */
@@ -77,6 +78,14 @@ export function siteMidX(sites: Sites, slot: number): number {
 /** The y of the middle of the footprint in a slot, in map units. */
 export function siteMidY(sites: Sites, slot: number): number {
   return siteY0(sites, slot) + kindOf(sites, slot).side / 2;
+}
+
+/** Whether a point lies within the reach of the workplace in `slot`, measured from the workplace's middle. */
+export function withinReach(sites: Sites, slot: number, px: number, py: number): boolean {
+  const { reach } = kindOf(sites, slot);
+  const dx = px - siteMidX(sites, slot);
+  const dy = py - siteMidY(sites, slot);
+  return dx * dx + dy * dy <= reach * reach;
 }
 
 /**

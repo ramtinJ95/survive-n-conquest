@@ -60,7 +60,7 @@ function reserveStore(sim: Sim, id: number, px: number, py: number): boolean {
 }
 
 /** Sends a villager whose hands are full to the stockpile place, or the store for food, nearest it with room for its unit. */
-function takeHeld(sim: Sim, id: number): boolean {
+export function takeHeld(sim: Sim, id: number): boolean {
   const { villagers, goods } = sim;
   const good = villagers.carried[id]! as Good;
   if (good === Good.Food) {
@@ -94,9 +94,8 @@ function takeHeld(sim: Sim, id: number): boolean {
  * unit. A villager that already holds a unit only needs a place for it.
  */
 function take(sim: Sim, id: number): boolean {
-  const { villagers, goods, map } = sim;
+  const { villagers } = sim;
   if (villagers.carried[id] !== Good.None) return takeHeld(sim, id);
-  const { size } = map;
   for (;;) {
     const source = nearestLoose(sim, villagers.x[id]!, villagers.y[id]!);
     if (source < 0) return false;
@@ -104,22 +103,34 @@ function take(sim: Sim, id: number): boolean {
       setAsideGoods(sim, source);
       continue;
     }
-    const good = map.stackGood[source]! as Good;
-    const sx = (source % size) + 0.5;
-    const sy = (source - (source % size)) / size + 0.5;
-    if (good === Good.Food) {
-      if (!reserveStore(sim, id, sx, sy)) return false;
-    } else {
-      const place = nearestOpen(goods.room[good - 1]!, size, sx, sy);
-      reservePlace(sim, place, good);
-      villagers.destination[id] = place;
-    }
-    goods.outbound[source]! += 1;
-    refreshStack(sim, source);
-    villagers.taskTile[id] = source;
-    villagers.workTile[id] = source;
-    return true;
+    return reserveLoose(sim, id, source);
   }
+}
+
+/**
+ * Reserves the loose unit on `source`, to which the villager's route is
+ * planned, and the stockpile place, or for food the common store, nearest the
+ * unit with room, and sends the villager to the unit. Returns false when no
+ * store has room for food.
+ */
+export function reserveLoose(sim: Sim, id: number, source: number): boolean {
+  const { villagers, goods } = sim;
+  const { size } = sim.map;
+  const good = sim.map.stackGood[source]! as Good;
+  const sx = (source % size) + 0.5;
+  const sy = (source - (source % size)) / size + 0.5;
+  if (good === Good.Food) {
+    if (!reserveStore(sim, id, sx, sy)) return false;
+  } else {
+    const place = nearestOpen(goods.room[good - 1]!, size, sx, sy);
+    reservePlace(sim, place, good);
+    villagers.destination[id] = place;
+  }
+  goods.outbound[source]! += 1;
+  refreshStack(sim, source);
+  villagers.taskTile[id] = source;
+  villagers.workTile[id] = source;
+  return true;
 }
 
 /**
@@ -140,24 +151,11 @@ function holds(sim: Sim, id: number): boolean {
  * stacks the unit at the place, or puts food into the store. None takes work ticks.
  */
 function work(sim: Sim, id: number): boolean {
-  const { villagers, goods, stores } = sim;
+  const { villagers, goods } = sim;
   const place = villagers.destination[id]!;
-  const store = villagers.toStore[id]!;
-  if (villagers.carried[id] === Good.None) {
-    const source = villagers.taskTile[id]!;
-    goods.outbound[source]! -= 1;
-    villagers.carried[id] = pickUp(sim, source);
-    villagers.workTile[id] = place;
-    if (planPath(sim, id, place)) return false;
-    if (store < 0) setAsideGoods(sim, place);
-    return true;
-  }
-  if (store >= 0) {
-    stores.inbound[store] = stores.inbound[store]! - 1;
-    stores.food[store] = stores.food[store]! + 1;
-    villagers.carried[id] = Good.None;
-    villagers.toStore[id] = -1;
-    villagers.destination[id] = -1;
+  if (villagers.carried[id] === Good.None) return pickUpReserved(sim, id);
+  if (villagers.toStore[id]! >= 0) {
+    putInStore(sim, id);
     sim.tally.fromGround += 1;
     return true;
   }
@@ -169,6 +167,34 @@ function work(sim: Sim, id: number): boolean {
   }
   villagers.destination[id] = -1;
   return true;
+}
+
+/**
+ * Picks up the unit the villager reserved on its task tile and turns it toward
+ * the place or store the unit goes to. Returns true, which ends the task, when
+ * no walk reaches there.
+ */
+export function pickUpReserved(sim: Sim, id: number): boolean {
+  const { villagers, goods } = sim;
+  const place = villagers.destination[id]!;
+  const source = villagers.taskTile[id]!;
+  goods.outbound[source]! -= 1;
+  villagers.carried[id] = pickUp(sim, source);
+  villagers.workTile[id] = place;
+  if (planPath(sim, id, place)) return false;
+  if (villagers.toStore[id]! < 0) setAsideGoods(sim, place);
+  return true;
+}
+
+/** Puts the unit of food in the villager's hands into the store it reserved a place in. */
+export function putInStore(sim: Sim, id: number): void {
+  const { villagers, stores } = sim;
+  const store = villagers.toStore[id]!;
+  stores.inbound[store] = stores.inbound[store]! - 1;
+  stores.food[store] = stores.food[store]! + 1;
+  villagers.carried[id] = Good.None;
+  villagers.toStore[id] = -1;
+  villagers.destination[id] = -1;
 }
 
 /**

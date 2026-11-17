@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { dateAt } from './calendar';
 import { isDawn, isNight } from './daylight';
-import { FIRST_YEAR_BARNS, FIRST_YEAR_HUT, FIRST_YEAR_SEED, barnYearCommands, firstYearCommands } from './firstYear';
+import { FIRST_YEAR_BARNS, FIRST_YEAR_HUT, FIRST_YEAR_LODGE, FIRST_YEAR_SEED, barnYearCommands, firstYearCommands, huntYearCommands } from './firstYear';
 import { FORAGING } from './foraging';
 import { Good } from './goods';
 import { generateMap } from './mapgen';
 import { type Sex, nameOf } from './names';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
-import { CAMP_STORE } from './stores';
+import { CAMP_STORE, StoreKind, storeKind } from './stores';
 import { TASK_KINDS } from './tasks';
 
 const FORAGE = TASK_KINDS.indexOf(FORAGING) + 1;
@@ -85,5 +85,46 @@ describe('the first year on seed 7 with a barn', () => {
     const far = yearWith(FIRST_YEAR_BARNS.far);
     expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([102, 53, 0, 8]);
     expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([71, 0, 1, 8]);
+  });
+});
+
+describe("the first year on seed 7 with a hunter's lodge", () => {
+  function huntYear(hut: boolean) {
+    const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
+    for (const command of huntYearCommands({ hut })) expect(applyCommand(sim, command)).toMatchObject({ ok: true });
+    const lodge = sim.orders.siteOf[FIRST_YEAR_LODGE.y * sim.map.size + FIRST_YEAR_LODGE.x]!;
+    const barns = () => {
+      let food = 0;
+      for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === StoreKind.Common) food += sim.stores.food[slot]!;
+      return food;
+    };
+    let atAutumnsEnd: number[] = [];
+    let winterKills = 0;
+    while (dateAt(sim.tick).day <= 12) {
+      if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) atAutumnsEnd = [barns(), sim.stores.food[CAMP_STORE]!, sim.tally.kills];
+      const kills = sim.tally.kills;
+      step(sim);
+      if (dateAt(sim.tick).season === 'Winter') winterKills += sim.tally.kills - kills;
+    }
+    return { sim, lodge, atAutumnsEnd, winterKills };
+  }
+
+  it('brings all 8 settlers through the winter with the hut, the barn beside it, and the lodge, on stored forage and hunted deer', () => {
+    const { sim, lodge, atAutumnsEnd, winterKills } = huntYear(true);
+    expect(Array.from(sim.villagers.workplace).filter((place) => place === lodge).length).toBe(2);
+    const { tally } = sim;
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([96, 17, 14, 84, 29, 58, 0]);
+    expect(atAutumnsEnd).toEqual([117, 9, 13]);
+    expect(winterKills).toBe(1);
+    expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
+  });
+
+  it('brings all 8 through the year on hunted deer alone with the barn and the lodge and no hut', () => {
+    const { sim, atAutumnsEnd, winterKills } = huntYear(false);
+    const { tally } = sim;
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([0, 15, 12, 72, 16, 56, 0]);
+    expect(atAutumnsEnd).toEqual([18, 0, 11]);
+    expect(winterKills).toBe(1);
+    expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
   });
 });

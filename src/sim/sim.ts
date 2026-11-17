@@ -1,3 +1,4 @@
+import { type Animals, createAnimals, moveAnimals } from './animals';
 import { type SiteTasks, createSiteTasks, resetSite } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
@@ -7,6 +8,7 @@ import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
 import { type Households, createHouseholds } from './households';
+import { type Hunting, createHunting } from './hunting';
 import { setPlaces } from './jobs';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
@@ -34,6 +36,8 @@ export interface Population {
   readonly markAll?: boolean;
   /** The food the camp starts with, `CAMP_FOOD` when left out. A start above `CAMP_FOOD_LIMIT` raises what the camp holds to it. */
   readonly campFood?: number;
+  /** False leaves the map without animals, from the start and at every dawn. A test page uses it to keep a scene still. */
+  readonly animals?: boolean;
 }
 
 /**
@@ -55,10 +59,11 @@ export const NOBODY: Population = { villagers: 0, monsters: 0 };
  * whole number, sets the camp's starting food. Anything else leaves it at the
  * population's own.
  */
-export function populationFor(swarm: string | null, food: string | null = null): Population {
+export function populationFor(swarm: string | null, food: string | null = null, deer: string | null = null): Population {
   const population = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
   const campFood = food !== null && /^\d{1,5}$/.test(food) ? Number(food) : NaN;
-  return campFood <= 0xffff ? { ...population, campFood } : population;
+  const fed = campFood <= 0xffff ? { ...population, campFood } : population;
+  return deer === 'off' ? { ...fed, animals: false } : fed;
 }
 
 /** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
@@ -83,6 +88,15 @@ export interface Tally {
   fromGround: number;
   /** Units of food carried from a barn into the camp for the households that live there. */
   toCamp: number;
+  /** Shots hunters took, and those that hit, each a kill. */
+  shots: number;
+  kills: number;
+  /** Units of food the kills left on the ground. */
+  hunted: number;
+  /** Units of food a hunter carried into a store. A settler without a job who carries a kill's food counts in `fromGround`. */
+  huntedIn: number;
+  /** Units of food gone from open ground at a dawn. */
+  spoiled: number;
 }
 
 export interface Sim {
@@ -96,10 +110,12 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly households: Households;
   readonly monsters: Monsters;
+  readonly animals: Animals;
   readonly orders: Orders;
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly foraging: Foraging;
+  readonly hunting: Hunting;
   readonly goods: GoodsState;
   readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
@@ -134,16 +150,21 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     households: createHouseholds(population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
+    animals: createAnimals(map, population.villagers, population.animals ?? true),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
+    hunting: createHunting(population.villagers),
     goods: createGoodsState(map.size),
     stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     workers: new Uint8Array(MAX_SITES),
-    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0, foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0 },
+    tally: {
+      felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
+      foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, spoiled: 0,
+    },
     tick: 0,
     dawns: 0,
     hires: 0,
@@ -209,6 +230,7 @@ export function step(sim: Sim): void {
   }
   moveVillagers(sim, night, dawn);
   if (sim.flow.gainedCount > 0) reachTasks(sim);
+  moveAnimals(sim, dawn);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;
 }

@@ -1,4 +1,5 @@
 import { WebGLRenderer } from 'three';
+import { createHerds } from './render/animals';
 import { bindCameraInput } from './render/cameraInput';
 import { createSelectionMark } from './render/selectionMark';
 import { loadShapes } from './render/shapes';
@@ -30,11 +31,13 @@ document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
-const population = populationFor(params.get('swarm'), params.get('food'));
+const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'));
 const look = await loadShapes();
 const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
 scene.add(...swarm.meshes);
+const herds = createHerds(map);
+scene.add(...herds.meshes);
 const mark = createSelectionMark(map);
 scene.add(...mark.meshes);
 const camera = rig.camera;
@@ -101,6 +104,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   stockpiles.heard(data);
   siteLabels.heard(data);
   swarm.show(data);
+  herds.show(data);
   news.heard(data);
   diedOut.heard(data);
 });

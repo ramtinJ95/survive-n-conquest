@@ -10,8 +10,7 @@ import { NAMES, Sex, nameOf } from './names';
 import { type OrderCommand, SiteState, setSiteWork } from './orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { at, mapFrom } from './testMaps';
-import { THINK_GROUPS } from './villagers';
-import { VillagerState } from './villagerState';
+import { THINK_GROUPS, VillagerState } from './villagerState';
 
 const house = (x: number, y: number): OrderCommand => ({ kind: 'place', building: Building.House, x, y });
 const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
