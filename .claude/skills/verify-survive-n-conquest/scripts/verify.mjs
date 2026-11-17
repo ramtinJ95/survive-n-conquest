@@ -4460,7 +4460,7 @@ const NO_LOG = 'Idle, no log in a stockpile within 30 tiles of the woodshed';
 const WOODCUTTER_DOING = new RegExp(
   `^(${[FETCHING_LOG, CARRYING_LOG, 'Walking to the woodshed to split a log', SPLITTING_LOG, 'Looking for a log', NO_LOG, 'Idle, the woodshed is full', 'Idle, the building sites need the logs'].join('|')})$`,
 );
-const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', 'Cancel'];
+const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
 
 SCENARIOS.firewood = async (session) => {
   const { said } = siteDriver(session);
@@ -4753,6 +4753,460 @@ SCENARIOS.firewood = async (session) => {
   await page.keyboard.press('Escape');
 
   await session.finishClips(play.context, page, [{ label: 'firewood-split', from: followFrom, to: followTo, ...FIREWOOD_CLIP }]);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
+};
+
+/**
+ * The `clothing` scenario plays a hunter's lodge and a tailor's hut on seed 7 through the page, beside the camp where
+ * `scripts/clothing-year.ts` puts them: the lodge on (124, 129), the stockpile on (122, 126) to (124, 128), and the
+ * tailor's hut on (126, 123). The Chop clicks mark the 8 trees nearest the camp, whose 16 logs build the two, and the
+ * Quarry click the rock tile (122, 115), whose 8 stone hold the lodge's 4, so the settlers without a job have nothing
+ * else to carry once both stand and take a kill's hide soon after it falls. The orders go in at 08:30 on day 1 with the
+ * clock paused, from one view 36 m over the camp that shows the trees, the rock, the sites, and the stockpile.
+ * `scripts/aim.ts` found the spots: `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7
+ * '{"wheel":-800,"turn":{"x":-200,"y":40},"target":[128.5,126.5]}'
+ * '[[137,129],[138,130],[134,131],[135,134],[138,132],[139,125],[139,124],[139,130],[124,129],[126,123],[122,126],[124,128],[122,115],[127,127],[126.5,123.5,1.2],[124.5,129.5,1.0],[123,127]]'`.
+ * In `src/sim` runs with the orders at 08:30 to 08:32 the tailor's hut stood at 13:59 to 14:45 on day 1, the lodge at
+ * 06:35 to 07:09 on day 2, the first kill fell at 08:30 to 09:59 on day 2, 25 to 35 tiles from the camp, a settler
+ * without a job took its hide 0 to 3 game hours later and walked it in over 2 to 4 more, and the first piece of
+ * clothing came on the morning of day 3.
+ */
+const CLOTHING_SEARCH = '?seed=7';
+const CLOTHING_ORDERS_AT = { day: 1, time: '08:30' };
+const CLOTHING_VIEW = { wheel: -800, turn: { x: -200, y: 40 }, pan: { x: -27, y: -7 } };
+const CLOTHING_SPOTS = {
+  trees: [{ x: 419, y: 414 }, { x: 396, y: 433 }, { x: 381, y: 360 }, { x: 318, y: 382 }, { x: 351, y: 433 }, { x: 508, y: 451 }, { x: 531, y: 452 }, { x: 394, y: 452 }],
+  rock: { x: 661, y: 176 },
+  stockpile: [{ x: 478, y: 182 }, { x: 445, y: 212 }],
+  stockpileMiddle: { x: 461, y: 197 },
+  lodge: { x: 428, y: 212 },
+  lodgeRoof: [{ x: 418, y: 206 }],
+  hut: { x: 532, y: 240 },
+  hutRoof: [{ x: 525, y: 233 }, { x: 532, y: 240 }],
+};
+const CLOTHING_FINISHED = { hut: { after: { day: 1, time: '12:00' }, before: { day: 1, time: '17:30' } }, lodge: { after: { day: 1, time: '17:00' }, before: { day: 2, time: '11:00' } } };
+/** The hunt, the hide's walk, and the tailor's piece each must be done by these times, or the scenario stops there. */
+const CLOTHING_UNTIL = { kill: { day: 2, time: '18:00' }, hide: { day: 2, time: '19:05' }, piece: { day: 4, time: '19:05' }, stopped: { day: 5, time: '19:05' } };
+const NO_HIDE = "Idle, no hide in a stockpile within 30 tiles of the tailor's hut";
+const FETCHING_HIDE = 'Walking to a stockpile for a hide';
+const CARRYING_HIDE = "Carrying a hide to the tailor's hut";
+const MAKING = 'Making clothing';
+const TAILOR_DOING = new RegExp(`^(${[FETCHING_HIDE, CARRYING_HIDE, "Walking to the tailor's hut to make clothing", MAKING, 'Looking for a hide', NO_HIDE, "Idle, the tailor's hut is full"].join('|')})$`);
+/** What a settler without a job reads on its way to a kill's hide and on its way to the stockpile with it. */
+const TO_HIDE = 'Walking to pick up a hide';
+const WITH_HIDE = 'Carrying a hide to the stockpile';
+/** Where the follows keep the one they follow, and how far it may stray before the view pans after it. */
+const CLOTHING_AIM_AT = { x: 520, y: 290 };
+const CLOTHING_RECENTRE = 140;
+/** While it waits at the kill, it clicks the tunics within this many pixels of the hunter's spot there, every `every` game minutes. */
+const CLOTHING_AT_KILL = { px: 170, every: 6, clicks: 8 };
+/** The most pixels the carrier's ring stands from the stockpile's middle when it puts the hide down, its 9 tiles about 20 pixels each. */
+const CLOTHING_AT_STOCKPILE = 60;
+const CLOTHING_LOOK_EVERY = 12;
+const CLOTHING_CLIPS = {
+  hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 520, colors: 32, decimate: true },
+  piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 520, colors: 32, decimate: true, speed: 2 },
+};
+const TOOLBAR_TEN = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
+
+SCENARIOS.clothing = async (session) => {
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunicPixels, markOf, click, apart } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+  const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
+  const stockpiles = async (page) =>
+    page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { hides: Number(rows.Hides), logs: Number(rows.Logs), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+    });
+  const clothingOf = (read) => Number(/^(\d+) of 8$/.exec(read?.rows?.Clothing ?? '')?.[1] ?? NaN);
+
+  const play = await session.open(CLIP, { record: true, search: CLOTHING_SEARCH, clock: 'paused' });
+  const { page } = play;
+  const away = async () => {
+    const toolbar = await page.getByRole('toolbar', { name: 'Orders' }).boundingBox();
+    await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + 2);
+  };
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  // Drags in pieces of at most 250 pixels about the middle, so no piece starts on the toolbar or a panel.
+  const panned = { x: 0, y: 0 };
+  const dragBy = async (by, button) => {
+    const pieces = Math.ceil(Math.hypot(by.x, by.y) / 250);
+    for (let piece = 0; piece < pieces; piece++) {
+      const part = { x: Math.round(by.x / pieces), y: Math.round(by.y / pieces) };
+      const from = { x: middle.x - part.x / 2, y: middle.y - part.y / 2 };
+      await session.drag(page, from, { x: from.x + part.x, y: from.y + part.y }, button);
+      if (button === 'left') {
+        panned.x += part.x;
+        panned.y += part.y;
+      }
+    }
+    await corner();
+    await session.still(page);
+  };
+  const clickOne = async (spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) return read;
+    }
+    return read;
+  };
+  const labelGone = async (name, minutes) => {
+    const deadline = Date.now() + minutes * 60_000;
+    while ((await page.getByRole('status', { name }).count()) > 0) {
+      if (Date.now() > deadline) fail(`the ${name} still stood ${minutes} minutes after its order at 8×`);
+      await page.waitForTimeout(100);
+    }
+    return session.gameMinutes(page);
+  };
+  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels, within
+  // `near` of a point when one is given, and pass over the cells beside a click that opened another settler.
+  const seek = async (shot, wanted, { near = null, clicks = 16 } = {}) => {
+    const png = await session.screenshot(page, shot);
+    const boxes = skipOf(await uiBoxes(page));
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      if (near && Math.hypot(x - near.x, y - near.y) > CLOTHING_AT_KILL.px) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    const others = [];
+    let tries = 0;
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count)) {
+      const aim = { x: cell.x / cell.count, y: cell.y / cell.count };
+      if (others.some((spot) => Math.hypot(spot.x - aim.x, spot.y - aim.y) < 20)) continue;
+      if (tries++ >= clicks) break;
+      const read = await click(page, aim);
+      if (wanted(read)) return read;
+      if (read?.rows?.Job) others.push(aim);
+    }
+    await page.keyboard.press('Escape');
+    return null;
+  };
+  // Keeps the one selected near `CLOTHING_AIM_AT`, and returns where its ring stands in the pixels of the order view.
+  const follow = async (label) => {
+    const png = await session.screenshot(page, label);
+    const ring = markOf(page, png, await uiBoxes(page)).center;
+    if (!ring) return null;
+    const seen = { x: ring.x - panned.x, y: ring.y - panned.y };
+    if (Math.hypot(ring.x - CLOTHING_AIM_AT.x, ring.y - CLOTHING_AIM_AT.y) >= CLOTHING_RECENTRE) await dragBy({ x: CLOTHING_AIM_AT.x - ring.x, y: CLOTHING_AIM_AT.y - ring.y }, 'left');
+    return seen;
+  };
+  // Runs at `speed` until the selected panel's title or `Doing` changes, or for at most `minutes`, and pauses there.
+  const runWhile = async (title, doing, minutes, speed) => {
+    const until = (await session.gameMinutes(page)) + minutes;
+    await page.keyboard.press(speed);
+    for (;;) {
+      const read = await reads(page);
+      if (read?.title !== title || read.rows.Doing !== doing || (await session.gameMinutes(page)) >= until) break;
+      await page.waitForTimeout(60);
+    }
+    await session.pause(page);
+    await session.still(page);
+    return reads(page);
+  };
+
+  await session.reach(page, CLOTHING_ORDERS_AT);
+  const orderedAt = await session.gameMinutes(page);
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.wheel(0, CLOTHING_VIEW.wheel);
+  await session.still(page);
+  await dragBy(CLOTHING_VIEW.turn, 'right');
+  await dragBy(CLOTHING_VIEW.pan, 'left');
+  panned.x = 0;
+  panned.y = 0;
+  const opening = await stockpiles(page);
+  const hidesShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Hides', { exact: true }).isVisible();
+  session.check(
+    'a new game opens with a Hides row at the top left that reads 0, and all 8 settlers without a job',
+    hidesShown && opening.hides === 0 && opening.withJob === 0 && opening.withoutJob === 8,
+    `at ${await at(page)} the Stockpiles panel ${hidesShown ? 'shows' : 'lacks'} a Hides row reading ${opening.hides}, ${opening.withJob} settlers with a job and ${opening.withoutJob} with none`,
+  );
+
+  const orders = [];
+  await away();
+  await page.keyboard.press('KeyC');
+  for (const spot of CLOTHING_SPOTS.trees) {
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    orders.push(await said(page, /^1 tree marked for felling/));
+    await corner();
+    await said(page, /Drag over trees/);
+  }
+  await away();
+  await page.keyboard.press('KeyM');
+  await page.mouse.move(CLOTHING_SPOTS.rock.x, CLOTHING_SPOTS.rock.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  orders.push(await said(page, /^1 rock tile marked for quarrying/));
+  await away();
+  await page.keyboard.press('KeyP');
+  await session.drag(page, ...CLOTHING_SPOTS.stockpile);
+  orders.push(await said(page, /tiles? joins? the stockpile zone/));
+  await away();
+  await page.keyboard.press('KeyL');
+  await page.mouse.move(CLOTHING_SPOTS.lodge.x, CLOTHING_SPOTS.lodge.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  orders.push(await said(page, /^Hunter's lodge site placed/));
+  session.check(
+    `at ${clockText(orderedAt)}, with the clock paused, a Chop click on each of the 8 trees marks one, a Quarry click marks the rock tile, a Stockpile drag adds 9 tiles, and a lodge site is placed`,
+    orders.slice(0, 8).every((line) => /^1 tree marked for felling/.test(line)) &&
+      /^1 rock tile marked for quarrying/.test(orders[8]) &&
+      /^9 tiles join the stockpile zone/.test(orders[9]) &&
+      /^Hunter's lodge site placed/.test(orders[10]),
+    orders.map((line) => `"${line}"`).join(', '),
+  );
+  await away();
+  await page.keyboard.press('KeyT');
+  const tool = page.getByRole('button', { name: "Tailor's hut", exact: true, pressed: true });
+  const toolPressed = await tool.count();
+  const face = toolPressed === 1 ? await tool.locator('.order-tool-label').textContent() : null;
+  const hint = await said(page, /tailor's hut on 2 by 2 tiles/);
+  await page.mouse.move(CLOTHING_SPOTS.hut.x, CLOTHING_SPOTS.hut.y, { steps: 3 });
+  const fits = await said(page, /Click to place the tailor's hut site here/);
+  await page.mouse.down();
+  await page.mouse.up();
+  const placed = await said(page, /^Tailor's hut site placed/);
+  session.check(
+    "T picks the Tailor's hut tool, whose button reads Tailor, which places a tailor's hut site with a click",
+    toolPressed === 1 && face === 'Tailor' && /makes clothing from hides/.test(hint) && /Click to place the tailor's hut site here/.test(fits) && /^Tailor's hut site placed/.test(placed),
+    `${toolPressed ? `the tool is pressed and its button reads "${face}"` : 'no tool is pressed'}; the status line read "${hint}", then "${fits}", then "${placed}"`,
+  );
+  await page.keyboard.press('Escape');
+  await corner();
+  await session.still(page);
+  const label = page.getByRole('status', { name: "Tailor's hut site" });
+  const siteLabel = (await label.count()) === 1 ? (await label.innerText()).replace(/\s+/g, ' ') : null;
+  session.check(
+    "the tailor's hut site's label reads 0 of 8 logs, no stone, and waits for materials",
+    siteLabel !== null && /Logs\s*0\/8/.test(siteLabel) && !/Stone/.test(siteLabel) && /Waiting for materials/.test(siteLabel),
+    `the label reads "${siteLabel ?? 'nothing'}"`,
+  );
+  await session.screenshot(page, 'clothing-sites');
+
+  await page.keyboard.press('4');
+  const hutAt = await labelGone("Tailor's hut site", 6);
+  await session.pause(page);
+  await session.still(page);
+  session.check(
+    `the tailor's hut is finished on day 1 between ${CLOTHING_FINISHED.hut.after.time} and ${CLOTHING_FINISHED.hut.before.time}`,
+    hutAt >= clockMinutes(CLOTHING_FINISHED.hut.after) && hutAt <= clockMinutes(CLOTHING_FINISHED.hut.before),
+    `the label was gone at ${clockText(hutAt)}; paused at ${await at(page)}`,
+  );
+  const hut = await clickOne(CLOTHING_SPOTS.hutRoof, "Tailor's hut");
+  const name = hut?.rows?.Tailor;
+  session.check(
+    `at ${await at(page)} the tailor's hut's panel says what it does, names its tailor with its one place filled, reads 0 of 8 clothing, and says the tailor has no hide to fetch`,
+    hut?.title === "Tailor's hut" &&
+      /carries hides from the stockpiles within 30 tiles and makes 1 piece of clothing from each 2/.test(hut.note ?? '') &&
+      Boolean(name) && name !== 'Nobody' && !name.includes(' and ') &&
+      hut.rows.Places === '1 of 1' && hut.rows.Clothing === '0 of 8' && hut.rows.Doing === NO_HIDE,
+    `the panel reads "${text(hut)}"`,
+  );
+  await session.screenshot(page, 'clothing-hut-no-hides');
+  const hired = { totals: await stockpiles(page), news: await lines(page) };
+  session.check(
+    'the Stockpiles panel counts 1 settler with a job and 7 with none, and the news names the tailor',
+    hired.totals.withJob === 1 && hired.totals.withoutJob === 7 && Boolean(name) && hired.news.some((line) => line.endsWith(`${name} became a tailor.`)),
+    `${hired.totals.withJob} with a job and ${hired.totals.withoutJob} with none; the news reads ${hired.news.map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+  await page.keyboard.press('Escape');
+  await session.still(page);
+  let tailor = await seek('clothing-tailor-aim', (read) => read?.rows?.Job === 'Tailor');
+  for (let tries = 0; !tailor && tries < 8; tries++) {
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + 3));
+    await session.still(page);
+    tailor = await seek('clothing-tailor-aim', (read) => read?.rows?.Job === 'Tailor');
+  }
+  session.check(
+    `at ${await at(page)} the tailor's panel reads its job, Tailor, and what a tailor does`,
+    tailor?.rows?.Job === 'Tailor' && tailor.title === name && TAILOR_DOING.test(tailor.rows.Doing ?? ''),
+    `the panel reads "${text(tailor)}"`,
+  );
+  await session.screenshot(page, 'clothing-tailor-panel');
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('4');
+  const lodgeAt = await labelGone("Hunter's lodge site", 8);
+  await session.pause(page);
+  await session.still(page);
+  const lodge = await clickOne(CLOTHING_SPOTS.lodgeRoof, "Hunter's lodge");
+  const hunters = (lodge?.rows?.Hunters ?? '').split(' and ').filter(Boolean);
+  session.check(
+    `the lodge is finished between day ${CLOTHING_FINISHED.lodge.after.day} ${CLOTHING_FINISHED.lodge.after.time} and day ${CLOTHING_FINISHED.lodge.before.day} ${CLOTHING_FINISHED.lodge.before.time}, and its panel names two hunters`,
+    lodgeAt >= clockMinutes(CLOTHING_FINISHED.lodge.after) && lodgeAt <= clockMinutes(CLOTHING_FINISHED.lodge.before) && hunters.length === 2,
+    `the label was gone at ${clockText(lodgeAt)}; the panel reads "${text(lodge)}"`,
+  );
+  await page.keyboard.press('Escape');
+  await session.still(page);
+
+  let hunter = await seek('clothing-hunter-aim', (read) => read?.rows?.Job === 'Hunter');
+  for (let tries = 0; !hunter && tries < 6; tries++) {
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + 3));
+    await session.still(page);
+    hunter = await seek('clothing-hunter-aim', (read) => read?.rows?.Job === 'Hunter');
+  }
+  const hunterName = hunter?.title;
+  const hunt = [];
+  let read = hunter;
+  let kill = null;
+  let killFrom = null;
+  for (let stop = 0; read?.title === hunterName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.kill); stop++) {
+    const seen = await follow(`clothing-hunt-${String(stop).padStart(2, '0')}`);
+    hunt.push({ at: await at(page), doing: read.rows.Doing, seen });
+    if (/^Carrying food to/.test(read.rows.Doing) && hunt.some((step) => step.doing === 'Walking to a kill to pick up food')) {
+      kill = { at: await at(page), seen, png: await session.screenshot(page, 'clothing-kill') };
+      break;
+    }
+    if (read.rows.Doing === 'Walking to a kill to pick up food' && killFrom === null) killFrom = play.since();
+    read = await runWhile(hunterName, read.rows.Doing, CLOTHING_LOOK_EVERY, /^(Walking to a kill|Carrying food)/.test(read.rows.Doing) ? '2' : '4');
+  }
+  session.check(
+    `${hunterName ?? 'a hunter'} hunts and kills a deer, walks to the kill, and picks its food up there`,
+    kill !== null,
+    hunt.map((step) => `${step.at} "${step.doing}"`).join(', ') || `no hunter found; the panel read "${text(hunter)}"`,
+  );
+  await page.keyboard.press('Escape');
+  await session.still(page);
+
+  // The hide lies on the tile beside the kill. A settler without a job comes for it, and the follow takes it from there.
+  const killSpot = kill?.seen ? { x: kill.seen.x + panned.x, y: kill.seen.y + panned.y } : null;
+  let carrier = null;
+  const waited = [];
+  for (let look = 0; killSpot && !carrier && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); look++) {
+    carrier = await seek(`clothing-at-kill-${String(look).padStart(2, '0')}`, (seen) => seen?.rows?.Doing === TO_HIDE || seen?.rows?.Doing === WITH_HIDE, {
+      near: killSpot,
+      clicks: CLOTHING_AT_KILL.clicks,
+    });
+    if (carrier) break;
+    waited.push(await at(page));
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + CLOTHING_AT_KILL.every));
+    await session.still(page);
+  }
+  const carrierName = carrier?.title;
+  const walk = [];
+  read = carrier;
+  let delivered = null;
+  for (let stop = 0; read?.title === carrierName && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.hide); stop++) {
+    const seen = await follow(`clothing-hide-${String(stop).padStart(2, '0')}`);
+    const step = { at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries, hides: (await stockpiles(page)).hides, seen };
+    walk.push(step);
+    if (walk.some((before) => before.doing === WITH_HIDE) && step.doing !== WITH_HIDE) {
+      delivered = step;
+      break;
+    }
+    read = await runWhile(carrierName, read.rows.Doing, CLOTHING_LOOK_EVERY, '2');
+  }
+  const hideTo = play.since();
+  session.check(
+    `a settler without a job, ${carrierName ?? 'nobody'}, comes to the kill for its hide and carries 1 hide to the stockpile`,
+    carrier?.rows?.Job === 'None' &&
+      walk.some((step) => step.doing === WITH_HIDE) &&
+      walk.filter((step) => step.doing === WITH_HIDE).every((step) => step.carries === '1 hide') &&
+      delivered?.carries === 'Nothing',
+    `${waited.length ? `looked at the kill at ${waited.join(', ')}; ` : ''}${walk.map((step) => `${step.at} "${step.doing}" carries ${step.carries}`).join(', ') || `no carrier; the kill was at ${kill?.at ?? 'no kill'}`}`,
+  );
+  const lastCarry = walk.findLast((step) => step.doing === WITH_HIDE);
+  const fromPile = delivered?.seen ? Math.round(Math.hypot(delivered.seen.x - CLOTHING_SPOTS.stockpileMiddle.x, delivered.seen.y - CLOTHING_SPOTS.stockpileMiddle.y)) : null;
+  session.check(
+    `${carrierName ?? 'the carrier'} puts the hide down on the stockpile, and the Hides total at the top left goes up by 1`,
+    fromPile !== null && fromPile <= CLOTHING_AT_STOCKPILE && Boolean(lastCarry) && delivered.hides === lastCarry.hides + 1,
+    `at ${delivered?.at ?? 'no delivery'} its ring is ${fromPile ?? 'not found'} px from the stockpile's middle, needs at most ${CLOTHING_AT_STOCKPILE}; Hides read ${lastCarry?.hides ?? 'nothing'} while it carried and ${delivered?.hides ?? 'nothing'} after`,
+  );
+  await page.keyboard.press('Escape');
+  await dragBy({ x: -panned.x, y: -panned.y }, 'left');
+
+  // With the hut's panel open, the follow reads its tailor through two hides and one piece of clothing.
+  const hutRead = await clickOne(CLOTHING_SPOTS.hutRoof, "Tailor's hut");
+  const pieceFrom = play.since();
+  const work = [];
+  read = hutRead;
+  for (let stop = 0; read?.title === "Tailor's hut" && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.piece); stop++) {
+    await session.screenshot(page, `clothing-tailor-${String(stop).padStart(2, '0')}`);
+    work.push({ at: await at(page), doing: read.rows.Doing, clothing: clothingOf(read), hides: (await stockpiles(page)).hides });
+    if (clothingOf(read) >= 1) break;
+    const walking = read.rows.Doing === FETCHING_HIDE || read.rows.Doing === CARRYING_HIDE;
+    read = await runWhile("Tailor's hut", read.rows.Doing, walking ? CLOTHING_LOOK_EVERY : 240, walking ? '1' : '4');
+  }
+  const pieceTo = play.since();
+  const carries = work.filter((step, index) => step.doing === CARRYING_HIDE && work[index - 1]?.doing !== CARRYING_HIDE).length;
+  const madeAt = work.findIndex((step) => step.clothing >= 1);
+  const making = work.findIndex((step) => step.doing === MAKING);
+  session.check(
+    `with the tailor's hut's panel open, ${name ?? 'the tailor'} walks to the stockpile and carries hides to the hut one at a time, at least twice, makes clothing, and the panel reads 1 of 8 clothing`,
+    work.every((step) => TAILOR_DOING.test(step.doing ?? '') || /^Walking to the camp|^Resting at the camp/.test(step.doing ?? '')) &&
+      carries >= 1 &&
+      making >= 0 &&
+      madeAt > making &&
+      work[madeAt].clothing === 1,
+    work.map((step) => `${step.at} "${step.doing}" clothing ${step.clothing}, hides ${step.hides}`).join(', ') || `no stop; the panel read "${text(hutRead)}"`,
+  );
+
+  read = work.at(-1)?.clothing >= 1 ? await reads(page) : null;
+  for (let stop = 0; read?.title === "Tailor's hut" && read.rows.Doing !== NO_HIDE && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.stopped); stop++) {
+    read = await runWhile("Tailor's hut", read.rows.Doing, 240, '4');
+  }
+  const stopped = await reads(page);
+  session.check(
+    `at ${await at(page)}, after its first piece, the tailor's hut's panel says its tailor has stopped for lack of hides`,
+    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) >= 1,
+    `the panel reads "${text(stopped)}"`,
+  );
+  await session.screenshot(page, 'clothing-hut-stopped');
+  const hutPanel = apart(await uiBoxes(page));
+  session.check("at 960x540 the tailor's hut's panel keeps clear of every other panel on the page", hutPanel.ok, hutPanel.detail);
+  const whole = await page.getByRole('region', { name: 'Selection' }).evaluate((node) => ({ shown: node.clientHeight, holds: node.scrollHeight }));
+  session.check("at 960x540 the tailor's hut's panel shows every one of its rows", whole.holds <= whole.shown, `the panel is ${whole.shown} px tall and its rows take ${whole.holds} px`);
+
+  await page.keyboard.press('Escape');
+  await away();
+  await page.keyboard.press('KeyP');
+  await said(page, /Drag over open ground/);
+  await corner();
+  await session.still(page);
+  const toolbar = page.getByRole('toolbar', { name: 'Orders' });
+  const boxes = {
+    stockpiles: await page.getByRole('status', { name: 'Stockpiles' }).boundingBox(),
+    clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
+    status: await page.getByRole('status', { name: 'Order' }).boundingBox(),
+    toolbar: await toolbar.boundingBox(),
+    hint: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+  };
+  const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= CLIP.width && box.y + box.height <= CLIP.height;
+  const tools = await toolbar.getByRole('button').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { name: node.getAttribute('aria-label'), box: { x, y, width, height } };
+    }),
+  );
+  const toolsApart = tools.every(({ box }, index) => tools.every((other, place) => place === index || disjoint(box, other.box)));
+  session.check(
+    `the toolbar holds its ${TOOLBAR_TEN.length} tools, the Tailor's hut among them, each inside the page and clear of the others, of the clock, and of the camera hint, at ${CLIP.width}x${CLIP.height}`,
+    tools.map((one) => one.name).join() === TOOLBAR_TEN.join() && tools.every(({ box }) => inside(box) && disjoint(box, boxes.clock) && disjoint(box, boxes.hint)) && toolsApart,
+    `toolbar ${describe(boxes.toolbar)}; ${tools.map(({ name: one, box }) => `${one} ${describe(box)}`).join('; ')}; clock ${describe(boxes.clock)}; camera hint ${describe(boxes.hint)}`,
+  );
+  const others = Object.entries(boxes).filter(([part]) => part !== 'stockpiles');
+  session.check(
+    `the Stockpiles panel, with its Hides row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
+    inside(boxes.stockpiles) && others.every(([, box]) => box && disjoint(boxes.stockpiles, box)) && hidesShown,
+    Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; '),
+  );
+  await session.screenshot(page, `clothing-${CLIP.width}x${CLIP.height}`);
+  await page.keyboard.press('Escape');
+
+  const cuts = [];
+  if (killFrom !== null && delivered) cuts.push({ label: 'clothing-hide', from: killFrom, to: hideTo, ...CLOTHING_CLIPS.hide });
+  if (madeAt >= 0) cuts.push({ label: 'clothing-piece', from: pieceFrom, to: pieceTo, ...CLOTHING_CLIPS.piece });
+  if (cuts.length > 0) await session.finishClips(play.context, page, cuts);
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
