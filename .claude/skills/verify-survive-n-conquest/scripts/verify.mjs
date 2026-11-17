@@ -2701,6 +2701,135 @@ SCENARIOS.hunger = async (session) => {
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
+/**
+ * The eating scenario. On seed 7 the camp opens empty, with `?food=0`, and the player gives #27's first-year orders at
+ * once: the forager's hut on (136, 127) and a Chop on each of its four log trees, from the view of `foraging`. The hut
+ * stands by midday, its two foragers bring food in that afternoon and put it down at dusk, so 6 settlers miss their
+ * first meal. On day 2 the foragers' units reach the camp in the morning. In `src/sim` runs of these orders at 08:00,
+ * Ulvar, idle 5.4 tiles from the camp center, sets out to eat at 08:39 and eats at 08:58. On `main`, which has no
+ * eat-first rule, he stays hungry until his meal at the dusk of day 2. The orders of a page land a few minutes later
+ * than 08:00, so the page's hungry settlers differ, and the scenario selects the first hungry one a click finds.
+ * `EATING_SETTLER` and `EATING_PAIR_TIME` in the environment select a settler by name and move the stop of the pair,
+ * so a run on an older build reads the same settler at the same time.
+ */
+const EATING_SEARCH = '?seed=7&food=0';
+/** The settler to select, by name. Left out, the scenario selects the first hungry settler a click finds. */
+const EATING_SETTLER = process.env.EATING_SETTLER ?? null;
+const EATING_STOPS = {
+  look: [{ day: 2, time: '07:30' }, { day: 2, time: '08:00' }, { day: 2, time: '08:30' }],
+  last: { day: 2, time: '15:00' },
+  pair: { day: 2, time: process.env.EATING_PAIR_TIME ?? '15:30' },
+};
+/** Game minutes between two reads of the panel while the settler may set out, so a walk of a few tiles shows at two stops at least. */
+const EATING_STEP = 3;
+/** Wall seconds of the recording kept before the walk starts and after the meal. */
+const EATING_MARGIN = 2;
+const EATING_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 640, colors: 48 };
+const EATING_WALK = 'Walking to the camp to eat';
+
+SCENARIOS.eating = async (session) => {
+  const { reads, text, uiBoxes, skipOf, tunicPixels, click } = selectionDriver(session);
+  const { food } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const play = await session.open(CLIP, { record: true, search: EATING_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page);
+  const opening = await food(page);
+  session.check('the camp opens with no food', opening.camp === 0, `at ${await at(page)} the Stockpiles panel reads ${opening.camp} food at the camp`);
+  await page.keyboard.press('KeyC');
+  for (const spot of FORAGE_SPOTS.trees) await page.mouse.click(spot.x, spot.y);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await page.keyboard.press('KeyG');
+  await page.mouse.move(FORAGE_SPOTS.hut.x, FORAGE_SPOTS.hut.y, { steps: 3 });
+  await page.mouse.click(FORAGE_SPOTS.hut.x, FORAGE_SPOTS.hut.y);
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const siteCount = await page.getByRole('status', { name: "Forager's hut site" }).count();
+  session.check("the player's orders place the hut site", siteCount === 1, `${siteCount} forager's hut site labels at ${await at(page)}`);
+
+  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels.
+  const select = async (shot) => {
+    const png = await session.screenshot(page, shot);
+    const boxes = skipOf(await uiBoxes(page));
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, 16)) {
+      const read = await click(page, { x: cell.x / cell.count, y: cell.y / cell.count });
+      clicked.push(`${shot}: ${read?.title ?? 'nothing'} ${read?.rows?.['Missed meals'] ?? ''}`);
+      if (settlerPanel(read) && read.rows['Missed meals'] === '1, hungry' && (EATING_SETTLER === null || read.title === EATING_SETTLER)) return read;
+    }
+    return null;
+  };
+  const clicked = [];
+  let hungry = null;
+  for (const stop of EATING_STOPS.look) {
+    await session.reach(page, stop);
+    await session.still(page);
+    hungry = await select(`eating-aim-${stop.time.replace(':', '')}`);
+    if (hungry) break;
+  }
+  if (!hungry) fail(`no click found ${EATING_SETTLER ?? 'a hungry settler'} by ${clockText(clockMinutes(EATING_STOPS.look.at(-1)))}: ${clicked.join('; ')}`);
+  const panel = page.getByRole('region', { name: 'Selection' });
+  const width = async () => (await panel.boundingBox())?.width ?? 0;
+  const widths = [await width()];
+  const name = hungry.title;
+  session.check(`${name} missed the meal of the first dusk and reads hungry`, hungry.rows['Missed meals'] === '1, hungry', `at ${await at(page)} the panel reads "${text(hungry)}"`);
+  await session.screenshot(page, 'eating-hungry');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+
+  const seen = [];
+  let walking = null;
+  let fed = null;
+  let from = null;
+  let to = null;
+  let now = await session.gameMinutes(page);
+  while (!fed && now < clockMinutes(EATING_STOPS.last)) {
+    await session.reach(page, clockAt(now + EATING_STEP));
+    now = await session.gameMinutes(page);
+    const read = await reads(page);
+    const camp = (await food(page)).camp;
+    seen.push(`${clockText(now)} ${read?.rows.Doing} (${read?.rows['Missed meals']}, camp ${camp})`);
+    if (read?.title !== name) break;
+    if (!walking && read.rows.Doing === EATING_WALK) {
+      walking = { read, camp, when: now };
+      from = play.since() - EATING_MARGIN - 3;
+      widths.push(await width());
+      await session.screenshot(page, 'eating-walking');
+    }
+    if (read.rows['Missed meals'] === 'None') {
+      fed = { read, when: now };
+      widths.push(await width());
+      await session.screenshot(page, 'eating-fed');
+      to = play.since() + EATING_MARGIN;
+    }
+  }
+  session.check(
+    `with food at the camp by day, ${name} walks there to eat`,
+    walking !== null && walking.camp > 0,
+    walking ? `at ${clockText(walking.when)} the panel reads "${text(walking.read)}" and the camp holds ${walking.camp}` : `never read "${EATING_WALK}": ${seen.join('; ')}`,
+  );
+  session.check(
+    `${name} eats at the camp by day, which clears the missed meal`,
+    fed !== null && walking !== null && fed.when > walking.when && fed.when < clockMinutes({ day: 2, time: '18:00' }),
+    fed ? `at ${clockText(fed.when)} the panel reads "${text(fed.read)}"` : `still hungry at ${clockText(now)}: ${seen.join('; ')}`,
+  );
+  session.check('the panel keeps its width while the settler walks to eat', widths.every((value) => Math.abs(value - widths[0]) < 1), `widths ${widths.map((value) => value.toFixed(1)).join(', ')} px`);
+  session.check('the panel read at each stop', seen.length > 0, seen.join('; '));
+
+  await session.reach(page, EATING_STOPS.pair);
+  const pair = await reads(page);
+  session.check(`at ${await at(page)} ${name}'s panel reads no missed meal`, pair?.title === name && pair.rows['Missed meals'] === 'None', `the panel reads "${text(pair)}"`);
+  await session.screenshot(page, 'eating-pair');
+  if (from !== null && to !== null) await session.finishClips(play.context, page, [{ label: 'eating-walk-to-eat', from: Math.max(from, 0), to, ...EATING_CLIP }]);
+  else await play.context.close();
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
+};
+
 SCENARIOS.orders = async (session) => {
   const seen = [];
   const spot = (viewport, [fx, fy]) => ({ x: Math.round(fx * viewport.width), y: Math.round(fy * viewport.height) });

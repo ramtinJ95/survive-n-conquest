@@ -32,4 +32,4 @@ Preconditions:
 - The scenarios that run settlers past the dusk of day 6, `look` and `selecting`, open with `?food=200`, the `FED` setting in `verify.mjs`, or their settlers starve and the clock stops before winter. Scenarios that stop earlier open as a player does, so their settlers can go hungry from the dusk of day 3 or 4 on, and the news log can show at the bottom right.
 - The settlers die on arrival at the camp, over about half a game hour after dusk, so the starved settlers come in more than one news line.
 - A line of the news log joins the events of one kind within one game hour, so the scenario collects every text a line takes while the clock runs.
-- A settler that does not get home by dawn, such as one working far from the camp, misses that meal at dawn and cannot eat again until the next dusk.
+- A settler that does not get home by dawn, such as one working far from the camp, misses that meal at dawn. It then walks to its store and eats there by day if the store has food. This scenario gives no orders, so no store has food from the dusk of day 3 on and no settler eats by day. `features/eating.md` covers the walk to eat.
