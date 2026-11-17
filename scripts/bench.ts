@@ -7,13 +7,14 @@ import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar'
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
 import { FORAGING } from '../src/sim/foraging';
+import { Good } from '../src/sim/goods';
 import { GATHERING } from '../src/sim/gathering';
 import { FETCHING_KILL, HUNTING } from '../src/sim/hunting';
 import { jobOf } from '../src/sim/jobs';
 import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
-import { SiteState } from '../src/sim/orders';
+import { MAX_SITES, SiteState } from '../src/sim/orders';
 import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
@@ -21,6 +22,7 @@ import { STOCKING } from '../src/sim/stocking';
 import { CAMP_STORE } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
 import { NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
+import { Stop, WORKSHOP } from '../src/sim/workshops';
 
 const SEED = 7;
 const SIZES = [256, 512];
@@ -68,6 +70,14 @@ const BARN_GRID = 4;
  * a hut, or a house site. A lodge the rules refuse is left out.
  */
 const LODGE_GRID = 4;
+/**
+ * Woodsheds stand on a grid of this many by this many cells, anchored a
+ * quarter of a cell west of each barn's center, so no woodshed lies on a barn,
+ * a lodge, a hut, or a house site. A woodshed the rules refuse is left out.
+ * `--no-woodsheds` places none, and leaves their trees standing, for the load
+ * measured before them.
+ */
+const WOODSHED_GRID = process.argv.includes('--no-woodsheds') ? 0 : 4;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const KINDS = [
@@ -79,6 +89,7 @@ const KINDS = [
   ['foraging', TASK_KINDS.indexOf(FORAGING) + 1],
   ['fetching a kill', TASK_KINDS.indexOf(FETCHING_KILL) + 1],
   ['hunting', TASK_KINDS.indexOf(HUNTING) + 1],
+  ['working a workshop', TASK_KINDS.indexOf(WORKSHOP) + 1],
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built', 'foraged'] as const satisfies readonly (keyof Tally)[];
 const FED = ['meals', 'missed', 'carriedHome', 'fromGround', 'toCamp', 'died'] as const satisfies readonly (keyof Tally)[];
@@ -132,6 +143,12 @@ function barnFood(sim: Sim): number {
   return food;
 }
 
+function woodshedFirewood(sim: Sim): number {
+  let firewood = 0;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) firewood += sim.stores.held[Good.Firewood - 1]![slot]!;
+  return firewood;
+}
+
 /** Living villagers who hold a job. */
 function holding(sim: Sim, job: Job): number {
   let count = 0;
@@ -164,7 +181,7 @@ function atCamp(sim: Sim): number {
 // before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
 // every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
 // The tiles of each site on the site grid, of each hut on the hut grid, and of each barn on the barn grid keep no tree, so the site can be placed.
-function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: number; lodges: number } {
+function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: number; lodges: number; woodsheds: number } {
   const map = generateMap(SEED, size);
   const camp = campTile(map);
   for (let tile = 0; tile < size * size; tile++) {
@@ -190,13 +207,18 @@ function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: nu
   for (const [x, y] of lodgeAnchors) {
     for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
   }
+  const shedAnchors = WOODSHED_GRID === 0 ? [] : cellCenters(size, WOODSHED_GRID).map(([x, y]): [number, number] => [x - Math.floor(size / WOODSHED_GRID / 4), y]);
+  for (const [x, y] of shedAnchors) {
+    for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
+  }
   const sim = createSim(map, BENCHMARK_POPULATION);
   const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.House, x, y })!.ok).length;
   const huts = anchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })!.ok).length;
   const barns = barnCenters.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Barn, x, y })!.ok).length;
   const lodges = lodgeAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Lodge, x, y })!.ok).length;
+  const woodsheds = shedAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Woodshed, x, y })!.ok).length;
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: size - 1, y1: size - 1 } });
-  return { sim, sites, huts, barns, lodges };
+  return { sim, sites, huts, barns, lodges, woodsheds };
 }
 
 /** The straight-line length of each trip from a unit to where it goes, for the tasks of a kind taken in the measured ticks. */
@@ -207,7 +229,7 @@ interface Trips {
 
 function measure(size: number): boolean {
   const setupStart = performance.now();
-  const { sim, sites, huts, barns, lodges } = setUp(size);
+  const { sim, sites, huts, barns, lodges, woodsheds } = setUp(size);
   const setupMs = performance.now() - setupStart;
 
   for (let tick = 0; tick < WARMUP_TICKS; tick++) step(sim);
@@ -218,6 +240,11 @@ function measure(size: number): boolean {
   const hutsBefore = built(sim, Building.Hut);
   const barnsBefore = built(sim, Building.Barn);
   const lodgesBefore = built(sim, Building.Lodge);
+  const shedsBefore = built(sim, Building.Woodshed);
+  const woodcuttersBefore = holding(sim, Job.Woodcutter);
+  const stoppedFull = new Uint8Array(MAX_SITES);
+  const stoppedForLogs = new Uint8Array(MAX_SITES);
+  const stoppedForSites = new Uint8Array(MAX_SITES);
   const foragersBefore = holding(sim, Job.Forager);
   const huntersBefore = holding(sim, Job.Hunter);
   const deerBefore = sim.animals.living[AnimalKind.Deer]!;
@@ -272,6 +299,13 @@ function measure(size: number): boolean {
       lastWorkplace[id] = workplace[id]!;
     }
     if (turn && turnLeft-- > 0) turns[turn][turnCount[turn] - 1] = Math.max(turns[turn][turnCount[turn] - 1]!, samples[tick]!);
+    for (let slot = 0; slot < sim.orders.sites.used; slot++) {
+      if (sim.orders.sites.kind[slot] !== Building.Woodshed || sim.orders.sites.state[slot] !== SiteState.Built) continue;
+      const stopped = sim.workshops.stopped[slot];
+      if (stopped === Stop.Full) stoppedFull[slot] = 1;
+      else if (stopped === Stop.NoInput) stoppedForLogs[slot] = 1;
+      else if (stopped === Stop.ForSites) stoppedForSites[slot] = 1;
+    }
     if (tickOfDay(sim.tick) === 0) {
       insideAtMidnight[nights] = inside(sim);
       midnights[nights++] = atCamp(sim);
@@ -299,6 +333,7 @@ function measure(size: number): boolean {
   const work = Object.fromEntries(TALLIED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof TALLIED)[number], number>;
   const fed = Object.fromEntries(FED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof FED)[number], number>;
   const hunt = Object.fromEntries(HUNTED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof HUNTED)[number], number>;
+  const count = (flags: Uint8Array) => flags.reduce((total, flag) => total + flag, 0);
   const allWork = TALLIED.every((name) => work[name] > 0);
   const villagers = task.length;
   const percent = (part: number, whole: number) => `${((part / whole) * 100).toFixed(1)}%`;
@@ -367,6 +402,16 @@ function measure(size: number): boolean {
       `${hunt.shots} shots and ${hunt.kills} kills, ${hunt.hunted} units of food the kills left, ${hunt.huntedIn} carried into a store by hunters, ` +
       `${hunt.fromGround} by settlers without a job from the ground, ${hunt.spoiled} units spoiled on the ground at a dawn`,
   );
+  console.log(
+    `  woodshed sites: ${woodsheds} placed on a grid of ${WOODSHED_GRID} by ${WOODSHED_GRID}, ${shedsBefore} built in the warm-up ticks, ` +
+      `${built(sim, Building.Woodshed) - shedsBefore} in the measured ticks, ${woodsheds - built(sim, Building.Woodshed)} unfinished at the end; ` +
+      `woodcutters ${woodcuttersBefore} at the start and ${holding(sim, Job.Woodcutter)} in the ${built(sim, Building.Woodshed) * BUILDINGS[Building.Woodshed].places} places of the finished woodsheds at the end`,
+  );
+  console.log(
+    `  firewood in the measured ticks: ${sim.tally.batches - tallyBefore.batches} logs split, ${sim.tally.made - tallyBefore.made} firewood made, ` +
+      `${woodshedFirewood(sim)} in the woodsheds at the end; woodsheds that stopped at some measured tick: ${count(stoppedFull)} full, ` +
+      `${count(stoppedForLogs)} with no log in reach, ${count(stoppedForSites)} leaving the logs to the building sites`,
+  );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
   console.log(
     `  straight line from a unit to where it goes, for tasks taken in the measured ticks: to a stockpile ${mean(toStockpile)}, ` +
@@ -410,7 +455,7 @@ console.log(
 );
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
-    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, and ${LODGE_GRID * LODGE_GRID} lodge sites, stockpile on every other open tile, ` +
+    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, and ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = SIZES.map(measure);
