@@ -3601,10 +3601,10 @@ const FORAGE_PREVIEW_FITS = 30;
 const FORAGE_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, colors: 32, speed: 2 };
 const FORAGER_DOING = /^(Walking to a tree to forage|Foraging|Carrying food to the camp|Looking for forage)$/;
 
-/** Takes `FORAGE_VIEW` from the opening view at the `CLIP` size: a wheel zoom, a right drag that turns and tilts, and a drag that pans. */
-async function takeForageView(session, page) {
+/** Takes `view`, `FORAGE_VIEW` unless given, from the opening view at the `CLIP` size: a wheel zoom, a right drag that turns and tilts, and a drag that pans. */
+async function takeForageView(session, page, view = FORAGE_VIEW) {
   const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
-  const { wheel, turn, pan } = FORAGE_VIEW;
+  const { wheel, turn, pan } = view;
   await page.mouse.move(middle.x, middle.y);
   await page.mouse.wheel(0, wheel);
   await session.still(page);
@@ -5362,6 +5362,320 @@ SCENARIOS.clothing = async (session) => {
   if (delivered) cuts.push({ label: 'clothing-hide', from: hideFrom, to: hideTo, ...CLOTHING_CLIPS.hide });
   if (madeAt >= 0) cuts.push({ label: 'clothing-piece', from: pieceFrom, to: pieceTo, ...CLOTHING_CLIPS.piece });
   if (cuts.length > 0) await session.finishClips(play.context, page, cuts);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
+};
+
+/**
+ * The cold scenario. On seed 7, fed by `FED` so that the settlers live to winter, the player gives every order at
+ * 08:15 on day 1 from `COLD_ORDER_VIEW`: a Chop drag over 35 trees east of the camp, a Quarry drag over 2 rock tiles
+ * north of it, a stockpile of 9 tiles, a woodshed on (126, 123), and houses on (121, 122) and (121, 127). That is 70
+ * logs for the shed's 6, the houses' 24, and 40 to split, and 16 stone for the houses' 12. A page reaches its first
+ * pause anywhere from 08:06 to 08:09 as it loads, so the scenario runs the clock to 08:15 before it gives them, and
+ * the orders land within the same few ticks on every run. Then the wheel brings the camera in to the near view, which
+ * looks at the same point, so the two houses and the camp's fire stand in one view. In `src/sim` runs of this layout
+ * with the orders at 08:13 to 08:19, the second house stood by 15:31 on day 3, households 1 and 2 moved in, both houses
+ * held 6 firewood and the camp 12 at 17:00 on day 10, the 4 settlers of households 3 and 4 had their first cold night
+ * at 17:25 to 17:48, and they froze at 17:25 to 17:54 on day 12. Every pixel comes from `scripts/aim.ts`:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-450,"turn":{"x":0,"y":0},"target":[124,125]}' '[[137,118],[147,135],[121,114],[122,115],[130,126],[132,128],[126,123],[121,122],[121,127]]'`
+ * for the orders, and the same with `{"wheel":-1000,"turn":{"x":0,"y":0},"target":[123.99,125.04]}`, the look-at point
+ * the order view's whole-pixel pan reaches, for the near view.
+ */
+const COLD_SEARCH = `?seed=7&${FED.slice(1)}`;
+const COLD_ORDER_VIEW = { wheel: -450, turn: { x: 0, y: 0 }, pan: { x: 20, y: 31 } };
+/** Wheel pixels from the order view's 61 m in to the near view of 27 m, toward the same look-at point. */
+const COLD_CLOSER = -550;
+const COLD_ORDERS = {
+  chop: [{ x: 640, y: 292 }, { x: 697, y: 454 }],
+  quarry: [{ x: 512, y: 201 }, { x: 516, y: 211 }],
+  stockpile: [{ x: 534, y: 310 }, { x: 544, y: 331 }],
+  shed: { x: 511, y: 274 },
+  houses: [{ x: 472, y: 246 }, { x: 443, y: 270 }],
+};
+/**
+ * Spots of the near view. Each house has the points a click may select it at, its roof and the tile in its middle, the
+ * box over its roof where its fire's sign stands, and the box of the whole house, whose thatch in the winter morning
+ * reads as tunic yellow, so the search for a settler passes over it. The camp has the points around its fire, which a
+ * settler in the ring can take a click from, and the box of its flame.
+ */
+const COLD_SPOTS = {
+  houses: [
+    { clicks: [{ x: 462, y: 180 }, { x: 463, y: 217 }], sign: { x: 437, y: 120, width: 50, height: 55 }, body: { x: 415, y: 145, width: 95, height: 100 } },
+    { clicks: [{ x: 389, y: 230 }, { x: 394, y: 270 }], sign: { x: 362, y: 168, width: 50, height: 55 }, body: { x: 335, y: 185, width: 110, height: 120 } },
+  ],
+  camp: [{ x: 527, y: 350 }, { x: 519, y: 352 }, { x: 535, y: 352 }, { x: 527, y: 358 }],
+  campFlame: { x: 507, y: 315, width: 40, height: 40 },
+  shed: [{ x: 555, y: 241 }, { x: 551, y: 262 }],
+};
+const COLD_STOPS = {
+  orders: { day: 1, time: '08:15' },
+  built: { day: 4, time: '12:00' },
+  before: { day: 10, time: '17:00' },
+  after: { day: 10, time: '18:30' },
+  morning: [{ day: 11, time: '08:00' }, { day: 11, time: '09:00' }, { day: 11, time: '10:00' }],
+  secondBefore: { day: 11, time: '17:00' },
+  secondAfter: { day: 11, time: '18:30' },
+  lastBefore: { day: 12, time: '17:00' },
+  last: { day: 12, time: '18:30' },
+};
+/** The news is read at 1× from each `before` stop to this many game minutes before its `after` stop, then `reach` pins the stop. */
+const COLD_WATCH_UNTIL = 10;
+/** The firewood a house's fire and the camp's fire burn on a winter night. */
+const COLD_BURNS = { house: 2, camp: 4 };
+/** The fewest flame pixels in a box when its fire burns, and the most when it does not. */
+const COLD_FLAME = { least: 40, most: 5 };
+/** The clip keeps the clock, the Stockpiles panel, the houses, the camp, and the news at the bottom right. */
+const COLD_CLIP = { crop: { x: 0, y: 0, width: 960, height: 490 }, width: 640, colors: 48, decimate: true };
+
+SCENARIOS.cold = async (session) => {
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunicPixels, click } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const play = await session.open(CLIP, { record: true, search: COLD_SEARCH, clock: 'paused' });
+  const { page } = play;
+  const away = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const stockpiles = async () =>
+    page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = Number(name.nextElementSibling?.textContent.trim());
+      return rows;
+    });
+  const firewoodOf = (read, limit) => Number(new RegExp(`^(\\d+) of ${limit}$`).exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
+  const namesIn = (list) => list.split(/, | and /).map((name) => name.replace(/ \(died\)$/, ''));
+  const selectOne = async (spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) break;
+    }
+    await page.keyboard.press('Escape');
+    await away();
+    await session.still(page);
+    return read;
+  };
+  /** Reads every panel the checks compare, from one paused frame, after a screenshot with nothing selected. */
+  const readStop = async (label, shed = false) => {
+    const png = await session.screenshot(page, label);
+    const totals = await stockpiles();
+    const houses = [];
+    for (const house of COLD_SPOTS.houses) {
+      const read = await selectOne(house.clicks, 'House');
+      const household = /^Household (\d+): (.+)$/.exec(read?.rows?.Household ?? '');
+      houses.push({
+        read,
+        firewood: firewoodOf(read, 6),
+        household: household ? Number(household[1]) : null,
+        names: household ? namesIn(household[2]) : [],
+        died: household ? household[2].split(/ and /).filter((name) => name.endsWith('(died)')).length : null,
+        flame: pixelsIn(png, CLIP.width, house.sign, FLAME).count,
+      });
+    }
+    const camp = await selectOne(COLD_SPOTS.camp, 'Camp');
+    const woodshed = shed ? await selectOne(COLD_SPOTS.shed, 'Woodshed') : null;
+    return {
+      at: await at(page),
+      totals,
+      houses,
+      camp: { read: camp, firewood: firewoodOf(camp, 12) },
+      shed: woodshed ? { read: woodshed, firewood: firewoodOf(woodshed, 40) } : null,
+      campFlame: pixelsIn(png, CLIP.width, COLD_SPOTS.campFlame, FLAME).count,
+    };
+  };
+  const heard = new Set();
+  const listen = async () => {
+    for (const line of await lines(page)) heard.add(line);
+  };
+  /** Runs at 1× while it listens to the news, and pauses at `stop`. */
+  const watchDusk = async (stop) => {
+    const until = clockMinutes(stop) - COLD_WATCH_UNTIL;
+    await page.keyboard.press('1');
+    while ((await session.gameMinutes(page)) < until) {
+      await listen();
+      await page.waitForTimeout(250);
+    }
+    await session.reach(page, stop);
+    await listen();
+  };
+  // A line of the news takes a new text as each settler joins it, so the names are those of every text it took.
+  const told = (day, verb) => [
+    ...new Set(
+      [...heard].flatMap((line) => {
+        const read = new RegExp(`^Day ${day}, \\d\\d:\\d\\d\\. (.+) ${verb}\\.$`).exec(line);
+        return read ? namesIn(read[1]) : [];
+      }),
+    ),
+  ];
+  const houseText = (stop) => stop.houses.map((house, index) => `house ${index + 1} "${text(house.read)}"`).join('; ');
+
+  await takeForageView(session, page, COLD_ORDER_VIEW);
+  await session.reach(page, COLD_STOPS.orders);
+  const orderedAt = await at(page);
+  const given = [];
+  for (const [key, tool, pattern, spots] of [
+    ['KeyC', 'Chop', /^35 trees marked for felling/, COLD_ORDERS.chop],
+    ['KeyM', 'Quarry', /^2 rock tiles marked for quarrying/, COLD_ORDERS.quarry],
+    ['KeyP', 'Stockpile', /^9 tiles join the stockpile zone/, COLD_ORDERS.stockpile],
+  ]) {
+    await page.keyboard.press(key);
+    await session.drag(page, ...spots);
+    given.push({ tool, pattern, line: await said(page, pattern) });
+    await page.keyboard.press('Escape');
+  }
+  for (const [key, tool, pattern, spot] of [
+    ['KeyK', 'Woodshed', /^Woodshed site placed/, COLD_ORDERS.shed],
+    ['KeyH', 'House', /^House site placed/, COLD_ORDERS.houses[0]],
+    ['KeyH', 'House', /^House site placed/, COLD_ORDERS.houses[1]],
+  ]) {
+    await page.keyboard.press(key);
+    await page.mouse.move(spot.x, spot.y, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.up();
+    given.push({ tool, pattern, line: await said(page, pattern) });
+    await page.keyboard.press('Escape');
+    await away();
+  }
+  const sites = { sheds: await page.getByRole('status', { name: 'Woodshed site' }).count(), houses: await page.getByRole('status', { name: 'House site' }).count() };
+  session.check(
+    `at ${orderedAt} the orders mark 35 trees, 2 rock tiles, and 9 stockpile tiles, and place a woodshed site and two house sites`,
+    given.every(({ pattern, line }) => pattern.test(line)) && sites.sheds === 1 && sites.houses === 2 && (await at(page)) === orderedAt,
+    `${given.map(({ tool, line }) => `${tool}: "${line}"`).join(', ')}; ${sites.sheds} woodshed and ${sites.houses} house site labels at ${await at(page)}`,
+  );
+  await session.screenshot(page, 'cold-orders');
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
+  await session.screenshot(page, 'cold-view');
+
+  await session.reach(page, COLD_STOPS.built);
+  await session.still(page);
+  const built = await readStop('cold-built');
+  const siteLabels = await page.getByRole('status', { name: /site$/ }).count();
+  session.check(
+    `at ${built.at} both houses are finished and households 1 and 2 have moved in, one in each`,
+    siteLabels === 0 && built.houses.map((house) => house.household).join() === '1,2' && built.houses.every((house) => house.names.length === 2 && house.died === 0),
+    `${siteLabels} site labels; ${houseText(built)}`,
+  );
+  const housed = built.houses.flatMap((house) => house.names);
+  const atCamp = HUNGER_NAMES.filter((name) => !housed.includes(name));
+  session.check(
+    'the house panels name 4 of the 8 settlers of seed 7, so the other 4 sleep at the camp',
+    housed.length === 4 && new Set(housed).size === 4 && housed.every((name) => HUNGER_NAMES.includes(name)) && atCamp.length === 4,
+    `in houses: ${housed.join(', ') || 'nobody'}; at the camp: ${atCamp.join(', ')}`,
+  );
+
+  await session.reach(page, COLD_STOPS.before);
+  await session.still(page);
+  const clipFrom = play.since();
+  const before = await readStop('cold-before-dusk', true);
+  session.check(
+    `at ${before.at}, before the first winter dusk, each house holds 6 firewood and Firewood in homes is the sum of the two house panels`,
+    before.houses.every((house) => house.firewood === 6) && before.totals['Firewood in homes'] === before.houses[0].firewood + before.houses[1].firewood,
+    `Firewood in homes ${before.totals['Firewood in homes']}; ${houseText(before)}`,
+  );
+  session.check(
+    `at ${before.at} Shed and camp firewood is the shed's firewood and the camp's, and the camp holds at least the ${COLD_BURNS.camp} its fire burns`,
+    before.totals['Shed and camp firewood'] === before.shed.firewood + before.camp.firewood && before.camp.firewood >= COLD_BURNS.camp,
+    `Shed and camp firewood ${before.totals['Shed and camp firewood']}; the shed's panel reads "${text(before.shed.read)}"; the camp's "${text(before.camp.read)}"`,
+  );
+  await listen();
+  await watchDusk(COLD_STOPS.after);
+  await session.still(page);
+  const after = await readStop('cold-after-dusk');
+  const clipTo = play.since();
+  session.check(
+    `at ${after.at}, after the first winter dusk, each house's fire has burnt ${COLD_BURNS.house} firewood and Firewood in homes reads ${2 * COLD_BURNS.house} less`,
+    after.houses.every((house, index) => house.firewood === before.houses[index].firewood - COLD_BURNS.house) &&
+      after.totals['Firewood in homes'] === before.totals['Firewood in homes'] - 2 * COLD_BURNS.house,
+    `Firewood in homes ${before.totals['Firewood in homes']} at ${before.at} and ${after.totals['Firewood in homes']} at ${after.at}; ` +
+      `house firewood ${before.houses.map((house) => house.firewood).join(' and ')}, then ${after.houses.map((house) => house.firewood).join(' and ')}`,
+  );
+  session.check(
+    `at ${after.at} the camp's fire has burnt ${COLD_BURNS.camp} firewood`,
+    after.camp.firewood === before.camp.firewood - COLD_BURNS.camp,
+    `the camp's panel read "${text(before.camp.read)}" at ${before.at} and reads "${text(after.camp.read)}" at ${after.at}`,
+  );
+  session.check(
+    `at ${after.at} a flame stands over the roof of each house, and none did at ${before.at}`,
+    after.houses.every((house) => house.flame >= COLD_FLAME.least) && before.houses.every((house) => house.flame <= COLD_FLAME.most),
+    after.houses.map((house, index) => `house ${index + 1} ${before.houses[index].flame} then ${house.flame} flame pixels`).join(', ') +
+      `, needs at most ${COLD_FLAME.most} before and at least ${COLD_FLAME.least} after`,
+  );
+  session.check(
+    `at ${after.at}, a cold night with the camp's firewood burnt, the camp's flame shows`,
+    after.campFlame >= COLD_FLAME.least,
+    `${after.campFlame} flame pixels in the camp's box, needs at least ${COLD_FLAME.least}`,
+  );
+  const firstCold = told(10, 'had a cold night');
+  session.check(
+    'the news of the first winter dusk names the 4 settlers at the camp as having had a cold night, and none of the 4 in houses',
+    firstCold.length === 4 && atCamp.every((name) => firstCold.includes(name)) && !housed.some((name) => firstCold.includes(name)),
+    `heard ${[...heard].map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+
+  let cold = null;
+  const opened = [];
+  for (const stop of COLD_STOPS.morning) {
+    await session.reach(page, stop);
+    await session.still(page);
+    const png = await session.screenshot(page, `cold-aim-${stop.time.replace(':', '')}`);
+    const boxes = [...skipOf(await uiBoxes(page)), ...COLD_SPOTS.houses.map((house) => house.body)];
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, 16)) {
+      const read = await click(page, { x: cell.x / cell.count, y: cell.y / cell.count });
+      opened.push(`${stop.time} ${read?.title ?? 'nothing'}${settlerPanel(read) ? ` (${read.rows.Home}, cold nights ${read.rows['Cold nights']})` : ''}`);
+      if (settlerPanel(read) && read.rows.Home === 'None, sleeps at the camp') {
+        cold = { read, at: await at(page) };
+        break;
+      }
+    }
+    if (cold) break;
+    await page.keyboard.press('Escape');
+  }
+  session.check(
+    `${cold ? `at ${cold.at} ` : ''}a settler of the camp, selected by a click after the first winter night, reads 1 cold night and cold`,
+    cold?.read.rows['Cold nights'] === '1, cold' && atCamp.includes(cold.read.title),
+    `${cold ? `the panel reads "${text(cold.read)}"` : 'no click selected a settler of the camp'}; the clicks opened ${opened.join(', ')}`,
+  );
+  await session.screenshot(page, 'cold-settler-panel');
+  await page.keyboard.press('Escape');
+  await away();
+
+  await session.reach(page, COLD_STOPS.secondBefore);
+  await listen();
+  await watchDusk(COLD_STOPS.secondAfter);
+  const secondCold = told(11, 'had a cold night');
+  session.check(
+    'the news of the second winter dusk names the same 4 settlers at the camp, and none in houses',
+    secondCold.length === 4 && atCamp.every((name) => secondCold.includes(name)) && !housed.some((name) => secondCold.includes(name)),
+    `heard ${[...heard].filter((line) => line.startsWith('Day 11,')).map((line) => `"${line}"`).join(', ') || 'nothing on day 11'}`,
+  );
+
+  await session.reach(page, COLD_STOPS.lastBefore);
+  await listen();
+  await watchDusk(COLD_STOPS.last);
+  await session.still(page);
+  const last = await readStop('cold-last-dusk');
+  const froze = told(12, 'froze');
+  session.check(
+    'at the dusk of day 12, their third cold night in a row, the news says the 4 settlers at the camp froze, and nobody in a house',
+    froze.length === 4 && atCamp.every((name) => froze.includes(name)) && !housed.some((name) => froze.includes(name)) && told(12, 'had a cold night').length === 0,
+    `heard ${[...heard].filter((line) => line.startsWith('Day 12,')).map((line) => `"${line}"`).join(', ') || 'nothing on day 12'}`,
+  );
+  session.check(
+    `at ${last.at} the Stockpiles panel counts 4 living settlers, and the house panels name their households with nobody dead`,
+    last.totals['Settlers with a job'] + last.totals['Settlers with no job'] === 4 &&
+      last.houses.every((house, index) => house.died === 0 && house.names.join() === built.houses[index].names.join()),
+    `${last.totals['Settlers with a job']} with a job and ${last.totals['Settlers with no job']} with none; ${houseText(last)}`,
+  );
+
+  await session.finishClips(play.context, page, [{ label: 'cold-winter-dusk', from: clipFrom, to: clipTo, ...COLD_CLIP }]);
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
