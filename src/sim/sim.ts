@@ -8,6 +8,7 @@ import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilFood } from './goods';
 import { type Households, createHouseholds } from './households';
+import { type Hunting, createHunting } from './hunting';
 import { setPlaces } from './jobs';
 import { type TileMap, copyMap } from './map';
 import { type Monsters, createMonsters, moveMonsters } from './monsters';
@@ -84,6 +85,15 @@ export interface Tally {
   fromGround: number;
   /** Units of food carried from a barn into the camp for the households that live there. */
   toCamp: number;
+  /** Shots hunters took, and those that hit, each a kill. */
+  shots: number;
+  kills: number;
+  /** Units of food the kills left on the ground. */
+  hunted: number;
+  /** Units of food a hunter carried into a store. A settler without a job who carries a kill's food counts in `fromGround`. */
+  huntedIn: number;
+  /** Units of food gone from open ground at a dawn. */
+  spoiled: number;
 }
 
 export interface Sim {
@@ -102,6 +112,7 @@ export interface Sim {
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly foraging: Foraging;
+  readonly hunting: Hunting;
   readonly goods: GoodsState;
   readonly stores: Stores;
   readonly putDownSearch: PutDownSearch;
@@ -141,12 +152,16 @@ export function createSim(source: TileMap, population: Population): Sim {
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
+    hunting: createHunting(population.villagers),
     goods: createGoodsState(map.size),
     stores: createStores(population.campFood ?? CAMP_FOOD),
     putDownSearch: createPutDownSearch(map.size * map.size),
     pathSearch: createPathSearch(map.size * map.size),
     workers: new Uint8Array(MAX_SITES),
-    tally: { felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0, foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0 },
+    tally: {
+      felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
+      foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, spoiled: 0,
+    },
     tick: 0,
     dawns: 0,
     hires: 0,

@@ -12,14 +12,12 @@ import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
 import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
-import { NO_TASK, VillagerState } from './villagerState';
+import { NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
 /** By day an idle villager picks its next point within this many tiles of the camp center, on both axes. */
 export const WANDER_REACH = 8;
-/** An idle villager looks for work on one tick in this many, the tick of its group. Villager `id` is in group `id % THINK_GROUPS`. */
-export const THINK_GROUPS = 10;
 /** Each villager's spot at the camp lies this many tiles from the camp center. */
 const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
@@ -458,10 +456,11 @@ function leaveClosedLand(sim: Sim): void {
   for (let id = 0; id < monsters.x.length; id++) standOnReach(sim, monsters.x, monsters.y, id);
 }
 
-/** One tick of a villager that holds a task: it gives the task up when it no longer stands, walks its route, then works. */
+/** One tick of a villager that holds a task: it gives the task up when it no longer stands or its kind can no longer follow it, walks its route, then works. */
 function doTask(sim: Sim, id: number): void {
   const { villagers } = sim;
-  if (!stands(sim, id)) {
+  const kind = taskKind(sim, id);
+  if (!stands(sim, id) || (kind.follow !== undefined && !kind.follow(sim, id))) {
     stopTask(sim, id);
     return;
   }
@@ -476,7 +475,7 @@ function doTask(sim: Sim, id: number): void {
   villagers.state[id] = VillagerState.Working;
   // A wanting villager works at half the rate: on even ticks only.
   if (wanting(villagers, id) && (sim.tick & 1) === 1) return;
-  if (!taskKind(sim, id).work(sim, id)) return;
+  if (!kind.work(sim, id)) return;
   stopTask(sim, id);
   if (sim.flow.lostCount > 0) leaveClosedLand(sim);
 }

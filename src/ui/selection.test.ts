@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { frameOf } from '../frame';
+import { AnimalKind, addAnimal } from '../sim/animals';
 import { BUILDING, finishBuilding } from '../sim/building';
 import { BUILDINGS, Building } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
@@ -7,6 +8,7 @@ import { isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
+import { shotHits } from '../sim/hunting';
 import { Good } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
 import { TileKind } from '../sim/map';
@@ -134,6 +136,8 @@ describe("a settler's panel", () => {
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
+        animals: new Float32Array(0),
+        animalStates: new Uint8Array(0),
       },
     });
     const panel = (state: number, taskValue: number, carried: Good) => readPanel({ kind: 'villager', id: 0 }, facts(state, taskValue, carried));
@@ -355,6 +359,65 @@ describe("a forager's panel", () => {
   });
 });
 
+/**
+ * One hunter and one settler without a job at the camp of an open map of 38
+ * by 38 tiles, too small for a deer of its own, with a hunter's lodge at
+ * (4, 4) whose one filled place takes the settler nearest it.
+ */
+function lodgeSettlement(): { sim: Sim; slot: number; hunter: number } {
+  const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 2, monsters: 0 });
+  expect(applyCommand(sim, { kind: 'place', building: Building.Lodge, x: 4, y: 4 })).toMatchObject({ ok: true });
+  const slot = sim.orders.siteOf[at(sim.map, 4, 4)]!;
+  finishBuilding(sim, slot);
+  applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
+  return { sim, slot, hunter: workersOf(sim, slot)[0]! };
+}
+
+describe("a hunter's lodge's panel and a hunter's panel", () => {
+  it('says what the lodge does and names its hunter, with its places', () => {
+    const { sim, slot, hunter } = lodgeSettlement();
+    const lodge: Selection = { kind: 'building', slot, anchor: at(sim.map, 4, 4) };
+    expect(readPanel(lodge, factsOf(sim))).toMatchObject({
+      kind: 'lodge',
+      title: "Hunter's lodge",
+      note: 'Its hunters hunt deer within 40 tiles and carry the food to the nearest store with room.',
+      rows: [{ label: 'Hunters', value: nameOfId(sim, hunter) }, { label: 'Places', value: '1 of 2' }],
+    });
+    expect(readPanel({ kind: 'villager', id: hunter }, factsOf(sim)).rows.find(({ label }) => label === 'Job')!.value).toBe('Hunter');
+  });
+
+  it('reads what a hunter does through a hunt: stalking, aiming, idle once the only deer is killed, walking to its kill, and carrying the food to the camp', () => {
+    const { sim, hunter } = lodgeSettlement();
+    expect(settler(factsOf(sim), hunter)).toBe('Idle, no deer within 40 tiles of the lodge');
+    const deer = addAnimal(sim.animals, AnimalKind.Deer, 30.5, 30.5);
+    sim.animals.until[deer] = 1_000_000;
+    expect(settler(factsOf(sim), hunter)).toBe('Looking for deer');
+    while (!shotHits(sim.seed, sim.animals.shots)) sim.animals.shots++;
+    const seen = new Set<string>();
+    while (sim.tally.huntedIn === 0) {
+      step(sim);
+      seen.add(settler(factsOf(sim), hunter));
+    }
+    expect(seen).toEqual(
+      new Set([
+        'Looking for deer',
+        'Stalking a deer',
+        'Aiming at a deer',
+        'Idle, no deer within 40 tiles of the lodge',
+        'Walking to a kill to pick up food',
+        'Carrying food to the camp',
+      ]),
+    );
+  });
+
+  it('says a hunter waits for room while no store has room', () => {
+    const { sim, hunter } = lodgeSettlement();
+    addAnimal(sim.animals, AnimalKind.Deer, 30.5, 30.5);
+    sim.stores.food[CAMP_STORE] = sim.stores.campLimit;
+    expect(settler(factsOf(sim), hunter)).toBe('Idle, waiting for room in a store');
+  });
+});
+
 function siteFacts() {
   const map = mapFrom(Array.from({ length: 16 }, () => '.'.repeat(16)));
   const camp = at(map, 12, 12);
@@ -380,6 +443,8 @@ function siteFacts() {
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
+    animals: new Float32Array(0),
+    animalStates: new Uint8Array(0),
   });
   return { map, camp, orders, slot, building, frame };
 }

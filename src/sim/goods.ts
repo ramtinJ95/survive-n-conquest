@@ -216,6 +216,7 @@ export function spoilFood(sim: Sim): void {
     }
     goods.foodListed[tile] = 0;
     if (!food) continue;
+    sim.tally.spoiled += map.stackSize[tile]!;
     map.stackGood[tile] = Good.None;
     map.stackSize[tile] = 0;
     noteTileChange(sim, tile);

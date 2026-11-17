@@ -13,3 +13,6 @@ export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 
 /** A villager column value for no task. Any other value is one more than the kind's index in `TASK_KINDS`. */
 export const NO_TASK = 0;
+
+/** An idle villager looks for work on one tick in this many, the tick of its group. Villager `id` is in group `id % THINK_GROUPS`. */
+export const THINK_GROUPS = 10;

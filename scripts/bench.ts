@@ -17,8 +17,7 @@ import { NO_HOME } from '../src/sim/households';
 import { STOCKING } from '../src/sim/stocking';
 import { CAMP_STORE } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { THINK_GROUPS } from '../src/sim/villagers';
-import { NO_TASK, VillagerState } from '../src/sim/villagerState';
+import { NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
 
 const SEED = 7;
 const SIZES = [256, 512];

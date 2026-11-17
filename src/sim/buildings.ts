@@ -80,6 +80,14 @@ export function siteMidY(sites: Sites, slot: number): number {
   return siteY0(sites, slot) + kindOf(sites, slot).side / 2;
 }
 
+/** Whether a point lies within the reach of the workplace in `slot`, measured from the workplace's middle. */
+export function withinReach(sites: Sites, slot: number, px: number, py: number): boolean {
+  const { reach } = kindOf(sites, slot);
+  const dx = px - siteMidX(sites, slot);
+  const dy = py - siteMidY(sites, slot);
+  return dx * dx + dy * dy <= reach * reach;
+}
+
 /**
  * The tile beside one of the building's tiles, sharing a side with it, that
  * has a walk to the camp and lies nearest a point in a straight line, or -1.
