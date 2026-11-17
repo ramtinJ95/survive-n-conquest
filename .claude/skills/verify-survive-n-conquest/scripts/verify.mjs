@@ -3864,17 +3864,20 @@ const STORE_RISE = 3;
 /**
  * The ground page: `?food=8` and four forager's huts, on (136, 127), (135, 123), (135, 131), and (133, 119), whose
  * eight places take every settler, so nobody without a job is left to carry food from the ground. With the camp's 24
- * food the camp filled and the foragers waited, and no unit lay on the ground. In `scripts/first-year.ts` terms four
- * units lay on the ground from the dusk of day 2 through day 3, one at (128, 126) beside the camp, and were gone at the
- * dawn of day 4, the second after they were put down.
+ * food the camp filled and the foragers waited, and no unit lay on the ground. With 30 seconds of work for a unit, the
+ * camp fills on day 4, not day 3, so the units the foragers hold are put down at the dusk of day 3, not day 2. Run
+ * headless with these orders landing at any tick from 10 to 20, 2 to 6 units lie on the ground at day 4 09:00, at
+ * (131..139, 119..133) beside the camp, and none at day 5 09:00, after the dawn of day 5, the second after they were
+ * put down. With 20 seconds they lay on day 3 instead, and the stops were day 3 12:00 and day 4 12:00.
  */
 const GROUND_SEARCH = '?seed=7&food=8';
 const GROUND_HUTS = [{ x: 509, y: 212 }, { x: 451, y: 230 }, { x: 569, y: 219 }, { x: 392, y: 261 }];
-const GROUND_STOPS = { lying: { day: 3, time: '12:00' }, gone: { day: 4, time: '12:00' } };
+const GROUND_STOPS = { lying: { day: 4, time: '09:00' }, gone: { day: 5, time: '09:00' } };
 /**
  * The lit top of the sack of a unit of food, `foodShape` in `src/render/shapes.ts`, which read 205, 166, 100 at noon
  * on day 3. Each of the two sacks beside the camp showed 49 such pixels, and the box around the camp read 3 once they
- * were gone. The box leaves out the clock and the camera controls, whose text has pixels of that color.
+ * were gone. The same sacks match at 09:00 on day 4, in early summer, and read 121 pixels, but not at its noon, under
+ * the summer sun, where they read 1. The box leaves out the clock and the camera controls, whose text has pixels of that color.
  */
 const FOOD_SACK = ([r, g, b]) => Math.abs(r - 205) <= 8 && Math.abs(g - 166) <= 8 && Math.abs(b - 100) <= 8;
 const GROUND_BOX = { x: 400, y: 240, width: 300, height: 180 };
@@ -4110,9 +4113,9 @@ SCENARIOS.storing = async (session) => {
   const before = sacks(lying);
   const after = sacks(goneShot);
   session.check(
-    'food that nobody carried lies on the ground on day 3 and is gone by noon on day 4',
+    `food that nobody carried lies on the ground at ${clockText(clockMinutes(GROUND_STOPS.lying))} and is gone by ${clockText(clockMinutes(GROUND_STOPS.gone))}`,
     before >= GROUND_SACKS.lying && after <= GROUND_SACKS.gone,
-    `${before} pixels of sack tops in the box around the camp at day 3 12:00, needs ${GROUND_SACKS.lying}; ${after} at day 4 12:00, needs at most ${GROUND_SACKS.gone}`,
+    `${before} pixels of sack tops in the box around the camp at ${clockText(clockMinutes(GROUND_STOPS.lying))}, needs ${GROUND_SACKS.lying}; ${after} at ${clockText(clockMinutes(GROUND_STOPS.gone))}, needs at most ${GROUND_SACKS.gone}`,
   );
   await ground.context.close();
   seen.push(...ground.errors);
