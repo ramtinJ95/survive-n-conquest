@@ -1,3 +1,4 @@
+import { type Animals, createAnimals, moveAnimals } from './animals';
 import { type SiteTasks, createSiteTasks, resetSite } from './building';
 import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
@@ -96,6 +97,7 @@ export interface Sim {
   readonly villagers: Villagers;
   readonly households: Households;
   readonly monsters: Monsters;
+  readonly animals: Animals;
   readonly orders: Orders;
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
@@ -134,6 +136,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     households: createHouseholds(population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
+    animals: createAnimals(map, population.villagers),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
@@ -209,6 +212,7 @@ export function step(sim: Sim): void {
   }
   moveVillagers(sim, night, dawn);
   if (sim.flow.gainedCount > 0) reachTasks(sim);
+  moveAnimals(sim, dawn);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;
 }
