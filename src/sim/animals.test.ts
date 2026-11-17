@@ -132,6 +132,22 @@ describe('deer', () => {
     expect(Math.abs(sim.animals.y[deer]! - 20.5)).toBeGreaterThan(4);
   });
 
+  it('step off a tile that a building closed under it, and never onto one', () => {
+    const { sim, deer } = deerAndVillager(2.5, 2.5, 20.5, 20.5);
+    for (const x of [20, 21]) sim.map.kinds[20 * sim.map.size + x] = TileKind.Built;
+    sim.animals.state[deer] = AnimalState.Walking;
+    sim.animals.targetX[deer] = 20.5;
+    sim.animals.targetY[deer] = 23.5;
+    for (let tick = 0; tick < 50 && sim.animals.state[deer] === AnimalState.Walking; tick++) moveAnimals(sim, false);
+    expect([sim.animals.x[deer], sim.animals.y[deer]]).toEqual([20.5, 23.5]);
+    sim.animals.state[deer] = AnimalState.Walking;
+    sim.animals.targetX[deer] = 21.5;
+    sim.animals.targetY[deer] = 19.5;
+    for (let tick = 0; tick < 50 && sim.animals.state[deer] === AnimalState.Walking; tick++) moveAnimals(sim, false);
+    expect(sim.map.kinds[tileAt(sim.map, sim.animals.x[deer]!, sim.animals.y[deer]!)]).toBe(TileKind.Grass);
+    expect(sim.animals.y[deer]!).toBeGreaterThanOrEqual(21);
+  });
+
   it('take no fright at a villager inside its house or dead', () => {
     for (const state of [VillagerState.Inside, VillagerState.Dead]) {
       const { sim, deer } = deerAndVillager(21.5, 20.5, 20.5, 20.5);
