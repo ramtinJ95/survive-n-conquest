@@ -55,6 +55,10 @@ export interface GoodsState {
   readonly loose: readonly TileSet[];
   /** By good, at index `good - 1`: the stockpile tiles with an unreserved unit of that good that a walk from the camp reaches, not set aside. */
   readonly stocked: readonly TileSet[];
+  /** By good, at index `good - 1`: the units on the tiles of `stocked` that no carrier has reserved. */
+  readonly stockedUnits: Uint32Array;
+  /** The units each tile counts in `stockedUnits`, under the good whose `stocked` set holds the tile. */
+  readonly stockedOn: Uint8Array;
   /** By good, at index `good - 1`: the stockpile tiles that can take one more unit of that good that a walk from the camp reaches, not set aside. */
   readonly room: readonly TileSet[];
   /** 1 where a tile is set aside as out of reach for carrying and supplying, until dawn or until land gains walks. */
@@ -78,6 +82,8 @@ export function createGoodsState(size: number): GoodsState {
     inboundGood: new Uint8Array(tiles),
     loose: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
     stocked: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
+    stockedUnits: new Uint32Array(GOOD_KINDS),
+    stockedOn: new Uint8Array(tiles),
     room: Array.from({ length: GOOD_KINDS }, () => createTileSet(size)),
     setAside: new Uint8Array(tiles),
     setAsideTiles: new Int32Array(tiles),
@@ -124,7 +130,7 @@ function room(sim: Sim, tile: number, good: Unit): number {
   return held === Good.None || held === good ? STACK_LIMIT - size - inbound : 0;
 }
 
-/** Brings a tile's place in `loose`, `stocked`, and `room` up to date with its stack, its claim, its reservations, and its reach. */
+/** Brings a tile's place in `loose`, `stocked`, `stockedUnits`, and `room` up to date with its stack, its claim, its reservations, and its reach. */
 export function refreshStack(sim: Sim, tile: number): void {
   const { map, goods } = sim;
   const reached = sim.flow.next[tile] !== -1 && goods.setAside[tile] === 0;
@@ -137,9 +143,12 @@ export function refreshStack(sim: Sim, tile: number): void {
   for (let index = 0; index < GOOD_KINDS; index++) {
     const good = (index + 1) as Unit;
     setOpen(goods.loose[index]!, map.size, tile, loose === good);
+    if (goods.stocked[index]!.open[tile] === 1) goods.stockedUnits[index]! -= goods.stockedOn[tile]!;
     setOpen(goods.stocked[index]!, map.size, tile, stocked === good);
     setOpen(goods.room[index]!, map.size, tile, reached && stockpile && room(sim, tile, good) > 0);
   }
+  goods.stockedOn[tile] = stocked === Good.None ? 0 : map.stackSize[tile]! - goods.outbound[tile]!;
+  if (stocked !== Good.None) goods.stockedUnits[stocked - 1]! += goods.stockedOn[tile]!;
 }
 
 /** Sets a tile aside as out of reach for carrying and supplying, until dawn or until land gains walks. */
