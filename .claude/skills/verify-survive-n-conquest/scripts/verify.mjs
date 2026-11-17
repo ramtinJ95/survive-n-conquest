@@ -4609,7 +4609,7 @@ SCENARIOS.firewood = async (session) => {
     page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
       const rows = {};
       for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
-      return { logs: Number(rows.Logs), firewood: Number(rows['Shed and camp firewood']), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+      return { logs: Number(rows.Logs), firewood: Number(rows['Firewood in stores']), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
     });
   const firewoodOf = (read) => Number(/^(\d+) of 40$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
   const campFirewoodOf = (read) => Number(/^(\d+) of 12$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
@@ -4838,9 +4838,9 @@ SCENARIOS.firewood = async (session) => {
   const shedAfter = await clickShed();
   const campAfter = await readCamp();
   session.check(
-    `when the split is done, at ${done?.at ?? 'no stop'}, the Shed and camp firewood total and the shed's and the camp's panels together read 2 more firewood`,
+    `when the split is done, at ${done?.at ?? 'no stop'}, the Firewood in stores total and the shed's and the camp's panels together read 2 more firewood`,
     Boolean(lastSplit) && done.doing !== SPLITTING_LOG && done.firewood === lastSplit.firewood + FIREWOOD_LOGS.firewoodPerLog && firewoodOf(shedAfter) + campFirewoodOf(campAfter) === done.firewood,
-    `Shed and camp firewood read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; ` +
+    `Firewood in stores read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; ` +
       `the shed's panel then reads "${text(shedAfter)}" and the camp's "${text(campAfter)}"`,
   );
 
@@ -4859,7 +4859,7 @@ SCENARIOS.firewood = async (session) => {
   session.check(
     `at ${await at(page)}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, with every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood in the shed and at the camp`,
     stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && firewoodOf(stopped) + campFirewoodOf(stoppedCamp) === split && stoppedTotals.logs === 0 && stoppedTotals.firewood === split,
-    `the panel reads "${text(stopped)}"; the camp's panel reads "${text(stoppedCamp)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Shed and camp firewood ${stoppedTotals.firewood}`,
+    `the panel reads "${text(stopped)}"; the camp's panel reads "${text(stoppedCamp)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Firewood in stores ${stoppedTotals.firewood}`,
   );
   await session.screenshot(page, 'firewood-shed-stopped');
   const shedPanel = apart(await uiBoxes(page));
@@ -4894,11 +4894,11 @@ SCENARIOS.firewood = async (session) => {
     `${tools.map(({ name: tool, box }) => `${tool} ${describe(box)}`).join('; ')}; clock ${describe(boxes.clock)}`,
   );
   const others = Object.entries(boxes).filter(([part]) => part !== 'stockpiles');
-  const firewoodShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Shed and camp firewood', { exact: true }).isVisible();
+  const firewoodShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Firewood in stores', { exact: true }).isVisible();
   session.check(
-    `the Stockpiles panel, with its Shed and camp firewood row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
+    `the Stockpiles panel, with its Firewood in stores row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
     inside(boxes.stockpiles) && others.every(([, box]) => box && disjoint(boxes.stockpiles, box)) && firewoodShown,
-    `${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}; the Shed and camp firewood row is ${firewoodShown ? 'shown' : 'missing'}`,
+    `${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}; the Firewood in stores row is ${firewoodShown ? 'shown' : 'missing'}`,
   );
   await session.screenshot(page, `firewood-${CLIP.width}x${CLIP.height}`);
   await page.keyboard.press('Escape');
@@ -5574,9 +5574,9 @@ SCENARIOS.cold = async (session) => {
     `Firewood in homes ${before.totals['Firewood in homes']}; ${houseText(before)}`,
   );
   session.check(
-    `at ${before.at} Shed and camp firewood is the shed's firewood and the camp's, and the camp holds at least the ${COLD_BURNS.camp} its fire burns`,
-    before.totals['Shed and camp firewood'] === before.shed.firewood + before.camp.firewood && before.camp.firewood >= COLD_BURNS.camp,
-    `Shed and camp firewood ${before.totals['Shed and camp firewood']}; the shed's panel reads "${text(before.shed.read)}"; the camp's "${text(before.camp.read)}"`,
+    `at ${before.at} Firewood in stores is the shed's firewood and the camp's, and the camp holds at least the ${COLD_BURNS.camp} its fire burns`,
+    before.totals['Firewood in stores'] === before.shed.firewood + before.camp.firewood && before.camp.firewood >= COLD_BURNS.camp,
+    `Firewood in stores ${before.totals['Firewood in stores']}; the shed's panel reads "${text(before.shed.read)}"; the camp's "${text(before.camp.read)}"`,
   );
   await listen();
   await watchDusk(COLD_STOPS.after);

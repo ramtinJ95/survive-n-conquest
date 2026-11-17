@@ -20,7 +20,7 @@ const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[
 
 /** The firewood in woodsheds and at the camp, as one total, and the firewood in homes. */
 const FIREWOOD_SHOWN: readonly { readonly kinds: readonly StoreKind[]; readonly label: string }[] = [
-  { kinds: [StoreKind.Workshop, StoreKind.Common], label: 'Shed and camp firewood' },
+  { kinds: [StoreKind.Workshop, StoreKind.Common], label: 'Firewood in stores' },
   { kinds: [StoreKind.Home], label: 'Firewood in homes' },
 ];
 
