@@ -187,8 +187,16 @@ function withTheFirstYear(where: Plan): void {
         `${groundFood(sim)} | ${sim.tally.foraged} | ${sim.tally.kills} | ${sim.living} | ${sim.tally.batches} | ${shed.firewood(sim)} |`,
     );
   const dead = new Uint8Array(SETTLERS.villagers);
+  const finished = new Map<number, string>();
   const sim = runYear([...huntYearCommands({ hut: true }), ...woodshedCommands(where)], (sim) => {
     shed.look(sim);
+    const { sites } = sim.orders;
+    for (let slot = 0; slot < sites.used; slot++) {
+      if (sites.state[slot] !== SiteState.Built || finished.has(slot)) continue;
+      const workers: string[] = [];
+      for (let id = 0; id < SETTLERS.villagers; id++) if (sim.villagers.workplace[id] === slot) workers.push(nameOfId(sim, id));
+      finished.set(slot, `${BUILDINGS[sites.kind[slot] as Building].name} ${clock(sim.tick - 1)}${workers.length > 0 ? ` (${workers.join(' and ')})` : ''}`);
+    }
     const { day } = dateAt(sim.tick);
     if (isDusk(sim.tick) && WINTER_DUSKS.includes(day)) row(sim, `dusk of day ${day}`);
     if (tickOfDay(sim.tick) === TICKS_PER_DAY - 1 && SEASON_ENDS.includes(day)) row(sim, `end of day ${day}`);
@@ -199,11 +207,9 @@ function withTheFirstYear(where: Plan): void {
       }
     }
   });
-  const finished: string[] = [];
-  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (sim.orders.sites.state[slot] === SiteState.Built) finished.push(BUILDINGS[sim.orders.sites.kind[slot] as Building].name);
   console.log("## the first year with the hut, the barn beside it, the hunter's lodge, and the woodshed");
   console.log(`seed ${FIRST_YEAR_SEED}: #30's first-year commands and the woodshed's, all at the first tick; ${sim.living} of ${SETTLERS.villagers} alive at the end of the year`);
-  console.log(`finished: ${finished.join(', ')}`);
+  console.log(`finished: ${[...finished.values()].join(', ')}`);
   console.log(`woodshed finished ${shed.seen.finished}, ${shed.seen.woodcutter} became its woodcutter, full with ${WOODSHED_FIREWOOD_LIMIT} firewood ${shed.seen.full}`);
   console.log('');
   console.log('Picked and Kills count from the start of the year, as in #30. Split is the logs split, and Firewood the firewood in the shed.');
