@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ANIMALS, AnimalKind, AnimalState, MAX_ANIMALS, addAnimal, grazes, moveAnimals, removeAnimal } from './animals';
+import { Building } from './buildings';
 import { TICKS_PER_DAY } from './calendar';
 import { isDawn } from './daylight';
+import { Good } from './goods';
 import { TileKind, tileAt } from './map';
 import { generateMap } from './mapgen';
-import { NOBODY, SETTLERS, type Sim, createSim, step } from './sim';
+import { NOBODY, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { SiteState } from './orders';
 import { mapFrom } from './testMaps';
 import { VillagerState } from './villagerState';
 
@@ -146,6 +149,29 @@ describe('deer', () => {
     for (let tick = 0; tick < 50 && sim.animals.state[deer] === AnimalState.Walking; tick++) moveAnimals(sim, false);
     expect(sim.map.kinds[tileAt(sim.map, sim.animals.x[deer]!, sim.animals.y[deer]!)]).toBe(TileKind.Grass);
     expect(sim.animals.y[deer]!).toBeGreaterThanOrEqual(21);
+  });
+
+  it('stand on the nearest grass in the tick a house closes over them, even under its middle', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)));
+    for (const [x, y, good, size] of [[21, 19, Good.Log, 8], [22, 19, Good.Log, 4], [20, 19, Good.Stone, 6]] as const) {
+      map.stackGood[y * 32 + x] = good;
+      map.stackSize[y * 32 + x] = size;
+    }
+    const sim = createSim(map, { villagers: 4, monsters: 0 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 21, y: 15 })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[15 * 32 + 21]!;
+    const deer = addAnimal(sim.animals, AnimalKind.Deer, 21.5, 15.5);
+    for (let tick = 0; sim.orders.sites.state[slot] !== SiteState.Built; tick++) {
+      expect(tick).toBeLessThan(3000);
+      sim.animals.x[deer] = 21.5;
+      sim.animals.y[deer] = 15.5;
+      sim.animals.state[deer] = AnimalState.Grazing;
+      sim.animals.until[deer] = 1_000_000;
+      step(sim);
+    }
+    const tile = tileAt(sim.map, sim.animals.x[deer]!, sim.animals.y[deer]!);
+    expect(grazes(sim.map, tile)).toBe(true);
+    expect(Math.abs((tile % 32) - 21) + Math.abs(Math.floor(tile / 32) - 15)).toBe(2);
   });
 
   it('take no fright at a villager inside its house or dead', () => {
