@@ -209,7 +209,7 @@ function nearestKillFood(sim: Sim, kill: number, px: number, py: number): number
  * left at the kill, the hunter is done with it. A hunter that still holds a
  * unit, because the land had no room to put it down, takes it to a store.
  */
-function fetch(sim: Sim, id: number): boolean {
+function fetchKill(sim: Sim, id: number): boolean {
   const { villagers, hunting } = sim;
   const held = villagers.carried[id]!;
   if (held === Good.Food) return takeHeld(sim, id);
@@ -242,7 +242,7 @@ const nothing = () => {};
  * room, 1 unit at a time. The reservations, the hold, and the dusk rule are
  * carrying's: a unit in the hunter's hands at dusk is put down where it stands.
  */
-export const FETCHING_KILL: TaskKind = { job: Job.Hunter, take: fetch, holds: CARRYING.holds, work: carryIn, release: CARRYING.release, refresh: nothing, reopen: nothing };
+export const FETCHING_KILL: TaskKind = { job: Job.Hunter, take: fetchKill, holds: CARRYING.holds, work: carryIn, release: CARRYING.release, refresh: nothing, reopen: nothing };
 
 /** Stalking a deer in the lodge's reach, aiming, and shooting it, the work of a hunter. */
 export const HUNTING: TaskKind = { job: Job.Hunter, take, follow, holds, work, release, refresh: nothing, reopen: nothing };
