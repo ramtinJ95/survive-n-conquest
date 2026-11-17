@@ -88,6 +88,16 @@ export const TOOLS: readonly Tool[] = [
     icon: '<path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9v11h13V9"/><path d="M9 20v-6h6v6"/><path d="m9 14 6 6m0-6-6 6"/>',
   },
   {
+    id: 'lodge',
+    building: Building.Lodge,
+    label: "Hunter's lodge",
+    face: 'Lodge',
+    codes: ['KeyL'],
+    key: 'L',
+    hint: "Click to place a hunter's lodge on 2 by 2 tiles of open, level ground. Its hunters hunt deer.",
+    icon: '<path d="M4 9.5 20 6v4.5L4 13z"/><path d="M5.5 12.8V20h13v-9.5"/><path d="M10 20v-4h3v4"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
@@ -198,6 +208,7 @@ const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> =
   house: () => `${BUILDING_WORDS[Building.House].title} site placed.`,
   hut: () => `${BUILDING_WORDS[Building.Hut].title} site placed.`,
   barn: () => `${BUILDING_WORDS[Building.Barn].title} site placed.`,
+  lodge: () => `${BUILDING_WORDS[Building.Lodge].title} site placed.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 

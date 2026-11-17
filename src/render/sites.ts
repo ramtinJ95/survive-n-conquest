@@ -13,7 +13,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BUILDINGS, Building, type BuildingName, kindOf, siteMidX, siteMidY, siteX0, siteY0 } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
-import { BARN_LOOK, HUT_LOOK, type Shapes, barnShape, colored, hutShape, shapeMaterial } from './shapes';
+import { BARN_LOOK, HUT_LOOK, LODGE_LOOK, type Shapes, barnShape, colored, hutShape, lodgeShape, shapeMaterial } from './shapes';
 
 /** A building stands on a footing of grey stone that reaches this far below its floor, past the lowest tile of its footprint. */
 const FOOTING = { color: 0x8d8a82, depth: 1.8, inset: 0.05 };
@@ -100,10 +100,17 @@ function looks(shapes: Shapes): Readonly<Record<Building, Look>> {
   barn.computeBoundingBox();
   const barnX = BARN_LOOK.width / 2;
   const barnZ = BARN_LOOK.depth / 2;
+  const lodge = lodgeShape();
+  lodge.computeBoundingBox();
+  const lodgeHalf = LODGE_LOOK.side / 2;
   return {
     [Building.House]: { shape: shapes.house, walls: { minX: min.x, maxX: max.x, minZ: min.z, maxZ: max.z, share: HOUSE_WALLS } },
     [Building.Hut]: { shape: hut, walls: { minX: -half, maxX: half, minZ: -half, maxZ: half, share: hutWalls / hut.boundingBox!.max.y } },
     [Building.Barn]: { shape: barn, walls: { minX: -barnX, maxX: barnX, minZ: -barnZ, maxZ: barnZ, share: BARN_LOOK.walls / barn.boundingBox!.max.y } },
+    [Building.Lodge]: {
+      shape: lodge,
+      walls: { minX: -lodgeHalf, maxX: lodgeHalf, minZ: -lodgeHalf, maxZ: lodgeHalf, share: LODGE_LOOK.front / lodge.boundingBox!.max.y },
+    },
   };
 }
 

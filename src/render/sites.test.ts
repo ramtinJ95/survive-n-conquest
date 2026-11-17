@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS, Building } from '../sim/buildings';
 import { generateMap } from '../sim/mapgen';
 import { SiteState, createOrders } from '../sim/orders';
-import { primitiveShapes } from './shapes';
+import { lodgeShape, primitiveShapes } from './shapes';
 import { createSites } from './sites';
 
 const SIZE = 64;
@@ -104,5 +104,38 @@ describe('sites and houses', () => {
     show(orders);
     expect([huts.count, scaffolds[Building.Hut]!.count]).toEqual([1, 0]);
     expect(huts.geometry.getAttribute('rise').getX(0)).toBeGreaterThan(hut.max.y);
+  });
+
+  it('draws a lodge on its 2 by 2 tiles, lower than the hut, its roof falling one way toward the door', () => {
+    const map = generateMap(7, SIZE);
+    const orders = createOrders(map);
+    const { buildings, scaffolds, show } = createSites(map, primitiveShapes());
+    const lodges = buildings[Building.Lodge]!;
+    orders.sites.x[0] = 20;
+    orders.sites.y[0] = 30;
+    orders.sites.kind[0] = Building.Lodge;
+    orders.sites.state[0] = SiteState.Site;
+    orders.sites.work[0] = BUILDINGS[Building.Lodge].workTicks / 2;
+    show(orders);
+    expect([lodges.count, scaffolds[Building.Lodge]!.count, buildings[Building.Hut]!.count]).toEqual([1, 1, 0]);
+
+    orders.sites.state[0] = SiteState.Built;
+    show(orders);
+    expect([lodges.count, scaffolds[Building.Lodge]!.count]).toEqual([1, 0]);
+    lodges.geometry.computeBoundingBox();
+    buildings[Building.Hut]!.geometry.computeBoundingBox();
+    const lodge = lodges.geometry.boundingBox!;
+    expect(lodge.max.x - lodge.min.x).toBeLessThanOrEqual(2.1);
+    expect(lodge.max.z - lodge.min.z).toBeLessThanOrEqual(2.1);
+    expect(lodge.max.y).toBeLessThan(buildings[Building.Hut]!.geometry.boundingBox!.max.y);
+    const roof = lodgeShape();
+    const position = roof.getAttribute('position');
+    let backTop = 0;
+    let frontTop = 0;
+    for (let corner = 0; corner < position.count; corner++) {
+      if (position.getZ(corner) < -0.5) backTop = Math.max(backTop, position.getY(corner));
+      if (position.getZ(corner) > 0.5) frontTop = Math.max(frontTop, position.getY(corner));
+    }
+    expect(backTop - frontTop).toBeGreaterThan(0.4);
   });
 });

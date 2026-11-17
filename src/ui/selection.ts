@@ -178,8 +178,8 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
   return jobAt(orders.sites, frame.workplaces[id]!);
 }
 
-/** What a villager with no task does by day, by its job: a forager says why it is not out foraging. */
-const IDLE_WORDS: Readonly<Record<Job, (facts: Facts) => string>> = {
+/** What a villager with no task does by day, by its job: a forager or a hunter says why it is not out at its work. */
+const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = {
   [Job.None]: () => 'Idle',
   [Job.Forager]: (facts) => {
     const { frame } = facts;
@@ -187,6 +187,7 @@ const IDLE_WORDS: Readonly<Record<Job, (facts: Facts) => string>> = {
     if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
     return 'Looking for forage';
   },
+  [Job.Hunter]: (facts) => (roomInAStore(facts) ? 'Looking for deer' : 'Idle, waiting for room in a store'),
 };
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
@@ -204,7 +205,7 @@ function doing(facts: Facts, id: number): string {
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[facts.frame.tasks[id]!];
-  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts);
+  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
   return task(facts, id, state === VillagerState.Working);
 }
 
@@ -356,6 +357,11 @@ const PANELS: Panels = {
     note: 'A finished barn. Food in it keeps.',
     rows: [{ label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${BARN_FOOD_LIMIT}` }],
   },
+  lodgeSite: sitePanel(Building.Lodge),
+  lodge: workplacePanel(
+    Building.Lodge,
+    `Its hunters hunt deer within ${BUILDINGS[Building.Lodge].reach} tiles and carry the food to the nearest store with room.`,
+  ),
   camp: {
     title: 'Camp',
     rows: [
