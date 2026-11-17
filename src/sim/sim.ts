@@ -36,6 +36,8 @@ export interface Population {
   readonly markAll?: boolean;
   /** The food the camp starts with, `CAMP_FOOD` when left out. A start above `CAMP_FOOD_LIMIT` raises what the camp holds to it. */
   readonly campFood?: number;
+  /** False leaves the map without animals, from the start and at every dawn. A test page uses it to keep a scene still. */
+  readonly animals?: boolean;
 }
 
 /**
@@ -57,10 +59,11 @@ export const NOBODY: Population = { villagers: 0, monsters: 0 };
  * whole number, sets the camp's starting food. Anything else leaves it at the
  * population's own.
  */
-export function populationFor(swarm: string | null, food: string | null = null): Population {
+export function populationFor(swarm: string | null, food: string | null = null, deer: string | null = null): Population {
   const population = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
   const campFood = food !== null && /^\d{1,5}$/.test(food) ? Number(food) : NaN;
-  return campFood <= 0xffff ? { ...population, campFood } : population;
+  const fed = campFood <= 0xffff ? { ...population, campFood } : population;
+  return deer === 'off' ? { ...fed, animals: false } : fed;
 }
 
 /** Work completed since the simulation started. Nothing in the simulation reads it. The benchmark and the tests do. */
@@ -147,7 +150,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     villagers: createVillagers(map, flow, population.villagers),
     households: createHouseholds(population.villagers),
     monsters: createMonsters(map, flow, population.monsters),
-    animals: createAnimals(map, population.villagers),
+    animals: createAnimals(map, population.villagers, population.animals ?? true),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),

@@ -6,7 +6,7 @@ import { isDawn } from './daylight';
 import { Good } from './goods';
 import { TileKind, tileAt } from './map';
 import { generateMap } from './mapgen';
-import { NOBODY, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { NOBODY, SETTLERS, type Sim, applyCommand, createSim, populationFor, step } from './sim';
 import { SiteState } from './orders';
 import { mapFrom } from './testMaps';
 import { VillagerState } from './villagerState';
@@ -66,6 +66,14 @@ describe('deer', () => {
     }
     expect(fled).toBeGreaterThan(0);
     expect(living(sim).filter((row) => sim.animals.x[row] !== start[row]).length).toBeGreaterThan(30);
+  });
+
+  it("stay away from a page opened with ?deer=off, at the start and after the dawns", () => {
+    const sim = createSim(generateMap(7), populationFor(null, null, 'off'));
+    expect(living(sim)).toEqual([]);
+    for (let tick = 0; tick < 2 * TICKS_PER_DAY; tick++) step(sim);
+    expect(living(sim)).toEqual([]);
+    expect(populationFor(null, null, 'on').animals).toBeUndefined();
   });
 
   it('walk in from the map edge, one at each dawn, while the map holds fewer than it started with', () => {

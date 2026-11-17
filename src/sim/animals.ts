@@ -162,7 +162,7 @@ export function removeAnimal(animals: Animals, row: number): void {
  * animal for every `perLandTiles` tiles that are not water, each on a random
  * tile of grass or forest, grazing. A row that finds no such tile stays free.
  */
-export function createAnimals(map: TileMap, villagers: number): Animals {
+export function createAnimals(map: TileMap, villagers: number, wild = true): Animals {
   const cells = Math.ceil(map.size / CELL);
   const animals: Animals = {
     kind: new Uint8Array(MAX_ANIMALS),
@@ -189,7 +189,7 @@ export function createAnimals(map: TileMap, villagers: number): Animals {
   for (let tile = 0; tile < tiles; tile++) if (map.kinds[tile] !== TileKind.Water) land++;
   let rows = 0;
   for (let kind = 0; kind < ANIMAL_KINDS; kind++) {
-    const wanted = Math.min(Math.floor(land / ANIMALS[kind as AnimalKind].perLandTiles), MAX_ANIMALS - rows);
+    const wanted = wild ? Math.min(Math.floor(land / ANIMALS[kind as AnimalKind].perLandTiles), MAX_ANIMALS - rows) : 0;
     animals.wanted[kind] = wanted;
     rows += wanted;
     for (let n = 0; n < wanted; n++) {

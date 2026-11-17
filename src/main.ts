@@ -31,7 +31,7 @@ document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
-const population = populationFor(params.get('swarm'), params.get('food'));
+const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'));
 const look = await loadShapes();
 const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
