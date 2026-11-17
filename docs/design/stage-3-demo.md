@@ -67,7 +67,7 @@ The clip runs on day 2 from 05:03 to 19:00. Elsi is selected, and her panel read
 
 The `Barn` tool on `B` places a barn, and the settlers build it. A finished barn holds 120 food. Foragers carry each unit to the store nearest the tree, the camp or a barn, that has room. Settlers without a job carry food that lies on the ground to the nearest store with room. Food that nobody carries is gone at the second dawn after it was put down. A household with a house fetches its food from the store nearest its house. The top-left panel reads `Barn and camp food` and `Food in homes`. The barn's panel reads "Barn; A finished barn. Food in it keeps.; Food: 0 of 120" when it is finished, by the `storing` scenario's check. (#29)
 
-The clip runs on day 4 from 03:26 to 06:30 and follows Merek, a forager whose household has a house. At 03:42 his panel reads `Carrying food home` and `Carries 1 food`. By 03:46 `Food in homes` has gone from 4 to 6, and `Barn and camp food` from 17 to 15. He then walks to a tree and forages, and from 06:17 his panel reads `Carrying food to a barn`. `Barn and camp food` climbs back to 17 by 05:56. The screenshots show the ground beside the camp at day 3 12:00 and day 4 12:00, on a page where four huts take all 8 settlers, so nobody carries food from the ground. Small sacks lie left and right of the camp on day 3 and are gone on day 4.
+The clip runs on day 4 from 03:26 to 06:30 and follows Merek, a forager whose household has a house. At 03:42 his panel reads `Carrying food home` and `Carries 1 food`. By 03:46 `Food in homes` has gone from 4 to 6, and `Barn and camp food` from 17 to 15. He then walks to a tree and forages. His panel reads `Foraging` at 06:02, and at 06:05 it reads `Carrying food to a barn` and `Carries 1 food`. `Barn and camp food` climbs back to 17 by 05:56. The screenshots show the ground beside the camp at day 3 12:00 and day 4 12:00, on a page where four huts take all 8 settlers, so nobody carries food from the ground. Small sacks lie left and right of the camp on day 3 and are gone on day 4.
 
 ![A housed settler fetches food at dawn and forages for the barn](https://raw.githubusercontent.com/ramtinJ95/survive-n-conquest/pr-media/stage-3/pr-29-storing-barn-to-house.gif)
 
@@ -95,7 +95,7 @@ The deer clip runs at 1× on day 2 from 05:48 to 06:16. A deer walks toward the 
 
 ## What the stage measured
 
-Every number below is taken from the pull request named beside it. Nothing was measured again for this summary.
+Every number below is taken from the pull request named beside it, with one exception. The year with a hut and no barn at 25 and 30 seconds of foraging comes from 3.5's report to the orchestrator, as its section says. Nothing was measured again for this summary.
 
 ### Seed 7 with no orders
 
@@ -234,7 +234,14 @@ These are measurements only. Each run used a copy of `src` with the work time of
 | 25 s | 84 | 14 | 108 | 96 | 41 / 17 |
 | 30 s | 73 | 14 | 97 | 85 | 30 / 6 |
 
-#29 measured no year at 25 or 30 seconds, and no pull request measured the year with no barn at 25 or 30 seconds.
+#29's body holds no year at 25 or 30 seconds.
+
+The year with a hut and no barn at 25 and 30 seconds is not in any pull request. The worker of 3.5 measured it and gave it in its report to the orchestrator, and it was not checked again for this summary. Each run used a copy of `src` with the work time rewritten, driven by `scripts/barn-year.ts`, and no game code changed. Nobody dies inside the 12 days in either run. With 30 seconds the stores are empty at the last dusk and every settler has missed at least one meal. It is the only measured year of the stage that turns tight. The 20 second run is #27's year above. (3.5's report)
+
+| Run | Work for one unit | Picked | Missed meals | Camp at each dusk, days 1 to 12 |
+| --- | --- | --- | --- | --- |
+| #27's year, no barn | 25 s | 70 | Fenna and Dorran, day 12 | 28 27 26 28 29 29 29 29 29 22 14 6 |
+| #27's year, no barn | 30 s | 62 | Jorrin and Merek day 11; all 8 on day 12 | 26 26 24 26 26 26 24 23 22 14 6 0 |
 
 ### How much of a deer reaches a store
 
@@ -354,7 +361,7 @@ No decision in `docs/design.md` changed. These choices filled gaps the brief lef
 
 The recommendations below are the orchestrator's. The owner has not agreed to any of them.
 
-- **The work time of foraging.** The game uses 20 seconds. The owner said it will go to 25 or 30. With a hut, a barn, and a lodge the barn ends the year with 108, 96, and 85 food at 20, 25, and 30 seconds, and the barn alone without a lodge ends at 30, 17, and 6. (#30) The orchestrator recommends 30 seconds, and notes that by #30's table it is not enough alone to make the year tight.
+- **The work time of foraging.** The game uses 20 seconds. The owner said it will go to 25 or 30. With a hut, a barn, and a lodge the barn ends the year with 108, 96, and 85 food at 20, 25, and 30 seconds, and the barn alone without a lodge ends at 30, 17, and 6. (#30) With a hut alone, 25 seconds leaves 2 missed meals on day 12, and 30 seconds leaves all 8 settlers without a meal on day 12, by 3.5's report to the orchestrator. The orchestrator recommends 30 seconds, and notes that by #30's table it is not enough alone to make the year tight.
 - **How generous hunting is.** The levers are the food of a deer (6), the deer on the map (1 for every 1,500 land tiles, 38 on seed 7's 256 map), how fast they walk in (1 at each dawn), the lodge's reach (40 tiles), and the hit rate (2 in 3). With no hut, the hunters' 12 kills leave 72 food, which with the camp's 24 feeds all 8 for the year and leaves the barn empty. (#30) The orchestrator recommends that the owner plays a year before choosing, because the tables say the year is too easy but not which lever feels right.
 - **A settler with a missed meal eats first.** The orchestrator proposed this rule, and the owner has not answered. A settler with a missed meal goes to eat before any other work, and eats on arrival at any hour if the store has food. It would end deaths from distance while a store has food. On the benchmark's 512 map the villagers that never got home number 13 after 3.3, as #27 corrected it, 21 after 3.4, 24 after 3.5, and 35 after 3.6. (#27, #29, #30) A summer night is about 135 tiles of walking. (#26) None of the 8 settlers on seed 7 falls under it in the measured years. (#26, #27)
 - **Settlers without a job keep the camp stocked.** #29 added this rule, and the brief does not have it. Settlers without a job carry food from the nearest barn to the camp until the camp holds one day of meals for the households that eat there. #29 first kept three days, which pulled the barn's food back to the camp from day 2. Without the rule the households at the camp miss meals beside a full barn. In the year with the barn beside the hut, 62 units went from the barn to the camp. (#29)
