@@ -2703,19 +2703,20 @@ SCENARIOS.hunger = async (session) => {
 
 /**
  * The eating scenario. On seed 7 the camp opens empty, with `?food=0`, and the player gives #27's first-year orders at
- * once: the forager's hut on (136, 127) and a Chop on each of its four log trees, from the view of `foraging`. The hut
- * stands by midday, its two foragers bring food in that afternoon and put it down at dusk, so 6 settlers miss their
- * first meal. On day 2 the foragers' units reach the camp in the morning. In `src/sim` runs of these orders at 08:00,
- * Ulvar, idle 5.4 tiles from the camp center, sets out to eat at 08:39 and eats at 08:58. On `main`, which has no
- * eat-first rule, he stays hungry until his meal at the dusk of day 2. The orders of a page land a few minutes later
- * than 08:00, so the page's hungry settlers differ, and the scenario selects the first hungry one a click finds.
- * `EATING_SETTLER` and `EATING_PAIR_TIME` in the environment select a settler by name and move the stop of the pair,
- * so a run on an older build reads the same settler at the same time.
+ * 08:12 on day 1: the forager's hut on (136, 127) and a Chop on each of its four log trees, from the view of `foraging`.
+ * The hut stands by midday, its two foragers bring food in that afternoon and put it down at dusk, so 6 settlers miss
+ * their first meal. On day 2 the foragers' units reach the camp in the morning. Which settlers go hungry depends on the
+ * minute the orders land, and a page reaches its first pause anywhere from 08:06 to 08:09 as it loads, so the scenario
+ * runs the clock to 08:12 before it gives them. A run on `main` then makes the same settlers hungry as a run on this
+ * build. The scenario selects the first hungry settler a click finds. `EATING_SETTLER` and `EATING_PAIR_TIME` in the
+ * environment select a settler by name and move the stop of the pair, so a run on an older build reads the same
+ * settler at the same time.
  */
 const EATING_SEARCH = '?seed=7&food=0';
 /** The settler to select, by name. Left out, the scenario selects the first hungry settler a click finds. */
 const EATING_SETTLER = process.env.EATING_SETTLER ?? null;
 const EATING_STOPS = {
+  orders: { day: 1, time: '08:12' },
   look: [{ day: 2, time: '07:30' }, { day: 2, time: '08:00' }, { day: 2, time: '08:30' }],
   last: { day: 2, time: '15:00' },
   pair: { day: 2, time: process.env.EATING_PAIR_TIME ?? '15:30' },
@@ -2734,6 +2735,7 @@ SCENARIOS.eating = async (session) => {
   const play = await session.open(CLIP, { record: true, search: EATING_SEARCH, clock: 'paused' });
   const { page } = play;
   await takeForageView(session, page);
+  await session.reach(page, EATING_STOPS.orders);
   const opening = await food(page);
   session.check('the camp opens with no food', opening.camp === 0, `at ${await at(page)} the Stockpiles panel reads ${opening.camp} food at the camp`);
   await page.keyboard.press('KeyC');

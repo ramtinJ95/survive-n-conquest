@@ -11,8 +11,8 @@ A settler that missed a meal eats before any other work. On its next look for wo
 ## How to get to it (user POV)
 
 - Open the game at `?seed=7&food=0`, so the camp opens with no food.
-- Place a forager's hut east of the camp and Chop its four log trees, as `foraging` does, at once.
-- Run to the morning of day 2. Click Ulvar, who missed the meal of the first dusk, and run at 1× until the foragers bring food to the camp.
+- Run to 08:12 on day 1 and pause. Place a forager's hut east of the camp and Chop its four log trees, as `foraging` does.
+- Run to the morning of day 2. Click a settler whose panel reads `1, hungry`, and run at 1× until the foragers bring food to the camp.
 
 ## Driving it with verify.mjs
 
@@ -20,14 +20,14 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run eating`, which runs doctor itself.
 
-- **Give the orders.** The page opens at 960 by 540 on `?seed=7&food=0`, recorded, with `clock: 'paused'`, and takes the view of `foraging`. `the camp opens with no food` reads the Stockpiles panel. The Chop tool clicks the four log trees and the Forager's hut tool places the hut, and `the player's orders place the hut site` counts its label.
-- **Find the hungry settler.** `reach` stops at 06:30, 07:00, 07:30, and 08:00 on day 2, and at each stop the scenario clicks the fullest cells of tunic pixels until Ulvar's panel opens. `Ulvar missed the meal of the first dusk and reads hungry` needs `1, hungry`. It takes `eating-hungry.png`.
-- **Watch the walk.** From there `reach` stops every 3 game minutes until 13:00 and reads the panel at each paused stop. `with food at the camp by day, Ulvar walks there to eat` needs `Walking to the camp to eat` with food at the camp, and takes `eating-walking.png`. `Ulvar eats at the camp by day, which clears the missed meal` needs `None` before 18:00, and takes `eating-fed.png`. `the panel keeps its width while the settler walks to eat` compares the panel's width at the three stops.
-- **Compare with main.** At 09:30 on day 2 `Ulvar's panel reads no missed meal` and the scenario takes `eating-pair.png`. Run the same scenario in a checkout of an older build to take its side of the pair: there the two checks of the walk fail, and the panel at 09:30 reads `1, hungry`.
+- **Give the orders.** The page opens at 960 by 540 on `?seed=7&food=0`, recorded, with `clock: 'paused'`, and takes the view of `foraging`. `reach` runs the clock to 08:12 on day 1, so the orders land at the same minute in every run. `the camp opens with no food` reads the Stockpiles panel. The Chop tool clicks the four log trees and the Forager's hut tool places the hut, and `the player's orders place the hut site` counts its label.
+- **Find the hungry settler.** `reach` stops at 07:30, 08:00, and 08:30 on day 2, and at each stop the scenario clicks the fullest cells of tunic pixels until the panel of a settler that reads `1, hungry` opens, or of `EATING_SETTLER` when it is set. `<name> missed the meal of the first dusk and reads hungry` needs `1, hungry`. It takes `eating-hungry.png`.
+- **Watch the walk.** From there `reach` stops every 3 game minutes until 15:00 and reads the panel at each paused stop. `with food at the camp by day, <name> walks there to eat` needs `Walking to the camp to eat` with food at the camp, and takes `eating-walking.png`. `<name> eats at the camp by day, which clears the missed meal` needs `None` before 18:00, and takes `eating-fed.png`. `the panel keeps its width while the settler walks to eat` compares the panel's width at the three stops.
+- **Compare with main.** At 15:30 on day 2 `<name>'s panel reads no missed meal` and the scenario takes `eating-pair.png`. Copy this `verify.mjs` into a checkout of an older build and run it there with `EATING_SETTLER=<name>` to take its side of the pair: there the two checks of the walk fail, and the panel at 15:30 reads `1, hungry`.
 - **Proof.** `eating-walk-to-eat.gif` runs from just before the walk to just after the meal, cropped to the camp, the hut, and the panel. The evidence folder holds it, the screenshots, and `result.json` with every check, including `no page errors`.
 
 ## Gotchas
 
-- The orders land at the paused tick a few game minutes after 08:00, so who sets out first and when can move by a few minutes from run to run. The scenario finds Ulvar by his panel's title and reads his panel at every stop, so no check waits on a fixed tick.
+- A page reaches its first pause between 08:06 and 08:09 on day 1 as it loads, and the orders at 08:06 make other settlers hungry than the orders at 08:08. The scenario gives the orders at 08:12 for that reason. `reach` can still stop a tick or two apart from run to run, so the scenario finds its settler by the panel's title and reads the panel at every stop, and no check waits on a fixed tick.
 - A settler eats on the tick it arrives, so the panel almost never reads `Eating`. The scenario reads `None` under `Missed meals` instead.
-- The foragers bring in about 1 unit for every 2 game hours each while they are hungry themselves, and 6 settlers wait for a meal on day 2, so a settler other than Ulvar can take the first units.
+- The foragers bring in about 1 unit for every 2 game hours each while they are hungry themselves, and 6 settlers wait for a meal on day 2, so another hungry settler can take the first units.
