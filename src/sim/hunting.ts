@@ -157,11 +157,13 @@ function shoot(sim: Sim, id: number, deer: number): void {
   const { food } = ANIMALS[animals.kind[deer] as AnimalKind];
   removeAnimal(animals, deer);
   sim.tally.kills += 1;
-  if (!putDown(sim, tile, Good.Food, food)) return;
-  sim.tally.hunted += food;
-  hunting.kill[id] = tile;
-  hunting.killReach[id] = sim.putDownSearch.reach;
-  // The hide goes down after the food, so it lands on the nearest tile the food left and never moves the food.
+  if (putDown(sim, tile, Good.Food, food)) {
+    sim.tally.hunted += food;
+    hunting.kill[id] = tile;
+    hunting.killReach[id] = sim.putDownSearch.reach;
+  }
+  // The hide goes down after the food, so it lands on the nearest tile the food left and never moves the food. A
+  // stockpile takes a hide and no food, so the hide can land where the food found no room.
   if (putDown(sim, tile, Good.Hide, HIDES_PER_KILL)) sim.tally.hides += HIDES_PER_KILL;
 }
 

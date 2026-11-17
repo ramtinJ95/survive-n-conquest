@@ -107,6 +107,21 @@ describe('a hide', () => {
     expect([sim.map.stackGood[at(sim.map, 29, 30)], sim.map.stackSize[at(sim.map, 29, 30)]]).toEqual([Good.Hide, 1]);
   });
 
+  it('lands on a stockpile when the land a walk from the kill reaches has room for no food', () => {
+    const sim = createSim(openMap(38), { villagers: 1, monsters: 0 });
+    finished(sim, Building.Lodge, 4, 4);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: 37, y1: 37 } })).toMatchObject({ ok: true });
+    for (let tile = 0; tile < 38 * 38; tile++) {
+      if (sim.orders.claims[tile] === Claim.None && sim.map.stackSize[tile] === 0) putDown(sim, tile, Good.Stone, 8);
+    }
+    const deer = deerAt(sim, 30.5, 30.5);
+    nextShotHits(sim);
+    runUntil(sim, () => sim.animals.state[deer] === AnimalState.Gone, 600);
+    expect([sim.tally.kills, sim.tally.hunted, sim.tally.hides, onGround(sim, Good.Food), onGround(sim, Good.Hide)]).toEqual([1, 0, 1, 0, 1]);
+    expect([sim.map.stackGood[at(sim.map, 30, 30)], sim.orders.claims[at(sim.map, 30, 30)]]).toEqual([Good.Hide, Claim.Stockpile]);
+    expect(sim.hunting.kill[0]).toBe(-1);
+  });
+
   it('leaves the hunter carrying only its kill food, and with no stockpile nobody takes the hide', () => {
     const sim = createSim(openMap(38), { villagers: 1, monsters: 0 });
     finished(sim, Building.Lodge, 4, 4);
