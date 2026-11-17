@@ -135,6 +135,8 @@ describe("a settler's panel", () => {
         workplaces: Int16Array.of(-1),
         hired: Uint32Array.of(0),
         missedMeals: Uint8Array.of(0),
+        coldNights: Uint8Array.of(0),
+        stockGoods: Uint8Array.of(carried),
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
@@ -163,6 +165,7 @@ describe("a settler's panel", () => {
         { label: 'Household', value: 'Household 1' },
         { label: 'Home', value: 'None, sleeps at the camp' },
         { label: 'Missed meals', value: 'None' },
+        { label: 'Cold nights', value: 'None' },
       ],
     });
     expect(panel(VillagerState.Working, task(SUPPLYING), Good.Stone).rows[1]).toEqual({ label: 'Carries', value: '1 stone' });
@@ -178,9 +181,9 @@ describe("a settler's panel", () => {
     const rows = (id: number) => Object.fromEntries(panel(id).rows.slice(2).map(({ label, value }) => [label, value]));
 
     expect(panel(0).title).toBe('Merek');
-    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
+    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
     expect(panel(1).title).toBe('Elsi');
-    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None' });
+    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
     expect(rows(2)).toMatchObject({ Sex: 'Man', Household: `Household 2, with ${panel(3).title}` });
 
     while (sim.orders.sites.state[0] !== SiteState.Built) step(sim);
@@ -474,6 +477,8 @@ function siteFacts() {
     workplaces: new Int16Array(tasks.length).fill(-1),
     hired: new Uint32Array(tasks.length),
     missedMeals: new Uint8Array(tasks.length),
+    coldNights: new Uint8Array(tasks.length),
+    stockGoods: new Uint8Array(tasks.length),
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
@@ -699,6 +704,7 @@ describe('a building panel', () => {
       rows: [
         { label: 'Household', value: 'Nobody' },
         { label: 'Food', value: '7 of 16' },
+        { label: 'Firewood', value: '0 of 6' },
       ],
     });
   });
@@ -736,6 +742,7 @@ describe('a building panel', () => {
       rows: [
         { label: 'Settlers here', value: '3' },
         { label: 'Food', value: '24 of 40' },
+        { label: 'Firewood', value: '0 of 12' },
       ],
     });
   });

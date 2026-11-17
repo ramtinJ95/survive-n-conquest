@@ -5,11 +5,12 @@ import { Building } from '../sim/buildings';
 import { Good } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
+import { HUNGER } from '../sim/needs';
+import { die } from '../sim/villagers';
 import { createOrders } from '../sim/orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { CAMP_STORE } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
-import { die } from '../sim/villagers';
 import { LINE_MS, createNews, listNames } from './news';
 
 /** Runs a simulation, hearing a frame after every tick at 100 ms of wall time apiece, and keeps every line the news ever showed in its last words. */
@@ -63,6 +64,7 @@ describe('the settlement news', () => {
       tick,
       states: new Uint8Array(missedMeals.length),
       missedMeals: Uint8Array.from(missedMeals),
+      coldNights: new Uint8Array(missedMeals.length),
       names: Uint16Array.from(missedMeals, (_, id) => id),
       sexes: new Uint8Array(missedMeals.length),
       workplaces: new Int16Array(missedMeals.length).fill(-1),
@@ -97,6 +99,7 @@ describe('the settlement news', () => {
         events.push(workers());
       } else if (sim.tick === 2000) {
         const [dead] = workers();
+        sim.villagers.missedMeals[dead!] = HUNGER.diesAt;
         die(sim, dead!);
         events.push([dead!, ...workers()]);
       }
