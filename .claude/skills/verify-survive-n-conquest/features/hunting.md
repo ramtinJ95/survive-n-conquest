@@ -52,4 +52,5 @@ Preconditions:
 - A hunter may miss. After a miss its panel reads `Looking for deer` for a moment and `Stalking a deer` again, usually after the same deer. The check needs the phases in order, not one aim.
 - Settlers without a job carry the kill's food too, and so does the other hunter's kill. The barn can rise by more than the followed hunter's unit.
 - The dusk of day 2 falls at 19:12. A hunt that has not delivered its first unit by `HUNT_UNTIL`, 19:05, fails the scenario, because at dusk the hunter puts the unit down where it stands.
+- On rj-firebat, at build 464bf3f, `hunting-deer-runs.gif` took 3.7 MB for 25 s and `hunting-hunt.gif` 2.8 MB for 26 s, and a run of the scenario took about 6 minutes. The hunt clip went over the 4 MB of the demo set without `speed: 1.5`, at 4.2 MB with every frame.
 - The page never reaches the second dawn after a kill, when food left on the ground is gone, nor a winter. `src/sim/hunting.test.ts` covers the dusk, and deer stay through the winter.
