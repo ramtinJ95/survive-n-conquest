@@ -91,3 +91,37 @@ export function barnYearCommands(barn: { readonly x: number; readonly y: number 
       : []),
   ];
 }
+
+/**
+ * The hunter's lodge of the first year with a hut, a barn, and a lodge, beside
+ * the camp to its south west, its middle 3.5 tiles from the camp center. Of
+ * the anchors within 14 tiles of the camp center that the rules accept beside
+ * the hut and the barn of `barnYearCommands`, the most hold 4,613 tiles of
+ * grass and forest within the lodge's 40, and this is the one of them nearest
+ * the camp center, then the lowest tile. `scripts/hunt-year.ts` ranks them.
+ */
+export const FIRST_YEAR_LODGE = { x: 124, y: 129 } as const;
+/** The four trees nearest the camp after the hut's four and the barn's eight, whose 8 logs build the lodge. */
+export const FIRST_YEAR_LODGE_TREES: readonly (readonly [number, number])[] = [
+  [140, 132],
+  [141, 125],
+  [138, 118],
+  [141, 130],
+];
+/** The rock tile nearest the camp after the barn's, whose 8 stone hold the lodge's 4. */
+export const FIRST_YEAR_LODGE_ROCK = [121, 114] as const;
+
+/**
+ * The commands of the first year with a barn beside the hut and a hunter's
+ * lodge beside the camp, and the orders for the lodge's goods. Without `hut`,
+ * the same commands but the hut's place command, so its four trees are still felled.
+ */
+export function huntYearCommands({ hut }: { readonly hut: boolean }): Command[] {
+  const commands = [
+    ...barnYearCommands(FIRST_YEAR_BARNS.beside),
+    { kind: 'place', building: Building.Lodge, x: FIRST_YEAR_LODGE.x, y: FIRST_YEAR_LODGE.y },
+    ...FIRST_YEAR_LODGE_TREES.map((at): Command => ({ kind: 'markArea', order: 'chop', area: tile(at) })),
+    { kind: 'markArea', order: 'quarry', area: tile(FIRST_YEAR_LODGE_ROCK) },
+  ] satisfies Command[];
+  return hut ? commands : commands.filter((command) => !(command.kind === 'place' && command.building === Building.Hut));
+}
