@@ -4367,6 +4367,354 @@ SCENARIOS.hunting = async (session) => {
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
+/**
+ * The `firewood` scenario plays a woodshed on seed 7 through the page, with the camp's own 24 food and no other
+ * building, so every log of the five chopped trees goes to the shed: 6 build it and its woodcutter splits the other 4
+ * into 8 firewood. The woodshed goes on (136, 127), at the forest's edge east of the camp where the foraging scenario
+ * puts its hut, the stockpile on (131, 131) to (132, 132), 5 tiles south-west of the shed and in front of the camp, and
+ * the Chop clicks on the four trees of the foraging scenario and on (139, 130). The view is the foraging clip's, 23 m
+ * looking east from the camp, so the woodcutter's walk from the stockpile to the shed's door on (135, 128) crosses open
+ * ground in front of the shed. `scripts/aim.ts` found the spots: `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7
+ * '{"wheel":-1100,"turn":{"x":424,"y":20},"target":[132.5,126.5]}'
+ * '[[136,127],[137,129],[138,130],[134,131],[135,134],[139,130],[131,131],[132,132],[135,128],[136.5,127.5,1.0],[136.5,127.5,0.5],[131.5,131.5,0.01]]'`,
+ * with the roof spots 1.0 m and 0.5 m over the shed's middle and the stockpile's middle just over the ground. In
+ * `src/sim` runs with the orders 5 to 90 ticks after the start, the shed stood at 11:48 to 12:34, its woodcutter walked
+ * 14 to 27 game minutes to the stockpile, carried the log for 14 to 15 and split it for 48, and it stopped with 8
+ * firewood and no log left at 17:23 to 18:07, before the dusk at 19:12.
+ */
+const FIREWOOD_SEARCH = '?seed=7';
+const FIREWOOD_SPOTS = {
+  shed: { x: 505, y: 189 },
+  roof: [{ x: 519, y: 159 }, { x: 518, y: 169 }],
+  trees: [{ x: 555, y: 170 }, { x: 578, y: 152 }, { x: 615, y: 221 }, { x: 688, y: 211 }, { x: 575, y: 135 }],
+  stockpile: [{ x: 626, y: 290 }, { x: 651, y: 267 }],
+  stockpileMiddle: { x: 638, y: 278 },
+  door: { x: 532, y: 205 },
+};
+/** A felled tree gives 2 logs, the shed takes 6, and a split log gives 2 firewood. */
+const FIREWOOD_LOGS = { perTree: 2, shed: 6, firewoodPerLog: 2 };
+const FIREWOOD_FINISHED = { after: { day: 1, time: '11:00' }, before: { day: 1, time: '13:30' } };
+/** The follow starts with a walk to the stockpile by then. */
+const FIREWOOD_FOLLOW_BY = { day: 1, time: '16:00' };
+/** At the dusk of day 1, 19:12, the woodcutter walks to the camp, and its panel and the shed's say so instead. */
+const FIREWOOD_UNTIL = { day: 1, time: '19:05' };
+/**
+ * The most pixels the woodcutter's ring stands from the stockpile's middle when it starts to carry the log, its 4 tiles
+ * about 25 pixels from the middle and the walk of the few game minutes the pause takes about 30 more, and from the
+ * shed's door, a tile about 25 to 30 pixels across, while it splits.
+ */
+const FIREWOOD_AT = { stockpile: 70, door: 45 };
+/**
+ * The search for the woodcutter: at most `clicks` clicks on one paused frame, none within `besidePx` of a click that
+ * opened another settler, and `tries` more frames 3 game minutes apart. The shed's builders stand at its corners when
+ * it is finished, and a woodcutter that starts from a far corner walks behind the shed, out of sight from this view.
+ * On rj-firebat one stayed hidden from 12:06 to 12:21 and came out past the shed at 12:24.
+ */
+const FIREWOOD_SEEK = { tries: 10, clicks: 16, besidePx: 20 };
+const FIREWOOD_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, colors: 32, decimate: true };
+const FETCHING_LOG = 'Walking to a stockpile for a log';
+const CARRYING_LOG = 'Carrying a log to the woodshed';
+const SPLITTING_LOG = 'Splitting a log';
+const NO_LOG = 'Idle, no log in a stockpile within 30 tiles of the woodshed';
+const WOODCUTTER_DOING = new RegExp(
+  `^(${[FETCHING_LOG, CARRYING_LOG, 'Walking to the woodshed to split a log', SPLITTING_LOG, 'Looking for a log', NO_LOG, 'Idle, the woodshed is full', 'Idle, the building sites need the logs'].join('|')})$`,
+);
+const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', 'Cancel'];
+
+SCENARIOS.firewood = async (session) => {
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunicPixels, markOf, click, apart } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+  const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
+  const stockpiles = async (page) =>
+    page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { logs: Number(rows.Logs), firewood: Number(rows['Woodshed firewood']), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+    });
+  const firewoodOf = (read) => Number(/^(\d+) of 40$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
+
+  const play = await session.open(CLIP, { record: true, search: FIREWOOD_SEARCH, clock: 'paused' });
+  const { page } = play;
+  const away = async () => {
+    const toolbar = await page.getByRole('toolbar', { name: 'Orders' }).boundingBox();
+    await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + 2);
+  };
+  const clickShed = async () => {
+    let read = null;
+    for (const spot of FIREWOOD_SPOTS.roof) {
+      read = await click(page, spot);
+      if (read?.title === 'Woodshed') break;
+    }
+    return read;
+  };
+  // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels instead,
+  // and pass over the cells beside a click that opened another settler, whose tunic fills several of them.
+  const opened = [];
+  const clickWoodcutter = async (shot) => {
+    const png = await session.screenshot(page, shot);
+    const boxes = skipOf(await uiBoxes(page));
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    const others = [];
+    let clicks = 0;
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count)) {
+      const aim = { x: cell.x / cell.count, y: cell.y / cell.count };
+      if (others.some((spot) => Math.hypot(spot.x - aim.x, spot.y - aim.y) < FIREWOOD_SEEK.besidePx)) continue;
+      if (clicks++ >= FIREWOOD_SEEK.clicks) break;
+      const read = await click(page, aim);
+      if (read?.rows?.Job === 'Woodcutter') return read;
+      if (read?.rows?.Job) others.push(aim);
+      opened.push(read?.title || 'nothing');
+    }
+    opened.push(`at ${await at(page)}`);
+    return null;
+  };
+
+  await takeForageView(session, page);
+  const opening = await stockpiles(page);
+  session.check(
+    'a new game opens with no woodshed firewood and all 8 settlers without a job',
+    opening.firewood === 0 && opening.withJob === 0 && opening.withoutJob === 8,
+    `at ${await at(page)} the Stockpiles panel reads ${opening.firewood} woodshed firewood, ${opening.withJob} settlers with a job and ${opening.withoutJob} with none`,
+  );
+  await page.keyboard.press('KeyC');
+  const chopped = [];
+  for (const spot of FIREWOOD_SPOTS.trees) {
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    chopped.push(await said(page, /^1 tree marked for felling/));
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await said(page, /Drag over trees/);
+  }
+  session.check(
+    `a Chop click on each of the ${FIREWOOD_SPOTS.trees.length} trees marks one tree`,
+    chopped.every((line) => /^1 tree marked for felling/.test(line)),
+    chopped.map((line) => `"${line}"`).join(', '),
+  );
+  await away();
+  await page.keyboard.press('KeyP');
+  await session.drag(page, ...FIREWOOD_SPOTS.stockpile);
+  const piled = await said(page, /tiles? joins? the stockpile zone/);
+  session.check('a Stockpile drag adds the 4 tiles in front of the camp', /^4 tiles join the stockpile zone/.test(piled), `the status line reads "${piled}"`);
+  await away();
+  await page.keyboard.press('KeyK');
+  const shedTool = page.getByRole('button', { name: 'Woodshed', exact: true, pressed: true });
+  const toolPressed = await shedTool.count();
+  const face = toolPressed === 1 ? await shedTool.locator('.order-tool-label').textContent() : null;
+  const hint = await said(page, /woodshed on 2 by 2 tiles/);
+  await page.mouse.move(FIREWOOD_SPOTS.shed.x, FIREWOOD_SPOTS.shed.y, { steps: 3 });
+  const fits = await said(page, /Click to place the woodshed site here/);
+  await page.mouse.down();
+  await page.mouse.up();
+  const placed = await said(page, /^Woodshed site placed/);
+  session.check(
+    'K picks the Woodshed tool, whose button reads Shed, which places a woodshed site with a click',
+    toolPressed === 1 && face === 'Shed' && /woodshed on 2 by 2 tiles/.test(hint) && /Click to place the woodshed site here/.test(fits) && /^Woodshed site placed/.test(placed),
+    `${toolPressed ? `the tool is pressed and its button reads "${face}"` : 'no tool is pressed'}; the status line read "${hint}", then "${fits}", then "${placed}"`,
+  );
+  await page.keyboard.press('Escape');
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const label = page.getByRole('status', { name: 'Woodshed site' });
+  const siteLabel = (await label.count()) === 1 ? (await label.innerText()).replace(/\s+/g, ' ') : null;
+  session.check(
+    "the woodshed site's label reads 0 of 6 logs, no stone, and waits for materials",
+    siteLabel !== null && /Logs\s*0\/6/.test(siteLabel) && !/Stone/.test(siteLabel) && /Waiting for materials/.test(siteLabel),
+    `the label reads "${siteLabel ?? 'nothing'}"`,
+  );
+  await session.screenshot(page, 'firewood-site');
+
+  await page.keyboard.press('4');
+  const deadline = Date.now() + 240_000;
+  while ((await label.count()) > 0) {
+    if (Date.now() > deadline) fail('the woodshed site still stood four minutes after the orders at 8×');
+    await page.waitForTimeout(100);
+  }
+  const finished = await session.gameMinutes(page);
+  await session.pause(page);
+  await session.still(page);
+  session.check(
+    `the woodshed is finished on day 1 between ${FIREWOOD_FINISHED.after.time} and ${FIREWOOD_FINISHED.before.time}`,
+    finished >= clockMinutes(FIREWOOD_FINISHED.after) && finished <= clockMinutes(FIREWOOD_FINISHED.before),
+    `the label was gone at ${clockText(finished)}; paused at ${await at(page)}`,
+  );
+  const shed = await clickShed();
+  const name = shed?.rows?.Woodcutter;
+  session.check(
+    `at ${await at(page)} the woodshed's panel says what it does, names its woodcutter with its one place filled, and reads its firewood and what the woodcutter does`,
+    shed?.title === 'Woodshed' &&
+      /carries logs from the stockpiles within 30 tiles and splits each into 2 firewood/.test(shed.note ?? '') &&
+      Boolean(name) && name !== 'Nobody' && !name.includes(' and ') &&
+      shed.rows.Places === '1 of 1' && /^\d+ of 40$/.test(shed.rows.Firewood ?? '') && WOODCUTTER_DOING.test(shed.rows.Doing ?? ''),
+    `the panel reads "${text(shed)}"`,
+  );
+  await session.screenshot(page, 'firewood-shed-panel');
+  const hired = { totals: await stockpiles(page), news: await lines(page) };
+  session.check(
+    'the Stockpiles panel counts 1 settler with a job and 7 with none, and the news names the woodcutter',
+    hired.totals.withJob === 1 && hired.totals.withoutJob === 7 && Boolean(name) && hired.news.some((line) => line.endsWith(`${name} became a woodcutter.`)),
+    `${hired.totals.withJob} with a job and ${hired.totals.withoutJob} with none; the news reads ${hired.news.map((line) => `"${line}"`).join(', ') || 'nothing'}`,
+  );
+  await page.keyboard.press('Escape');
+  await session.still(page);
+
+  let woodcutter = await clickWoodcutter('firewood-woodcutter-aim');
+  for (let tries = 0; !woodcutter && tries < FIREWOOD_SEEK.tries; tries++) {
+    await page.keyboard.press('Escape');
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + 3));
+    await session.still(page);
+    woodcutter = await clickWoodcutter('firewood-woodcutter-aim');
+  }
+  session.check(
+    `at ${await at(page)} the woodcutter's panel reads its job and what a woodcutter does`,
+    woodcutter?.rows?.Job === 'Woodcutter' && woodcutter.title === name && WOODCUTTER_DOING.test(woodcutter.rows.Doing ?? ''),
+    `the panel reads "${text(woodcutter)}"${opened.length ? `; the clicks before it opened ${opened.join(', ')}` : ''}`,
+  );
+  await session.screenshot(page, 'firewood-woodcutter-panel');
+
+  // Runs at 1× while the woodcutter walks and at 2× while it splits, until its panel reads something else or for at
+  // most `minutes`, and pauses there.
+  const runWhileDoing = async (doing, minutes) => {
+    const until = (await session.gameMinutes(page)) + minutes;
+    await page.keyboard.press(doing === SPLITTING_LOG ? '2' : '1');
+    for (;;) {
+      const read = await reads(page);
+      if (read?.title !== name || read.rows.Doing !== doing || (await session.gameMinutes(page)) >= until) break;
+      await page.waitForTimeout(60);
+    }
+    await session.pause(page);
+    await session.still(page);
+    return reads(page);
+  };
+  let read = woodcutter;
+  while (read?.title === name && read.rows.Doing !== FETCHING_LOG && (await session.gameMinutes(page)) < clockMinutes(FIREWOOD_FOLLOW_BY)) {
+    read = await runWhileDoing(read.rows.Doing, 120);
+  }
+  const followFrom = play.since();
+  const follow = [];
+  const ready = read?.rows?.Doing === FETCHING_LOG;
+  for (let stop = 0; ready && read?.title === name; stop++) {
+    const png = await session.screenshot(page, `firewood-follow-${String(stop).padStart(2, '0')}`);
+    const step = { at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries, firewood: (await stockpiles(page)).firewood, ring: markOf(page, png, await uiBoxes(page)).center };
+    follow.push(step);
+    const split = follow.some((seen) => seen.doing === SPLITTING_LOG);
+    if ((split && step.doing !== SPLITTING_LOG) || (await session.gameMinutes(page)) >= clockMinutes(FIREWOOD_UNTIL)) break;
+    read = await runWhileDoing(read.rows.Doing, 120);
+  }
+  const followTo = play.since();
+  const order = [FETCHING_LOG, CARRYING_LOG, SPLITTING_LOG];
+  const firsts = order.map((doing) => follow.findIndex((step) => step.doing === doing));
+  session.check(
+    `${name ?? 'the woodcutter'}'s panel follows one log at paused stops: walking to a stockpile for it, carrying it to the woodshed, and splitting it, in that order`,
+    firsts.every((index, place) => index >= 0 && (place === 0 || index > firsts[place - 1])) && follow.every((step) => WOODCUTTER_DOING.test(step.doing ?? '')),
+    follow.map((step) => `${step.at} "${step.doing}"`).join(', ') || `no stop; the panel read "${text(read)}"`,
+  );
+  const carrying = follow.filter((step) => step.doing === CARRYING_LOG);
+  const emptyHanded = follow.filter((step) => step.doing === FETCHING_LOG || step.doing === SPLITTING_LOG);
+  session.check(
+    'the woodcutter carries 1 log at a time, and nothing on its way to the stockpile or while it splits',
+    carrying.length > 0 && carrying.every((step) => step.carries === '1 log') && emptyHanded.every((step) => step.carries === 'Nothing'),
+    follow.map((step) => `${step.at} carries ${step.carries}`).join(', ') || 'no stop',
+  );
+  const lost = follow.filter((step) => !step.ring).map((step) => step.at);
+  session.check(
+    `the clip finds ${name ?? 'the woodcutter'}'s selection ring at every paused stop`,
+    follow.length > 0 && lost.length === 0,
+    `the ring shows at ${follow.length - lost.length} of ${follow.length} stops${lost.length ? `, hidden at ${lost.join(', ')}` : ''}`,
+  );
+  const pickUp = carrying[0];
+  const splitting = follow.find((step) => step.doing === SPLITTING_LOG);
+  const apartFrom = (step, spot) => (step?.ring ? Math.round(Math.hypot(step.ring.x - spot.x, step.ring.y - spot.y)) : null);
+  const fromPile = apartFrom(pickUp, FIREWOOD_SPOTS.stockpileMiddle);
+  const fromDoor = apartFrom(splitting, FIREWOOD_SPOTS.door);
+  session.check(
+    `${name ?? 'the woodcutter'} picks the log up at the stockpile and splits it at the woodshed's door`,
+    fromPile !== null && fromPile <= FIREWOOD_AT.stockpile && fromDoor !== null && fromDoor <= FIREWOOD_AT.door,
+    `at ${pickUp?.at ?? 'no carrying stop'} its ring is ${fromPile ?? 'not found'} px from the stockpile's middle, needs at most ${FIREWOOD_AT.stockpile}; ` +
+      `at ${splitting?.at ?? 'no splitting stop'} it is ${fromDoor ?? 'not found'} px from the door, needs at most ${FIREWOOD_AT.door}`,
+  );
+  const lastSplit = follow.findLast((step) => step.doing === SPLITTING_LOG);
+  const done = follow[follow.length - 1];
+  await page.keyboard.press('Escape');
+  await session.still(page);
+  const shedAfter = await clickShed();
+  session.check(
+    `when the split is done, at ${done?.at ?? 'no stop'}, the Woodshed firewood total and the shed's panel read 2 more firewood`,
+    Boolean(lastSplit) && done.doing !== SPLITTING_LOG && done.firewood === lastSplit.firewood + FIREWOOD_LOGS.firewoodPerLog && firewoodOf(shedAfter) === done.firewood,
+    `Woodshed firewood read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; the shed's panel then reads "${text(shedAfter)}"`,
+  );
+
+  await page.keyboard.press('4');
+  for (;;) {
+    const now = await reads(page);
+    if (now?.rows?.Doing === NO_LOG || (await session.gameMinutes(page)) >= clockMinutes(FIREWOOD_UNTIL)) break;
+    await page.waitForTimeout(100);
+  }
+  await session.pause(page);
+  await session.still(page);
+  const stopped = await reads(page);
+  const stoppedTotals = await stockpiles(page);
+  const split = FIREWOOD_LOGS.firewoodPerLog * (FIREWOOD_SPOTS.trees.length * FIREWOOD_LOGS.perTree - FIREWOOD_LOGS.shed);
+  session.check(
+    `at ${await at(page)}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, with every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood`,
+    stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && stopped.rows.Firewood === `${split} of 40` && stoppedTotals.logs === 0 && stoppedTotals.firewood === split,
+    `the panel reads "${text(stopped)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Woodshed firewood ${stoppedTotals.firewood}`,
+  );
+  await session.screenshot(page, 'firewood-shed-stopped');
+  const shedPanel = apart(await uiBoxes(page));
+  session.check("at 960x540 the woodshed's panel keeps clear of every other panel on the page", shedPanel.ok, shedPanel.detail);
+  const whole = await page.getByRole('region', { name: 'Selection' }).evaluate((node) => ({ shown: node.clientHeight, holds: node.scrollHeight }));
+  session.check("at 960x540 the woodshed's panel shows every one of its rows", whole.holds <= whole.shown, `the panel is ${whole.shown} px tall and its rows take ${whole.holds} px`);
+
+  await away();
+  await page.keyboard.press('KeyP');
+  await said(page, /Drag over open ground/);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const toolbar = page.getByRole('toolbar', { name: 'Orders' });
+  const boxes = {
+    stockpiles: await page.getByRole('status', { name: 'Stockpiles' }).boundingBox(),
+    clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
+    status: await page.getByRole('status', { name: 'Order' }).boundingBox(),
+    toolbar: await toolbar.boundingBox(),
+    hint: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+  };
+  const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= CLIP.width && box.y + box.height <= CLIP.height;
+  const tools = await toolbar.getByRole('button').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { name: node.getAttribute('aria-label'), box: { x, y, width, height } };
+    }),
+  );
+  const toolsApart = tools.every(({ box }, index) => tools.every((other, place) => place === index || disjoint(box, other.box)));
+  session.check(
+    `the toolbar holds its ${TOOLBAR_TOOLS.length} tools, the Woodshed among them, each inside the page and clear of the others and of the clock, at ${CLIP.width}x${CLIP.height}`,
+    tools.map((tool) => tool.name).join() === TOOLBAR_TOOLS.join() && tools.every(({ box }) => inside(box) && disjoint(box, boxes.clock)) && toolsApart,
+    `${tools.map(({ name: tool, box }) => `${tool} ${describe(box)}`).join('; ')}; clock ${describe(boxes.clock)}`,
+  );
+  const others = Object.entries(boxes).filter(([part]) => part !== 'stockpiles');
+  const firewoodShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Woodshed firewood', { exact: true }).isVisible();
+  session.check(
+    `the Stockpiles panel, with its Woodshed firewood row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
+    inside(boxes.stockpiles) && others.every(([, box]) => box && disjoint(boxes.stockpiles, box)) && firewoodShown,
+    `${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}; the Woodshed firewood row is ${firewoodShown ? 'shown' : 'missing'}`,
+  );
+  await session.screenshot(page, `firewood-${CLIP.width}x${CLIP.height}`);
+  await page.keyboard.press('Escape');
+
+  await session.finishClips(play.context, page, [{ label: 'firewood-split', from: followFrom, to: followTo, ...FIREWOOD_CLIP }]);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
+};
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
   if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);
