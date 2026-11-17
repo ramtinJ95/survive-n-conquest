@@ -29,10 +29,12 @@ export interface Hunting {
   readonly aimed: Uint16Array;
   /** The tile of each villager's last kill, whose food it carries in until none is left there, or -1. */
   readonly kill: Int32Array;
+  /** How far the food of each villager's kill spread from its tile, in tiles on either axis. */
+  readonly killReach: Uint16Array;
 }
 
 export function createHunting(villagers: number): Hunting {
-  return { prey: new Int16Array(villagers).fill(-1), aimed: new Uint16Array(villagers), kill: new Int32Array(villagers).fill(-1) };
+  return { prey: new Int16Array(villagers).fill(-1), aimed: new Uint16Array(villagers), kill: new Int32Array(villagers).fill(-1), killReach: new Uint16Array(villagers) };
 }
 
 /**
@@ -155,6 +157,7 @@ function shoot(sim: Sim, id: number, deer: number): void {
   if (!putDown(sim, tile, Good.Food, food)) return;
   sim.tally.hunted += food;
   hunting.kill[id] = tile;
+  hunting.killReach[id] = sim.putDownSearch.reach;
 }
 
 /**
@@ -180,16 +183,20 @@ function release(sim: Sim, id: number): void {
   hunting.aimed[id] = 0;
 }
 
-/** The loose unit of food on the kill's tile or on the eight tiles around it nearest a point, or -1. Equally near units go to the lowest tile. */
-function nearestKillFood(sim: Sim, kill: number, px: number, py: number): number {
+/**
+ * The loose unit of food nearest a point within `reach` tiles of the kill's
+ * tile on either axis, the square its food spread over, or -1. Equally near
+ * units go to the lowest tile.
+ */
+function nearestKillFood(sim: Sim, kill: number, reach: number, px: number, py: number): number {
   const { size } = sim.map;
   const loose = sim.goods.loose[Good.Food - 1]!;
   const kx = kill % size;
   const ky = (kill - kx) / size;
   let best = -1;
   let bestDistance = Infinity;
-  for (let y = Math.max(ky - 1, 0); y <= Math.min(ky + 1, size - 1); y++) {
-    for (let x = Math.max(kx - 1, 0); x <= Math.min(kx + 1, size - 1); x++) {
+  for (let y = Math.max(ky - reach, 0); y <= Math.min(ky + reach, size - 1); y++) {
+    for (let x = Math.max(kx - reach, 0); x <= Math.min(kx + reach, size - 1); x++) {
       const tile = y * size + x;
       if (loose.open[tile] !== 1) continue;
       const distance = (x + 0.5 - px) ** 2 + (y + 0.5 - py) ** 2;
@@ -215,7 +222,7 @@ function fetchKill(sim: Sim, id: number): boolean {
   if (held === Good.Food) return takeHeld(sim, id);
   const kill = hunting.kill[id]!;
   if (held !== Good.None || kill < 0) return false;
-  const source = nearestKillFood(sim, kill, villagers.x[id]!, villagers.y[id]!);
+  const source = nearestKillFood(sim, kill, hunting.killReach[id]!, villagers.x[id]!, villagers.y[id]!);
   if (source < 0) {
     hunting.kill[id] = -1;
     return false;

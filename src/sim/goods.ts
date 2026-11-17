@@ -71,10 +71,12 @@ export interface PutDownSearch {
   /** The search in which each tile was last reached. */
   readonly reached: Uint32Array;
   searches: number;
+  /** How far the last `putDown` that succeeded put a unit from its tile, in tiles on either axis. */
+  reach: number;
 }
 
 export function createPutDownSearch(tiles: number): PutDownSearch {
-  return { queue: new Int32Array(tiles), reached: new Uint32Array(tiles), searches: 0 };
+  return { queue: new Int32Array(tiles), reached: new Uint32Array(tiles), searches: 0, reach: 0 };
 }
 
 /**
@@ -149,7 +151,7 @@ export function pickUp(sim: Sim, tile: number): Good {
  * cannot take lands on the nearest tile that can, counted in steps of a walk
  * from `from`, so a walker there can reach every unit. When the land that walks
  * from `from` reach lacks room for all of them, nothing is put down and it
- * returns false.
+ * returns false. It records in `PutDownSearch.reach` how far the units spread.
  */
 export function putDown(sim: Sim, from: number, good: Good, units: number): boolean {
   const { map } = sim;
@@ -175,11 +177,16 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
   }
   if (found < units) return false;
 
+  const fromX = from % size;
+  const fromY = (from - fromX) / size;
+  let reach = 0;
   let left = units;
   for (let i = 0; left > 0; i++) {
     const tile = queue[i]!;
     const placed = Math.min(room(sim, tile, good), left);
     if (placed === 0) continue;
+    const x = tile % size;
+    reach = Math.max(reach, Math.abs(x - fromX), Math.abs((tile - x) / size - fromY));
     if (good === Good.Food && stackSize[tile] === 0) listFood(sim, tile);
     stackGood[tile] = good;
     stackSize[tile] = stackSize[tile]! + placed;
@@ -187,6 +194,7 @@ export function putDown(sim: Sim, from: number, good: Good, units: number): bool
     noteTileChange(sim, tile);
     refreshStack(sim, tile);
   }
+  sim.putDownSearch.reach = reach;
   return true;
 }
 

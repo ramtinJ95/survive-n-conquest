@@ -205,6 +205,19 @@ describe('a hunter', () => {
     runUntil(sim, () => sim.hunting.kill[hunter] === -1, 20);
   });
 
+  it('carries in every unit of a kill that spilled far, as from a deer killed inside a stockpile', () => {
+    const { sim } = lodge(1);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 22, y0: 22, x1: 26, y1: 26 } })).toMatchObject({ ok: true });
+    const deer = deerAt(sim, 24.5, 24.5);
+    setShot(sim, true);
+    runUntil(sim, () => sim.animals.state[deer] === AnimalState.Gone, 600);
+    expect(foodOnGround(sim)).toBe(6);
+    const campBefore = sim.stores.food[CAMP_STORE]!;
+    runUntil(sim, () => sim.hunting.kill[0] === -1, 1000);
+    expect([foodOnGround(sim), sim.villagers.carried[0], sim.tally.huntedIn]).toEqual([0, Good.None, 6]);
+    expect(sim.stores.food[CAMP_STORE]! - campBefore).toBe(6);
+  });
+
   it('shoots the same deer at the same ticks from the same seed and commands', () => {
     const play = () => {
       const sim = createSim(generateMap(7), SETTLERS);
