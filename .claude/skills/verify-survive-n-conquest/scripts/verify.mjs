@@ -4566,6 +4566,7 @@ const FIREWOOD_SPOTS = {
   stockpile: [{ x: 626, y: 290 }, { x: 651, y: 267 }],
   stockpileMiddle: { x: 638, y: 278 },
   door: { x: 532, y: 205 },
+  camp: [{ x: 513, y: 384 }, { x: 505, y: 386 }, { x: 521, y: 386 }, { x: 513, y: 392 }],
 };
 /** A felled tree gives 2 logs, the shed takes 6, and a split log gives 2 firewood. */
 const FIREWOOD_LOGS = { perTree: 2, shed: 6, firewoodPerLog: 2 };
@@ -4608,9 +4609,10 @@ SCENARIOS.firewood = async (session) => {
     page.getByRole('status', { name: 'Stockpiles' }).evaluate((node) => {
       const rows = {};
       for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
-      return { logs: Number(rows.Logs), firewood: Number(rows['Woodshed firewood']), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
+      return { logs: Number(rows.Logs), firewood: Number(rows['Shed and camp firewood']), withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
     });
   const firewoodOf = (read) => Number(/^(\d+) of 40$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
+  const campFirewoodOf = (read) => Number(/^(\d+) of 12$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
 
   const play = await session.open(CLIP, { record: true, search: FIREWOOD_SEARCH, clock: 'paused' });
   const { page } = play;
@@ -4624,6 +4626,17 @@ SCENARIOS.firewood = async (session) => {
       read = await click(page, spot);
       if (read?.title === 'Woodshed') break;
     }
+    return read;
+  };
+  // Settlers without a job carry firewood from the shed to the camp while the households sleep there, so the shed's
+  // firewood is read with the camp's. The shed is selected again after, because the runs that follow read its panel.
+  const readCamp = async () => {
+    let read = null;
+    for (const spot of FIREWOOD_SPOTS.camp) {
+      read = await click(page, spot);
+      if (read?.title === 'Camp') break;
+    }
+    await clickShed();
     return read;
   };
   // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels instead,
@@ -4657,9 +4670,9 @@ SCENARIOS.firewood = async (session) => {
   await takeForageView(session, page);
   const opening = await stockpiles(page);
   session.check(
-    'a new game opens with no woodshed firewood and all 8 settlers without a job',
+    'a new game opens with no shed and camp firewood and all 8 settlers without a job',
     opening.firewood === 0 && opening.withJob === 0 && opening.withoutJob === 8,
-    `at ${await at(page)} the Stockpiles panel reads ${opening.firewood} woodshed firewood, ${opening.withJob} settlers with a job and ${opening.withoutJob} with none`,
+    `at ${await at(page)} the Stockpiles panel reads ${opening.firewood} shed and camp firewood, ${opening.withJob} settlers with a job and ${opening.withoutJob} with none`,
   );
   await page.keyboard.press('KeyC');
   const chopped = [];
@@ -4823,10 +4836,12 @@ SCENARIOS.firewood = async (session) => {
   await page.keyboard.press('Escape');
   await session.still(page);
   const shedAfter = await clickShed();
+  const campAfter = await readCamp();
   session.check(
-    `when the split is done, at ${done?.at ?? 'no stop'}, the Woodshed firewood total and the shed's panel read 2 more firewood`,
-    Boolean(lastSplit) && done.doing !== SPLITTING_LOG && done.firewood === lastSplit.firewood + FIREWOOD_LOGS.firewoodPerLog && firewoodOf(shedAfter) === done.firewood,
-    `Woodshed firewood read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; the shed's panel then reads "${text(shedAfter)}"`,
+    `when the split is done, at ${done?.at ?? 'no stop'}, the Shed and camp firewood total and the shed's and the camp's panels together read 2 more firewood`,
+    Boolean(lastSplit) && done.doing !== SPLITTING_LOG && done.firewood === lastSplit.firewood + FIREWOOD_LOGS.firewoodPerLog && firewoodOf(shedAfter) + campFirewoodOf(campAfter) === done.firewood,
+    `Shed and camp firewood read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; ` +
+      `the shed's panel then reads "${text(shedAfter)}" and the camp's "${text(campAfter)}"`,
   );
 
   await page.keyboard.press('4');
@@ -4839,11 +4854,12 @@ SCENARIOS.firewood = async (session) => {
   await session.still(page);
   const stopped = await reads(page);
   const stoppedTotals = await stockpiles(page);
+  const stoppedCamp = await readCamp();
   const split = FIREWOOD_LOGS.firewoodPerLog * (FIREWOOD_SPOTS.trees.length * FIREWOOD_LOGS.perTree - FIREWOOD_LOGS.shed);
   session.check(
-    `at ${await at(page)}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, with every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood`,
-    stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && stopped.rows.Firewood === `${split} of 40` && stoppedTotals.logs === 0 && stoppedTotals.firewood === split,
-    `the panel reads "${text(stopped)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Woodshed firewood ${stoppedTotals.firewood}`,
+    `at ${await at(page)}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, with every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood in the shed and at the camp`,
+    stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && firewoodOf(stopped) + campFirewoodOf(stoppedCamp) === split && stoppedTotals.logs === 0 && stoppedTotals.firewood === split,
+    `the panel reads "${text(stopped)}"; the camp's panel reads "${text(stoppedCamp)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Shed and camp firewood ${stoppedTotals.firewood}`,
   );
   await session.screenshot(page, 'firewood-shed-stopped');
   const shedPanel = apart(await uiBoxes(page));
@@ -4878,11 +4894,11 @@ SCENARIOS.firewood = async (session) => {
     `${tools.map(({ name: tool, box }) => `${tool} ${describe(box)}`).join('; ')}; clock ${describe(boxes.clock)}`,
   );
   const others = Object.entries(boxes).filter(([part]) => part !== 'stockpiles');
-  const firewoodShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Woodshed firewood', { exact: true }).isVisible();
+  const firewoodShown = await page.getByRole('status', { name: 'Stockpiles' }).getByText('Shed and camp firewood', { exact: true }).isVisible();
   session.check(
-    `the Stockpiles panel, with its Woodshed firewood row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
+    `the Stockpiles panel, with its Shed and camp firewood row, keeps clear of the clock, the status line, the toolbar, and the camera hint at ${CLIP.width}x${CLIP.height}`,
     inside(boxes.stockpiles) && others.every(([, box]) => box && disjoint(boxes.stockpiles, box)) && firewoodShown,
-    `${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}; the Woodshed firewood row is ${firewoodShown ? 'shown' : 'missing'}`,
+    `${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}; the Shed and camp firewood row is ${firewoodShown ? 'shown' : 'missing'}`,
   );
   await session.screenshot(page, `firewood-${CLIP.width}x${CLIP.height}`);
   await page.keyboard.press('Escape');
