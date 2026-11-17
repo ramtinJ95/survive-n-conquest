@@ -96,6 +96,37 @@ describe('a hunter', () => {
     expect([sim.tally.shots, sim.tally.kills, sim.tally.hunted]).toEqual([1, 1, 6]);
   });
 
+  it('aims from where it stands when a deer within 10 tiles is farther than 10 from the middle of its tile', () => {
+    const { sim } = lodge(1);
+    sim.villagers.x[0] = sim.villagers.targetX[0] = 20.9;
+    sim.villagers.y[0] = sim.villagers.targetY[0] = 20.5;
+    const deer = deerAt(sim, 30.8, 20.5);
+    const { aimFrom } = huntUntilShot(sim, deer);
+    expect(aimFrom).toBeLessThanOrEqual(10);
+  });
+
+  it('starts no aim, when hungry, at a deer that walked past 10 tiles after it stopped to aim', () => {
+    const { sim } = lodge(1);
+    sim.villagers.missedMeals[0] = 1;
+    sim.villagers.x[0] = sim.villagers.targetX[0] = 10.5;
+    sim.villagers.y[0] = sim.villagers.targetY[0] = 20.5;
+    const deer = deerAt(sim, 22.5, 20.5);
+    sim.animals.state[deer] = AnimalState.Walking;
+    sim.animals.targetX[deer] = 37.5;
+    sim.animals.targetY[deer] = 20.5;
+    let seen = distance(sim, 0, deer);
+    runUntil(
+      sim,
+      () => sim.hunting.aimed[0]! > 0,
+      400,
+      () => {
+        if (sim.hunting.aimed[0] === 0) seen = distance(sim, 0, deer);
+      },
+    );
+    expect(sim.villagers.task[0]).toBe(HUNT);
+    expect(seen).toBeLessThanOrEqual(10);
+  });
+
   it('sends the deer running from it with a miss, and stalks it again', () => {
     const { sim } = lodge(1);
     const deer = deerAt(sim, 30.5, 30.5);

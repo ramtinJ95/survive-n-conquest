@@ -5,7 +5,7 @@ import { CARRYING, pickUpReserved, putInStore, reserveLoose, takeHeld } from './
 import { Good, putDown, setAsideGoods } from './goods';
 import { tileAt } from './map';
 import { hashUnit } from './noise';
-import { planPath } from './paths';
+import { planPath, stopWhereItStands } from './paths';
 import type { Sim } from './sim';
 import { Wants, nearestCommonStore } from './stores';
 import type { TaskKind } from './tasks';
@@ -71,8 +71,8 @@ function within(sim: Sim, id: number, row: number, reach: number): boolean {
 /**
  * Sends a hunter with empty hands after the deer nearest it in its lodge's
  * reach that no other hunter follows, while some common store has room for
- * what a kill gives. It claims the deer and walks to the deer's tile, or aims
- * from where it stands when the deer is already within `AIM_FROM`.
+ * what a kill gives. It claims the deer and walks to the deer's tile, or stops
+ * where it stands to aim when the deer is already within `AIM_FROM`.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, animals, hunting, map } = sim;
@@ -84,34 +84,34 @@ function take(sim: Sim, id: number): boolean {
   const deer = nearestPrey(sim, workplace, px, py);
   if (deer < 0) return false;
   const tile = tileAt(map, animals.x[deer]!, animals.y[deer]!);
-  const workTile = within(sim, id, deer, AIM_FROM) ? tileAt(map, px, py) : tile;
-  if (!planPath(sim, id, workTile)) return false;
+  if (within(sim, id, deer, AIM_FROM)) stopWhereItStands(sim, id);
+  else if (planPath(sim, id, tile)) villagers.workTile[id] = tile;
+  else return false;
   animals.hunter[deer] = id;
   hunting.prey[id] = deer;
   hunting.aimed[id] = 0;
   villagers.taskTile[id] = tile;
-  villagers.workTile[id] = workTile;
   return true;
 }
 
 /**
- * Keeps a stalking hunter on its deer's trail until it aims. Once the deer
- * is within `AIM_FROM`, the hunter's route ends on the tile it stands on, and
- * it aims there. Farther off, on its think tick, it plans its route again to
- * the deer's tile when the deer has left the tile its route ends on. Returns
- * false when no walk reaches the deer.
+ * Keeps a stalking hunter on its deer's trail until it aims. While the deer
+ * is within `AIM_FROM`, the hunter stops where it stands, and it aims there.
+ * Farther off, on its think tick, or at once when it had stopped and the deer
+ * went past `AIM_FROM` before its aim began, it plans its route again to the
+ * deer's tile when the deer has left the tile its route ends on. Returns false
+ * when no walk reaches the deer.
  */
 function follow(sim: Sim, id: number): boolean {
   const { villagers, animals, hunting, map } = sim;
   if (hunting.aimed[id]! > 0) return true;
   const deer = hunting.prey[id]!;
   if (within(sim, id, deer, AIM_FROM)) {
-    const here = tileAt(map, villagers.x[id]!, villagers.y[id]!);
-    if (villagers.workTile[id] === here) return true;
-    villagers.workTile[id] = here;
-    return planPath(sim, id, here);
+    stopWhereItStands(sim, id);
+    return true;
   }
-  if (sim.tick % THINK_GROUPS !== id % THINK_GROUPS) return true;
+  const stopped = villagers.workTile[id] === tileAt(map, villagers.x[id]!, villagers.y[id]!);
+  if (!stopped && sim.tick % THINK_GROUPS !== id % THINK_GROUPS) return true;
   const tile = tileAt(map, animals.x[deer]!, animals.y[deer]!);
   villagers.taskTile[id] = tile;
   if (villagers.workTile[id] === tile) return true;

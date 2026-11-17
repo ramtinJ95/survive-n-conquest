@@ -113,7 +113,7 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
     const { sim, lodge, atAutumnsEnd, winterKills } = huntYear(true);
     expect(Array.from(sim.villagers.workplace).filter((place) => place === lodge).length).toBe(2);
     const { tally } = sim;
-    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([96, 17, 14, 84, 28, 59, 0]);
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([96, 17, 14, 84, 29, 58, 0]);
     expect(atAutumnsEnd).toEqual([117, 9, 13]);
     expect(winterKills).toBe(1);
     expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
@@ -122,8 +122,8 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
   it('brings all 8 through the year on hunted deer alone with the barn and the lodge and no hut', () => {
     const { sim, atAutumnsEnd, winterKills } = huntYear(false);
     const { tally } = sim;
-    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([0, 16, 13, 78, 17, 61, 0]);
-    expect(atAutumnsEnd).toEqual([24, 0, 12]);
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([0, 15, 12, 72, 16, 56, 0]);
+    expect(atAutumnsEnd).toEqual([18, 0, 11]);
     expect(winterKills).toBe(1);
     expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
   });
