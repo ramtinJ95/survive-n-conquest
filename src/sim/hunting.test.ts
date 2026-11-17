@@ -107,6 +107,7 @@ describe('a hunter', () => {
 
   it('starts no aim, when hungry, at a deer that walked past 10 tiles after it stopped to aim', () => {
     const { sim } = lodge(1);
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
     sim.villagers.missedMeals[0] = 1;
     sim.villagers.x[0] = sim.villagers.targetX[0] = 10.5;
     sim.villagers.y[0] = sim.villagers.targetY[0] = 20.5;
@@ -154,6 +155,7 @@ describe('a hunter', () => {
   it('aims for 8 seconds when hungry, and stalks at full speed', () => {
     const fed = lodge(1);
     const hungry = lodge(1);
+    hungry.sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
     hungry.sim.villagers.missedMeals[0] = 1;
     const fedHunt = huntUntilShot(fed.sim, deerAt(fed.sim, 30.5, 30.5));
     const hungryHunt = huntUntilShot(hungry.sim, deerAt(hungry.sim, 30.5, 30.5));

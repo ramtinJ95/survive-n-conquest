@@ -187,7 +187,7 @@ describe('hunger', () => {
   function fell(missedMeals: number): { walk: number; work: number } {
     const rows = open(24);
     rows[4] = '.'.repeat(20) + 'T...';
-    const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0 });
+    const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0, campFood: 0 });
     sim.villagers.missedMeals[0] = missedMeals;
     applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: 20, y0: 4, x1: 20, y1: 4 } });
     runUntil(sim, () => sim.villagers.task[0] === GATHER, 20);
@@ -214,7 +214,7 @@ describe('hunger', () => {
         map.stackGood[at(map, x, y)] = good;
         map.stackSize[at(map, x, y)] = size;
       }
-      const sim = createSim(map, { villagers: 1, monsters: 0 });
+      const sim = createSim(map, { villagers: 1, monsters: 0, campFood: 0 });
       expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 7, y: 7 })).toMatchObject({ ok: true });
       sim.villagers.missedMeals[0] = missedMeals;
       const slot = sim.orders.siteOf[at(sim.map, 7, 7)]!;
@@ -229,8 +229,8 @@ describe('hunger', () => {
 
   it('kills a settler at its third missed meal in a row', () => {
     const sim = createSim(mapFrom(open(24)), { villagers: 2, monsters: 0, campFood: 1 });
-    sim.villagers.missedMeals[1] = 2;
     dusk(sim);
+    sim.villagers.missedMeals[1] = 2;
     lateNight(sim);
     expect(states(sim)).toEqual([VillagerState.Settling, VillagerState.Dead]);
     expect(missed(sim)).toEqual([0, 3]);
@@ -253,6 +253,49 @@ describe('hunger', () => {
     for (let tick = 0; tick < TICKS_PER_DAY * 2; tick++) step(sim);
     expect([sim.villagers.x[chopper], sim.villagers.y[chopper]]).toEqual(where);
     expect([sim.villagers.state[chopper], sim.villagers.task[chopper]]).toEqual([VillagerState.Dead, NO_TASK]);
+  });
+});
+
+describe('a missed meal far from the camp', () => {
+  /**
+   * A 28 by 28 map that is one corridor winding up from the camp at (13, 14)
+   * to row 0, with trees to fell for days at its far end, (0, 0) to (15, 0),
+   * some 215 tiles of walk from the camp. A spring night's walk is 180 tiles.
+   */
+  function farWork(): Sim {
+    const size = 28;
+    const rows = open(size).map((row, y) => {
+      if (y % 2 === 0) return row;
+      const gap = y % 4 === 1 ? size - 1 : 0;
+      return Array.from(row, (_, x) => (x === gap ? '.' : '~')).join('');
+    });
+    const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0 });
+    expect(sim.camp).toBe(at(sim.map, 13, 14));
+    for (let x = 0; x <= 15; x++) sim.map.trees[at(sim.map, x, 0)] = 1;
+    applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: 0, y0: 0, x1: 15, y1: 0 } });
+    sim.villagers.x[0] = sim.villagers.targetX[0] = 1.5;
+    sim.villagers.y[0] = sim.villagers.targetY[0] = 0.5;
+    return sim;
+  }
+
+  it('walks a settler that did not get home at dusk to the camp the next morning after its missed meal, where it eats and lives', () => {
+    const sim = farWork();
+    const meals: string[] = [];
+    const missedAtDawn: number[] = [];
+    let meals0 = 0;
+    while (dateAt(sim.tick).day < 5 && !sim.over) {
+      step(sim);
+      if (isDawn(sim.tick - 1)) missedAtDawn.push(sim.villagers.missedMeals[0]!);
+      if (sim.tally.meals > meals0) meals.push(`${clockAt(sim.tick - 1)} ${isNight(sim.tick - 1) ? 'at night' : 'by day'} at ${sim.villagers.x[0]! - 0.5},${sim.villagers.y[0]! - 0.5}`);
+      meals0 = sim.tally.meals;
+    }
+    expect(
+      sim.villagers.state[0],
+      `the settler died at its missed meal ${sim.villagers.missedMeals[0]}, missed at the dawns ${missedAtDawn.join(', ')}, with meals ${JSON.stringify(meals)} and ${sim.stores.held[Good.Food - 1]![CAMP_STORE]} food left at the camp`,
+    ).not.toBe(VillagerState.Dead);
+    expect(missedAtDawn[0]).toBe(1);
+    expect(meals[0]).toMatch(/^2 (0[5-9]|1[01]):\d\d by day at 13,14$/);
+    expect([sim.living, sim.tally.died]).toEqual([1, 0]);
   });
 });
 
@@ -371,14 +414,19 @@ describe('the end of the settlement', () => {
   });
 });
 
+/** The day and the time of a tick, as `day HH:MM`. */
+function clockAt(tick: number): string {
+  const { day, minuteOfDay } = dateAt(tick);
+  return `${day} ${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
+}
+
 /** Where each settler of a run died, as `day HH:MM`, in id order, and the tick the run ended at. */
 function deaths(sim: Sim, limit: number): string[] {
   const at: string[] = Array(sim.villagers.state.length).fill('');
   runUntil(sim, () => sim.over, limit, () => {
     for (let id = 0; id < at.length; id++) {
       if (sim.villagers.state[id] !== VillagerState.Dead || at[id]) continue;
-      const { day, minuteOfDay } = dateAt(sim.tick - 1);
-      at[id] = `${day} ${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
+      at[id] = clockAt(sim.tick - 1);
     }
   });
   return at;

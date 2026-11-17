@@ -1,6 +1,7 @@
 import { AnimalState, MAX_ANIMALS, grazes } from './animals';
 import { nearestDoor } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
+import { EATING, wantsMeal } from './eating';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME, loseMember } from './households';
@@ -8,7 +9,7 @@ import { loseWorker } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
-import { dine, eat, missMeal, storeOf, wanting } from './needs';
+import { HUNGER, type Need, eat, storeOf, wanting } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
@@ -295,6 +296,23 @@ function goIn(sim: Sim, id: number, thinks: boolean): void {
   }
 }
 
+/** Counts the need unmet once more, and kills the villager at the count that kills. */
+function missNeed(sim: Sim, id: number, need: Need): void {
+  const column = need.column(sim.villagers);
+  column[id] = column[id]! + 1;
+  if (column[id]! >= need.diesAt) die(sim, id);
+}
+
+/** The villager's meal of the day: it eats, or misses the meal. */
+function dine(sim: Sim, id: number, store: number): void {
+  if (!eat(sim, id, store)) missMeal(sim, id);
+}
+
+function missMeal(sim: Sim, id: number): void {
+  sim.tally.missed += 1;
+  missNeed(sim, id, HUNGER);
+}
+
 /**
  * Starts the villager's day where it stands. One that never came home missed
  * its meal. One that came home hungry eats now if the store it came home to
@@ -489,15 +507,16 @@ function doTask(sim: Sim, id: number): void {
 
 /**
  * Moves every villager one tick. By day an idle villager looks for work on the
- * tick of its group and wanders near the camp until it finds some. At dusk a
- * villager gives its task up at once. One whose household has a house sets out
- * for it on the tick of its group and goes in. The others walk to their spots
- * at the camp. The choice is made only at dusk, so a home gained in the night
+ * tick of its group and wanders near the camp until it finds some. On the same
+ * tick a villager that wants a meal gives up any task but its meal, so it goes
+ * to eat first. At dusk a villager gives its task up at once. One whose
+ * household has a house sets out for it on the tick of its group and goes in.
+ * The others walk to their spots at the camp. The choice is made only at dusk, so a home gained in the night
  * is first used the next night. At dawn every villager is idle again where it
  * stands, so one that was inside comes out on the tile it went in on.
  */
 export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
-  const { state } = sim.villagers;
+  const { state, task } = sim.villagers;
   const group = sim.tick % THINK_GROUPS;
   // Every villager's dawn meal comes before any villager takes the day's first task, so stocking cannot take it.
   if (dawn) for (let id = 0; id < state.length; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
@@ -509,8 +528,10 @@ export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
       else if (state[id] !== VillagerState.Inside) goToCamp(sim, id);
       continue;
     }
+    const thinks = id % THINK_GROUPS === group;
+    if (thinks && wantsMeal(sim, id) && task[id] !== NO_TASK && taskKind(sim, id) !== EATING) stopTask(sim, id);
     const free = state[id] === VillagerState.Idle || state[id] === VillagerState.Waiting;
-    if (free && id % THINK_GROUPS === group) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
+    if (free && thinks) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
     if (state[id] === VillagerState.Idle) idle(sim, id);
     else if (state[id] !== VillagerState.Waiting) doTask(sim, id);
   }

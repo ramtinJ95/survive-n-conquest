@@ -146,6 +146,7 @@ describe('a forager', () => {
     const ticks = (missedMeals: number) => {
       const sim = createSim(mapWith(40, [[26, 12]]), { villagers: 1, monsters: 0 });
       finishedHut(sim, 24, 14);
+      sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
       sim.villagers.missedMeals[0] = missedMeals;
       let working = 0;
       runUntil(sim, () => sim.tally.foraged === 1, TICKS_PER_DAY, () => {
