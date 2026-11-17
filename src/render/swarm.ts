@@ -16,7 +16,7 @@ import { heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
 import { VillagerState } from '../sim/villagerState';
-import { type Shapes, colored, foodShape, hideShape, shapeMaterial } from './shapes';
+import { type Shapes, colored, firewoodShape, foodShape, hideShape, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */
 export const VILLAGER_COLOR = 0xf2c12e;
@@ -123,14 +123,15 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), population.villagers);
   const carriedFood = group('carried food', foodShape(), shapeMaterial(), population.villagers);
   const carriedHides = group('carried hides', hideShape(), shapeMaterial(), population.villagers);
-  const carriedMeshes = [carriedLogs, carriedStone, carriedFood, carriedHides];
+  const carriedFirewood = group('carried firewood', firewoodShape(), shapeMaterial(), population.villagers);
+  const carriedMeshes = [carriedLogs, carriedStone, carriedFood, carriedHides, carriedFirewood];
   const posed = [villagers, arms, legs, ...carriedMeshes];
   const held: Readonly<Record<Good, InstancedMesh | null>> = {
     [Good.None]: null,
     [Good.Log]: carriedLogs,
     [Good.Stone]: carriedStone,
     [Good.Food]: carriedFood,
-    [Good.Firewood]: null,
+    [Good.Firewood]: carriedFirewood,
     [Good.Hide]: carriedHides,
     [Good.Clothing]: null,
   };

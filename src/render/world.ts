@@ -1,12 +1,15 @@
 import { type Material, MathUtils, Scene, Vector4 } from 'three';
 import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
+import { isColdNight, isNight } from '../sim/daylight';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
+import { CAMP_STORE } from '../sim/stores';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
+import { createFires } from './fires';
 import { createGoods } from './goods';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
@@ -37,6 +40,8 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const clock = { value: 0 };
   const camp = campTile(map);
   const { terrain, repaint } = createTerrain(map, seasonMix, camp);
+  /** The simulation's orders as the main thread knows them, for the interface's previews. */
+  const orders = createOrders(map, camp);
   const scenery = createScenery(map, seasonMix, clock, camp);
   const campsite = createCamp(map, camp, shapes);
   const { water, bed } = createWater(map, seasonMix, clock);
@@ -69,12 +74,23 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
+  const fires = createFires(map, shapes);
+  scene.add(fires.mesh);
+  let campFire = false;
+
+  // The camp's fire burns on every night but a cold one, when it burns only once it has taken its firewood.
   const show = (tick: number, time = tick) => {
     clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
-    campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
+    campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full), campFire || !isNight(tick) || !isColdNight(tick));
   };
   show(0);
+
+  /** Shows which fires burn tonight, from a frame's flags by store id. */
+  const showFires = (burning: Uint8Array) => {
+    campFire = burning[CAMP_STORE] === 1;
+    fires.show(orders, burning);
+  };
 
   /** Applies tile changes from the simulation, as `takeTileChanges` groups them, to the map and the scene. */
   const changeTiles = (groups: Int32Array) => {
@@ -95,8 +111,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
     }
   };
 
-  /** The simulation's orders as the main thread knows them, for the interface's previews. */
-  const orders = createOrders(map, camp);
+
   /** Applies order changes from the simulation to this copy of the orders and to the marks. */
   const changeOrders = (changes: OrderChanges) => {
     if (changes.claims.length === 0 && changes.sites.length === 0) return;
@@ -105,5 +120,5 @@ export function createWorld(map: TileMap, shapes: Shapes) {
     if (changes.sites.length > 0) sites.show(orders);
   };
 
-  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders };
+  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires };
 }

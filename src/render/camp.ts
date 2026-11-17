@@ -77,7 +77,7 @@ const FIRELIGHT = { color: 0xff9a4d, day: 0.2, night: 11, height: 0.75, reach: 1
 /** A puff lives a whole share of the day, so the smoke repeats at the same time every day. */
 const SMOKE = { puffs: 9, livesPerDay: 43, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
 
-function flameGeometry() {
+export function flameGeometry() {
   const { outer, inner, radius, height } = FLAME;
   return mergeGeometries([
     colored(new ConeGeometry(radius, height, 5).translate(0, height / 2, 0), outer),
@@ -89,7 +89,8 @@ function flameGeometry() {
 /**
  * `show` moves the flame, the light, and the smoke with `time`, the time of
  * day in ticks, so they hold still while the clock is paused. `dark` is 0 in
- * full daylight and 1 at night.
+ * full daylight and 1 at night. Without `lit` the fire is out: no flame, no
+ * light, and no smoke.
  */
 export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   const x = (tile % map.size) + 0.5;
@@ -127,7 +128,8 @@ export function createCamp(map: TileMap, tile: number, shapes: Shapes) {
   camp.add(flame, light, smoke);
 
   const puff = new Object3D();
-  const show = (time: number, dark: number) => {
+  const show = (time: number, dark: number, lit = true) => {
+    flame.visible = light.visible = smoke.visible = lit;
     const beat = Math.sin(time * FLAME.flicker);
     flame.scale.set(1 - 0.5 * FLAME.sway * beat, 1 + FLAME.sway * beat, 1 - 0.5 * FLAME.sway * beat);
     flame.rotation.y = time * FLAME.turn;
