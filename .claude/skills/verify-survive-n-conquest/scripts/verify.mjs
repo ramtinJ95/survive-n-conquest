@@ -4013,6 +4013,7 @@ const HUNTER_DOING = /^(Stalking a deer|Aiming at a deer|Walking to a kill to pi
 /** The view the follow keeps the hunter near, inside the clip's crop. */
 const HUNT_AIM_AT = { x: 500, y: 270 };
 const HUNT_RECENTRE = 150;
+const HUNT_AT_BARN = 160;
 /** Game minutes the follow runs before it pauses to look where the hunter went. A hunter walks about 1.5 tiles a second. */
 const HUNT_LOOK_EVERY = 12;
 /** While the hunter stalks or aims, the follow frames it with the deer nearest it within this many pixels, a deer showing at least `least` pixels of coat. */
@@ -4267,7 +4268,8 @@ SCENARIOS.hunting = async (session) => {
     const png = await session.screenshot(page, label);
     const boxes = await uiBoxes(page);
     const ring = markOf(page, png, boxes);
-    if (!ring.center) return;
+    if (!ring.center) return null;
+    const seen = { x: ring.center.x - panned.x, y: ring.center.y - panned.y };
     let focus = ring.center;
     if (/deer/.test(doing ?? '')) {
       const deer = spotsOf(png, CLIP, DEER_COAT, skipOf(boxes)).filter((spot) => spot.count >= HUNT_DEER_PIXELS.least && spot.count <= DEER_PIXELS.most);
@@ -4278,6 +4280,7 @@ SCENARIOS.hunting = async (session) => {
       if (prey) focus = { x: (ring.center.x + prey.x) / 2, y: (ring.center.y + prey.y) / 2 };
     }
     if (Math.hypot(focus.x - HUNT_AIM_AT.x, focus.y - HUNT_AIM_AT.y) >= HUNT_RECENTRE) await panBy({ x: HUNT_AIM_AT.x - focus.x, y: HUNT_AIM_AT.y - focus.y });
+    return seen;
   };
   // Runs at 2× while the hunter stalks and aims and at 4× while it walks with the food, until its panel reads something
   // else or for at most `minutes`, and pauses there.
@@ -4298,12 +4301,18 @@ SCENARIOS.hunting = async (session) => {
   let read = hunter;
   let delivered = null;
   for (let stop = 0; read?.title === name && (await session.gameMinutes(page)) < clockMinutes(HUNT_UNTIL); stop++) {
-    hunt.push({ at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries });
+    const step = { at: await at(page), doing: read.rows.Doing, carries: read.rows.Carries, camp: (await food(page)).camp };
+    hunt.push(step);
     if (huntFrom === null && read.rows.Doing === 'Stalking a deer') huntFrom = play.since();
-    await follow(`hunting-follow-${String(stop).padStart(2, '0')}`, read.rows.Doing);
-    if (delivered) break;
+    step.seen = await follow(`hunting-follow-${String(stop).padStart(2, '0')}`, read.rows.Doing);
+    if (delivered) {
+      delivered.seen = step.seen;
+      break;
+    }
     const next = await runWhileDoing(read.rows.Doing, HUNT_LOOK_EVERY);
-    if (/^Carrying food to/.test(read.rows.Doing) && next?.rows?.Doing !== read.rows.Doing) delivered = { at: await at(page), from: read.rows.Doing };
+    if (/^Carrying food to/.test(read.rows.Doing) && next?.rows?.Doing !== read.rows.Doing) {
+      delivered = { at: await at(page), from: read.rows.Doing, carries: next?.rows?.Carries, campBefore: step.camp, campAfter: (await food(page)).camp };
+    }
     read = next;
   }
   const huntTo = play.since();
@@ -4311,6 +4320,14 @@ SCENARIOS.hunting = async (session) => {
   const order = ['Stalking a deer', 'Aiming at a deer', 'Walking to a kill to pick up food', 'Carrying food to a barn'];
   const firsts = order.map((doing) => seenDoing.indexOf(doing));
   const steps = hunt.map((step) => `${step.at} "${step.doing}"`).join(', ');
+  // Tree crowns can hide the ring for a stop, so each part of the hunt needs the ring in view at one stop at least.
+  const lost = hunt.filter((step) => !step.seen).map((step) => step.at);
+  const unseen = order.filter((doing) => !hunt.some((step) => step.doing === doing && step.seen));
+  session.check(
+    `the clip finds ${name ?? 'the hunter'}'s selection ring at a paused stop of each part of the hunt: stalking, aiming, walking to the kill and carrying`,
+    hunt.length > 0 && unseen.length === 0,
+    `${unseen.length ? `no ring while ${unseen.join(', ')}; ` : ''}the ring shows at ${hunt.length - lost.length} of ${hunt.length} stops${lost.length ? `, hidden at ${lost.join(', ')}` : ''}`,
+  );
   session.check(
     `${name ?? 'the hunter'}'s panel reads the hunt at paused stops: stalking, aiming, walking to the kill, and carrying its food to a barn, in that order`,
     firsts.every((index) => index >= 0) && firsts.every((index, place) => place === 0 || index > firsts[place - 1]) && hunt.every((step) => HUNTER_DOING.test(step.doing ?? '')),
@@ -4318,7 +4335,7 @@ SCENARIOS.hunting = async (session) => {
   );
   session.check(
     'the hunter carries the food 1 unit at a time',
-    hunt.filter((step) => /^Carrying food/.test(step.doing ?? '')).every((step) => step.carries === '1 food'),
+    hunt.some((step) => /^Carrying food/.test(step.doing ?? '')) && hunt.filter((step) => /^Carrying food/.test(step.doing ?? '')).every((step) => step.carries === '1 food'),
     hunt.filter((step) => /^Carrying food/.test(step.doing ?? '')).map((step) => `${step.at} carries ${step.carries}`).join(', ') || 'no stop read a carrier',
   );
   await page.keyboard.press('Escape');
@@ -4326,6 +4343,15 @@ SCENARIOS.hunting = async (session) => {
   const barnAfter = await readOne(HUNT_SPOTS.huntBarnRoof, 'Barn');
   const totalAfter = await food(page);
   await session.screenshot(page, 'hunting-barn-after');
+  const barnSpot = HUNT_SPOTS.huntBarnRoof[0];
+  const fromBarn = delivered?.seen ? Math.round(Math.hypot(delivered.seen.x - barnSpot.x, delivered.seen.y - barnSpot.y)) : null;
+  session.check(
+    `when ${name ?? 'the hunter'} stops carrying, its hands are empty, it stands within ${HUNT_AT_BARN} px of the barn's roof, and Barn and camp food has gone up`,
+    delivered?.from === 'Carrying food to a barn' && delivered.carries === 'Nothing' && fromBarn !== null && fromBarn <= HUNT_AT_BARN && delivered.campAfter > delivered.campBefore,
+    delivered
+      ? `at ${delivered.at} it carries "${delivered.carries}", its ring is ${fromBarn ?? 'not found'} px from the roof, and the total went from ${delivered.campBefore} to ${delivered.campAfter} since the last carrying stop`
+      : 'it never stopped carrying',
+  );
   session.check(
     `the food of the kill rises in the barn's panel and in the Barn and camp food total, from ${clockText(lodgeAt)} to ${delivered?.at ?? 'the end'}`,
     delivered?.from === 'Carrying food to a barn' && count(barnAfter) > count(barnBefore) && totalAfter.camp > totalBefore.camp,
