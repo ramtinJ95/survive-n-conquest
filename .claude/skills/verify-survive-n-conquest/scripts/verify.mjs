@@ -3880,7 +3880,8 @@ const GROUND_STOPS = { lying: { day: 4, time: '09:00' }, gone: { day: 5, time: '
  * the summer sun, where they read 1. The box leaves out the clock and the camera controls, whose text has pixels of that color.
  */
 const FOOD_SACK = ([r, g, b]) => Math.abs(r - 205) <= 8 && Math.abs(g - 166) <= 8 && Math.abs(b - 100) <= 8;
-const GROUND_BOX = { x: 400, y: 240, width: 300, height: 180 };
+/** From y 190 the box reaches the tiles beside the northern hut at (133, 119), where a sack read 40 pixels at y 220 to 230. */
+const GROUND_BOX = { x: 400, y: 190, width: 300, height: 230 };
 const GROUND_SACKS = { lying: 40, gone: 10 };
 
 SCENARIOS.storing = async (session) => {
