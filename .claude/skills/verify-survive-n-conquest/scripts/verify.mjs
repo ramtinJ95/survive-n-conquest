@@ -6130,8 +6130,8 @@ SCENARIOS.wearing = async (session) => {
  * The readiness scenario. On seed 7, fed by `FED`, the player gives the orders of the cold scenario at 08:30 on day 1
  * from `COLD_ORDER_VIEW`, with one house, on (121, 122): the Chop drag over 35 trees, the Quarry drag, the stockpile,
  * and the woodshed. 08:30 and not the cold scenario's 08:15, because a page that loads slowly first pauses as late as
- * 08:19. At 08:30 on day 7, the first day of autumn, it places the second house on (121, 127), from the same order
- * view, and follows that house until it holds the 6 firewood of the winter's 3 nights. In `src/sim` runs of this
+ * 08:19. At 08:30 on day 7, the first day of autumn, it places the second house on (121, 127) from the near view,
+ * and follows that house until it holds the 6 firewood of the winter's 3 nights. In `src/sim` runs of this
  * layout with the orders at 08:28 to 08:34 on both days, the shed held 40 firewood and the camp 12 on day 7, the
  * second house was finished at 13:41 to 13:48, it held 2 firewood by 15:29 to 15:53, which takes its household out of
  * `Cold tonight`, and 6 at 16:09 to 16:33. Its fire burned at the dusk of day 10. The pixels are those of the cold
@@ -6237,6 +6237,12 @@ const HIDES_YEAR_TAILOR = ['KeyT', { x: 517, y: 253 }];
 
 /** The longest line the news can show, all 8 settlers named in one, as 5 lines of it fill the log. */
 const READY_LONGEST_NEWS = 'Day 12, 17:56. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella had a cold night.';
+/**
+ * The second house's anchor, (121, 127), in the near view after `COLD_NEAR_PAN`, placed from there so the camera
+ * does not move: a drag back to the order view does not land on the same pixel, and its click once hit the woodshed.
+ * `scripts/aim.ts` with the near view of `COLD_NEAR_PAN` puts the tile there and picks it.
+ */
+const READY_SECOND_HOUSE = { x: 298, y: 258 };
 /** The window sizes at which the reading must keep clear of every other panel. */
 const READY_SIZES = [CLIP, { width: 960, height: 600 }, WIDE];
 /** The clip keeps the clock, the Stockpiles panel, the reading, the houses, the camp, and the house's panel at the bottom left, and leaves out the toolbar. */
@@ -6336,16 +6342,7 @@ SCENARIOS.readiness = async (session) => {
     readingText(first),
   );
   const secondAt = await at(page);
-  await session.drag(page, COLD_NEAR_PAN.to, COLD_NEAR_PAN.from);
-  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
-  await page.mouse.wheel(0, -COLD_CLOSER);
-  await away();
-  await session.still(page);
-  const secondLine = await place('KeyH', /^House site placed/, COLD_ORDERS.houses[1]);
-  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
-  await page.mouse.wheel(0, COLD_CLOSER);
-  await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
-  await away();
+  const secondLine = await place('KeyH', /^House site placed/, READY_SECOND_HOUSE);
   await session.still(page);
   session.check(
     `at ${secondAt} on day 7 the second house's site is placed with the clock paused`,
