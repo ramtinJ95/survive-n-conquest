@@ -665,7 +665,8 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 
     /**
      * Steps the paused clock `every` game minutes and calls `read` at each stop, from the stop it stands at, until
-     * `read` returns a value or the clock reaches `until`. Returns that value, or null at `until`.
+     * `read` returns a value or the clock reaches `until`. Returns that value, or null at `until`, or null when a stop
+     * leaves the clock where it was, as a settlement that died out does.
      */
     async runUntil(page, read, { every, until }) {
       const last = clockMinutes(until);
@@ -675,6 +676,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
         const now = await this.gameMinutes(page);
         if (now >= last) return null;
         await this.reach(page, clockAt(Math.min(now + every, last)));
+        if ((await this.gameMinutes(page)) === now) return (await read()) || null;
       }
     },
 
