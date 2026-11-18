@@ -49,6 +49,8 @@ export interface Stores {
   workshopCount: number;
   /** 1 for each store whose fire burns tonight. Every fire goes out at dawn. */
   readonly burning: Uint8Array;
+  /** 1 for each store whose fire burned in the night that ended at the last dawn. */
+  readonly burnedLastNight: Uint8Array;
 }
 
 const byGood = () => Array.from({ length: GOOD_KINDS }, () => new Uint16Array(STORES));
@@ -66,6 +68,7 @@ export function createStores(campFood: number): Stores {
     workshops: new Int16Array(MAX_SITES),
     workshopCount: 0,
     burning: new Uint8Array(STORES),
+    burnedLastNight: new Uint8Array(STORES),
   };
 }
 

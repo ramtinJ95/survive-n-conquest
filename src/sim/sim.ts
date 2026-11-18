@@ -238,7 +238,7 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
 
 /**
  * Runs the systems in their fixed order. Nothing in a tick allocates. At dawn
- * every fire goes out, the food on open ground whose day has come is gone, and
+ * every fire goes out, kept as last night's, the food on open ground whose day has come is gone, and
  * tasks set aside as out of reach open again, as they do after a tick in
  * which land gained walks to the camp. Once the settlement has died out, nothing runs.
  */
@@ -248,6 +248,7 @@ export function step(sim: Sim): void {
   const dawn = isDawn(sim.tick);
   if (dawn) {
     sim.dawns += 1;
+    sim.stores.burnedLastNight.set(sim.stores.burning);
     sim.stores.burning.fill(0);
     spoilGoods(sim);
     reopenTasks(sim);
