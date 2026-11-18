@@ -7,6 +7,7 @@ import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
 import { createDaylight } from './daylight';
+import { createFires } from './fires';
 import { createGoods } from './goods';
 import { createOrderMarks } from './orderMarks';
 import { TALLEST_TREE, createScenery, treeTop } from './scenery';
@@ -37,6 +38,8 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const clock = { value: 0 };
   const camp = campTile(map);
   const { terrain, repaint } = createTerrain(map, seasonMix, camp);
+  /** The simulation's orders as the main thread knows them, for the interface's previews. */
+  const orders = createOrders(map, camp);
   const scenery = createScenery(map, seasonMix, clock, camp);
   const campsite = createCamp(map, camp, shapes);
   const { water, bed } = createWater(map, seasonMix, clock);
@@ -69,12 +72,17 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const marks = createOrderMarks(map, terrain.material as Material, (tile, out) => treeTop(map, tile, out), rig.target);
   scene.add(...marks.meshes);
 
+  const fires = createFires(map, shapes);
+  scene.add(fires.mesh);
   const show = (tick: number, time = tick) => {
     clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
     campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
+
+  /** Shows the sign of each house whose fire burns tonight, from a frame's flags by store id. */
+  const showFires = (burning: Uint8Array) => fires.show(orders, burning);
 
   /** Applies tile changes from the simulation, as `takeTileChanges` groups them, to the map and the scene. */
   const changeTiles = (groups: Int32Array) => {
@@ -95,8 +103,6 @@ export function createWorld(map: TileMap, shapes: Shapes) {
     }
   };
 
-  /** The simulation's orders as the main thread knows them, for the interface's previews. */
-  const orders = createOrders(map, camp);
   /** Applies order changes from the simulation to this copy of the orders and to the marks. */
   const changeOrders = (changes: OrderChanges) => {
     if (changes.claims.length === 0 && changes.sites.length === 0) return;
@@ -105,5 +111,5 @@ export function createWorld(map: TileMap, shapes: Shapes) {
     if (changes.sites.length > 0) sites.show(orders);
   };
 
-  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders };
+  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires };
 }

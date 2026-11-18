@@ -77,7 +77,7 @@ const FIRELIGHT = { color: 0xff9a4d, day: 0.2, night: 11, height: 0.75, reach: 1
 /** A puff lives a whole share of the day, so the smoke repeats at the same time every day. */
 const SMOKE = { puffs: 9, livesPerDay: 43, rise: 3.6, drift: 1.5, color: 0xc4beb6, opacity: 0.42, size: 0.17 };
 
-function flameGeometry() {
+export function flameGeometry() {
   const { outer, inner, radius, height } = FLAME;
   return mergeGeometries([
     colored(new ConeGeometry(radius, height, 5).translate(0, height / 2, 0), outer),

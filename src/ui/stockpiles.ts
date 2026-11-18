@@ -18,7 +18,11 @@ const FOOD_SHOWN: readonly { readonly kind: StoreKind; readonly label: string }[
   { kind: StoreKind.Home, label: 'Food in homes' },
 ];
 
-const FIREWOOD_SHOWN = { kind: StoreKind.Workshop, label: 'Woodshed firewood' } as const;
+/** The firewood in woodsheds and at the camp, as one total, and the firewood in homes. */
+const FIREWOOD_SHOWN: readonly { readonly kinds: readonly StoreKind[]; readonly label: string }[] = [
+  { kinds: [StoreKind.Workshop, StoreKind.Common], label: 'Firewood in stores' },
+  { kinds: [StoreKind.Home], label: 'Firewood in homes' },
+];
 
 const JOBS_SHOWN: readonly { readonly label: string }[] = [{ label: 'Settlers with a job' }, { label: 'Settlers with no job' }];
 
@@ -54,7 +58,8 @@ export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, 
  * The panel that shows how much of each good the stockpiles hold, from the
  * main thread's copy of the map and the orders. From the newest frame it shows
  * the food in barns and at the camp as one total, the food in homes as another,
- * the firewood in woodsheds, and the settlers with and without a job.
+ * the firewood in woodsheds and at the camp as one total, the firewood in
+ * homes as another, and the settlers with and without a job.
  */
 export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders) {
   const panel = document.createElement('section');
@@ -74,7 +79,7 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
   };
   const values = SHOWN.map(row);
   const foodValues = FOOD_SHOWN.map(row);
-  const firewood = row(FIREWOOD_SHOWN);
+  const firewoodValues = FIREWOOD_SHOWN.map(row);
   const [withJob, withoutJob] = JOBS_SHOWN.map(row);
   panel.append(title, list);
   root.append(panel);
@@ -90,7 +95,8 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
   const showStores = ({ storeFood, storeFirewood }: SimFrame) => {
     const totals = storeTotals(orders, storeFood);
     FOOD_SHOWN.forEach(({ kind }, index) => setText(foodValues[index]!, String(totals[kind])));
-    setText(firewood, String(storeTotals(orders, storeFirewood)[FIREWOOD_SHOWN.kind]));
+    const firewood = storeTotals(orders, storeFirewood);
+    FIREWOOD_SHOWN.forEach(({ kinds }, index) => setText(firewoodValues[index]!, String(kinds.reduce((sum: number, kind) => sum + firewood[kind], 0))));
   };
 
   const showJobs = ({ states, workplaces }: SimFrame) => {

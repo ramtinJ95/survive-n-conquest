@@ -257,6 +257,11 @@ describe('a forager in winter', () => {
   it('picks nothing, keeps its job, and forages again on the first day of spring', () => {
     const sim = createSim(mapWith(40, [[26, 12], [27, 12], [26, 13], [27, 13]]), { villagers: 1, monsters: 0 });
     const slot = finishedHut(sim, 24, 14);
+    // A house with three nights of firewood keeps the forager warm through the winter.
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 8, y: 30 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, 8, 30)]!;
+    finishBuilding(sim, house);
+    sim.stores.held[Good.Firewood - 1]![house] = 6;
     const dawnOfDay = (day: number) => isDawn(sim.tick) && dateAt(sim.tick).day === day;
     runUntil(sim, () => dawnOfDay(10), TICKS_PER_DAY * 10);
     expect(seasonAt(sim.tick)).toBe('Winter');

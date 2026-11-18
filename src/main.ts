@@ -33,7 +33,7 @@ const params = new URLSearchParams(window.location.search);
 const map = generateMap(parseSeed(params.get('seed')));
 const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'));
 const look = await loadShapes();
-const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders } = createWorld(map, look.shapes);
+const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
 scene.add(...swarm.meshes);
 const herds = createHerds(map);
@@ -99,6 +99,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   ticksPerMs = data.paused ? 0 : (data.speed * TICKS_PER_SECOND) / 1000;
   changeTiles(data.tiles);
   changeOrders(data.orders);
+  showFires(data.fires);
   toolbar.heard(data);
   selection.heard(data);
   stockpiles.heard(data);

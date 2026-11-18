@@ -12,7 +12,7 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BUILDINGS, Building, type BuildingName, kindOf, siteMidX, siteMidY, siteX0, siteY0 } from '../sim/buildings';
 import type { TileMap } from '../sim/map';
-import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
+import { MAX_SITES, type Orders, SiteState, type Sites } from '../sim/orders';
 import { BARN_LOOK, HUT_LOOK, LODGE_LOOK, type Shapes, TAILOR_LOOK, WOODSHED_LOOK, barnShape, colored, hutShape, lodgeShape, shapeMaterial, tailorShape, woodshedShape } from './shapes';
 
 /** A building stands on a footing of grey stone that reaches this far below its floor, past the lowest tile of its footprint. */
@@ -147,6 +147,18 @@ function meshesOf(name: BuildingName, { shape, walls }: Look) {
   return { building, scaffold, rise, top, walls: walls.share, count: 0, underWork: 0 };
 }
 
+/** The height a building's floor lies at: the highest tile of its footprint. */
+export function floorOf(map: TileMap, sites: Sites, slot: number): number {
+  const { side } = kindOf(sites, slot);
+  const x0 = siteX0(sites, slot);
+  const y0 = siteY0(sites, slot);
+  let highest = -Infinity;
+  for (let y = y0; y < y0 + side; y++) {
+    for (let x = x0; x < x0 + side; x++) highest = Math.max(highest, map.heights[y * map.size + x]!);
+  }
+  return highest;
+}
+
 /**
  * Draws every building of each kind, finished or not, as one instanced mesh,
  * and the scaffolds of its sites under work as another. A building on a site
@@ -173,14 +185,8 @@ export function createSites(map: TileMap, shapes: Shapes) {
       const work = sites.work[slot]!;
       if (state === SiteState.Free || (state === SiteState.Site && work === 0)) continue;
       const kind = kinds[sites.kind[slot]!]!;
-      const { side, workTicks } = kindOf(sites, slot);
-      const x0 = siteX0(sites, slot);
-      const y0 = siteY0(sites, slot);
-      let highest = -Infinity;
-      for (let y = y0; y < y0 + side; y++) {
-        for (let x = x0; x < x0 + side; x++) highest = Math.max(highest, map.heights[y * map.size + x]!);
-      }
-      pose.position.set(siteMidX(sites, slot) - half, highest, siteMidY(sites, slot) - half);
+      const { workTicks } = kindOf(sites, slot);
+      pose.position.set(siteMidX(sites, slot) - half, floorOf(map, sites, slot), siteMidY(sites, slot) - half);
       pose.updateMatrix();
       kind.building.setMatrixAt(kind.count, pose.matrix);
       kind.rise.setX(kind.count, state === SiteState.Built ? kind.top + 1 : heightShareAt(Math.min(work, workTicks) / workTicks, kind.walls) * kind.top);

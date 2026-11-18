@@ -29,7 +29,7 @@ Preconditions:
 
 ## Gotchas
 
-- The scenarios that run settlers past the dusk of day 6, `look` and `selecting`, open with `?food=200`, the `FED` setting in `verify.mjs`, or their settlers starve and the clock stops before winter. Scenarios that stop earlier open as a player does, so their settlers can go hungry from the dusk of day 3 or 4 on, and the news log can show at the bottom right.
+- The scenarios that run settlers past the dusk of day 6, `look`, `selecting`, and `cold`, open with `?food=200`, the `FED` setting in `verify.mjs`, or their settlers starve and the clock stops before winter. Scenarios that stop earlier open as a player does, so their settlers can go hungry from the dusk of day 3 or 4 on, and the news log can show at the bottom right.
 - The settlers die on arrival at the camp, over about half a game hour after dusk, so the starved settlers come in more than one news line.
 - A line of the news log joins the events of one kind within one game hour, so the scenario collects every text a line takes at the stops. A stop sees only the text the line has then, so the detail of `the news names all 8 settlers ...` names the stop where each text first showed, not the minute it was written.
 - Each stop adds a pause to the clip. With stops every 30 game minutes the clip took 8.4 MB, over the 8 MB limit, and with `decimate` as well it took 13.7 MB, so the stops are every 60 game minutes. With those stops and no `decimate` it took 7.1 MB.
