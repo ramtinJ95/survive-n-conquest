@@ -3,10 +3,13 @@ import { finishBuilding } from './building';
 import { Building, Job } from './buildings';
 import { TICKS_PER_DAY, dateAt, tickOfDay } from './calendar';
 import { isDawn, isNight } from './daylight';
+import { EATING } from './eating';
+import { GATHERING } from './gathering';
 import { Good, putDown } from './goods';
 import { jobOf } from './jobs';
 import { type Sim, applyCommand, createSim, step } from './sim';
 import { CAMP_FIREWOOD_LIMIT, CAMP_STORE, HOUSE_FIREWOOD_LIMIT } from './stores';
+import { taskKind } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { VillagerState } from './villagerState';
 import { Stop } from './workshops';
@@ -239,6 +242,24 @@ describe('the half rate of a cold settler', () => {
       expect(chilled.walk, `${nights} cold`).toBe(warm.walk);
       expect(Math.abs(chilled.work - 2 * warm.work), `${nights} cold: ${chilled.work} ticks against ${warm.work}`).toBeLessThanOrEqual(2);
     }
+  });
+
+  it('has a settler that is cold and hungry at once eat first, which ends its hunger and not its cold, and fell at half the rate after', () => {
+    const warm = fell(0);
+    const rows = open(24);
+    rows[4] = '.'.repeat(20) + 'T...';
+    const sim = createSim(mapFrom(rows), { villagers: 1, monsters: 0 });
+    sim.villagers.coldNights[0] = 1;
+    sim.villagers.missedMeals[0] = 1;
+    applyCommand(sim, { kind: 'markArea', order: 'chop', area: { x0: 20, y0: 4, x1: 20, y1: 4 } });
+    runUntil(sim, () => sim.villagers.task[0] !== 0, 20);
+    expect(taskKind(sim, 0)).toBe(EATING);
+    runUntil(sim, () => sim.villagers.missedMeals[0] === 0, 600);
+    expect([sim.villagers.missedMeals[0], sim.villagers.coldNights[0]]).toEqual([0, 1]);
+    runUntil(sim, () => sim.villagers.state[0] === VillagerState.Working && taskKind(sim, 0) === GATHERING, 1200);
+    const working = sim.tick;
+    runUntil(sim, () => sim.map.trees[at(sim.map, 20, 4)] === 0, 2000);
+    expect(Math.abs(sim.tick - working - 2 * warm.work), `${sim.tick - working} ticks against ${warm.work}`).toBeLessThanOrEqual(2);
   });
 });
 

@@ -56,6 +56,8 @@ function inReach(sim: Sim, slot: number, tile: number): boolean {
  * -1. Equally near tiles go to the lowest tile index.
  */
 function nearestForage(sim: Sim, slot: number, px: number, py: number): number {
+  // No tile bears in winter, and an idle forager looks again at every think tick, so the search is skipped.
+  if (seasonIndexAt(sim.tick) === WINTER) return -1;
   const { map, foraging, flow } = sim;
   const { sites } = sim.orders;
   const { size } = map;
