@@ -3230,6 +3230,7 @@ function selectionDriver(session) {
     status: await boxOf(page.getByRole('status', { name: 'Order' })),
     selection: await boxOf(panel(page)),
     news: await boxOf(page.getByRole('log', { name: 'Settlement news' })),
+    readiness: await boxOf(page.getByRole('status', { name: 'Winter readiness' })),
   });
   const skipOf = (boxes) => Object.values(boxes).filter(Boolean);
   const tunics = async (page, png) => spotsOf(png, page.viewportSize(), UNIT_COLORS.villagers, skipOf(await uiBoxes(page)));
@@ -6114,6 +6115,407 @@ SCENARIOS.wearing = async (session) => {
   ]);
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
+
+/**
+ * The readiness scenario. On seed 7, fed by `FED`, the player gives the orders of the cold scenario at 08:30 on day 1
+ * from `COLD_ORDER_VIEW`, with one house, on (121, 122): the Chop drag over 35 trees, the Quarry drag, the stockpile,
+ * and the woodshed. 08:30 and not the cold scenario's 08:15, because a page that loads slowly first pauses as late as
+ * 08:19. At 08:30 on day 7, the first day of autumn, it places the second house on (121, 127), from the same order
+ * view, and follows that house until it holds the 6 firewood of the winter's 3 nights. In `src/sim` runs of this
+ * layout with the orders at 08:28 to 08:34 on both days, the shed held 40 firewood and the camp 12 on day 7, the
+ * second house was finished at 13:41 to 13:48, it held 2 firewood by 15:29 to 15:53, which takes its household out of
+ * `Cold tonight`, and 6 at 16:09 to 16:33. Its fire burned at the dusk of day 10. The pixels are those of the cold
+ * scenario.
+ */
+const READY_STOPS = {
+  orders: { day: 1, time: '08:30' },
+  summer: { day: 6, time: '20:00' },
+  autumn: { day: 7, time: '00:30' },
+  second: { day: 7, time: '08:30' },
+  tailor: { day: 4, time: '08:30' },
+  yearRead: { day: 7, time: '07:30' },
+  follow: ['13:00', '13:45', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'].map((time) => ({ day: 7, time })),
+  winterNoon: { day: 10, time: '12:00' },
+  before: { day: 10, time: '17:00' },
+  after: { day: 10, time: '18:30' },
+  morning: { day: 11, time: '08:00' },
+};
+/**
+ * The year "wood and hides" of `bun scripts/winter-year.ts hides`, given through the toolbar from `HIDES_YEAR_VIEW`,
+ * the cold scenario's order view moved to look at (125, 128), so every tile of the year lies clear of the panels. Its
+ * commands, in the script's order, land at 08:30 on day 1, and its tailor's hut at 08:30 on day 4, once the lodge
+ * stands: with the orders at 08:32 the lodge is not finished by 12:00 on day 3. In `src/sim` runs with the orders at
+ * 08:27 to 08:34, the reading at 07:30 on day 7 is 0 of 4 households in a house, 0 of 0 houses, 8 cold tonight, and
+ * the camp's fire out with 0 of 4 firewood in each, and 0 of 8 settlers in clothing in four runs and 1 of 8 in the
+ * run at 08:30, whose tailor made its first piece before dawn. The check takes either. Every pixel comes from `scripts/aim.ts`:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-450,"turn":{"x":0,"y":0},"target":[125,128]}' '<the year's tiles>'`,
+ * and each picks its own tile.
+ */
+const HIDES_YEAR_VIEW = { wheel: -450, turn: { x: 0, y: 0 }, pan: { x: 27, y: 11 } };
+const HIDES_YEAR_SAID = {
+  KeyC: /^1 tree marked for felling/,
+  KeyM: /^1 rock tile marked for quarrying/,
+  KeyP: /^6 tiles join the stockpile zone/,
+  KeyG: /^Forager's hut site placed/,
+  KeyB: /^Barn site placed/,
+  KeyL: /^Hunter's lodge site placed/,
+  KeyH: /^House site placed/,
+  KeyK: /^Woodshed site placed/,
+  KeyT: /^Tailor's hut site placed/,
+};
+const HIDES_YEAR_ORDERS = [
+  ['KeyG', { x: 595, y: 311 }],
+  ['KeyC', { x: 597, y: 327 }, { x: 597, y: 327 }],
+  ['KeyC', { x: 604, y: 338 }, { x: 604, y: 338 }],
+  ['KeyC', { x: 554, y: 330 }, { x: 554, y: 330 }],
+  ['KeyC', { x: 548, y: 359 }, { x: 548, y: 359 }],
+  ['KeyB', { x: 629, y: 320 }],
+  ['KeyC', { x: 594, y: 352 }, { x: 594, y: 352 }],
+  ['KeyC', { x: 637, y: 307 }, { x: 637, y: 307 }],
+  ['KeyC', { x: 641, y: 301 }, { x: 641, y: 301 }],
+  ['KeyC', { x: 615, y: 341 }, { x: 615, y: 341 }],
+  ['KeyC', { x: 648, y: 310 }, { x: 648, y: 310 }],
+  ['KeyC', { x: 632, y: 336 }, { x: 632, y: 336 }],
+  ['KeyC', { x: 578, y: 378 }, { x: 578, y: 378 }],
+  ['KeyC', { x: 655, y: 284 }, { x: 655, y: 284 }],
+  ['KeyM', { x: 521, y: 194 }, { x: 521, y: 194 }],
+  ['KeyL', { x: 467, y: 276 }],
+  ['KeyC', { x: 618, y: 359 }, { x: 618, y: 359 }],
+  ['KeyC', { x: 660, y: 313 }, { x: 660, y: 313 }],
+  ['KeyC', { x: 652, y: 271 }, { x: 652, y: 271 }],
+  ['KeyC', { x: 639, y: 346 }, { x: 639, y: 346 }],
+  ['KeyM', { x: 517, y: 184 }, { x: 517, y: 184 }],
+  ['KeyH', { x: 479, y: 226 }],
+  ['KeyH', { x: 451, y: 248 }],
+  ['KeyP', { x: 466, y: 248 }, { x: 472, y: 271 }],
+  ['KeyK', { x: 494, y: 248 }],
+  ['KeyC', { x: 630, y: 362 }, { x: 630, y: 362 }],
+  ['KeyC', { x: 668, y: 323 }, { x: 668, y: 323 }],
+  ['KeyC', { x: 579, y: 401 }, { x: 579, y: 401 }],
+  ['KeyC', { x: 677, y: 288 }, { x: 677, y: 288 }],
+  ['KeyC', { x: 637, y: 376 }, { x: 637, y: 376 }],
+  ['KeyC', { x: 681, y: 349 }, { x: 681, y: 349 }],
+  ['KeyC', { x: 668, y: 374 }, { x: 668, y: 374 }],
+  ['KeyC', { x: 708, y: 300 }, { x: 708, y: 300 }],
+  ['KeyC', { x: 704, y: 333 }, { x: 704, y: 333 }],
+  ['KeyC', { x: 697, y: 347 }, { x: 697, y: 347 }],
+  ['KeyC', { x: 658, y: 396 }, { x: 658, y: 396 }],
+  ['KeyC', { x: 686, y: 369 }, { x: 686, y: 369 }],
+  ['KeyC', { x: 593, y: 430 }, { x: 593, y: 430 }],
+  ['KeyC', { x: 682, y: 378 }, { x: 682, y: 378 }],
+  ['KeyC', { x: 630, y: 422 }, { x: 630, y: 422 }],
+  ['KeyC', { x: 720, y: 302 }, { x: 720, y: 302 }],
+  ['KeyC', { x: 713, y: 344 }, { x: 713, y: 344 }],
+  ['KeyC', { x: 711, y: 272 }, { x: 711, y: 272 }],
+  ['KeyC', { x: 699, y: 373 }, { x: 699, y: 373 }],
+  ['KeyC', { x: 726, y: 290 }, { x: 726, y: 290 }],
+  ['KeyC', { x: 619, y: 440 }, { x: 619, y: 440 }],
+  ['KeyC', { x: 733, y: 334 }, { x: 733, y: 334 }],
+  ['KeyC', { x: 716, y: 370 }, { x: 716, y: 370 }],
+  ['KeyC', { x: 722, y: 275 }, { x: 722, y: 275 }],
+  ['KeyC', { x: 717, y: 263 }, { x: 717, y: 263 }],
+  ['KeyC', { x: 709, y: 385 }, { x: 709, y: 385 }],
+  ['KeyC', { x: 744, y: 308 }, { x: 744, y: 308 }],
+  ['KeyC', { x: 747, y: 302 }, { x: 747, y: 302 }],
+  ['KeyC', { x: 568, y: 472 }, { x: 568, y: 472 }],
+  ['KeyC', { x: 751, y: 325 }, { x: 751, y: 325 }],
+  ['KeyC', { x: 736, y: 272 }, { x: 736, y: 272 }],
+  ['KeyM', { x: 537, y: 198 }, { x: 537, y: 198 }],
+  ['KeyM', { x: 530, y: 187 }, { x: 530, y: 187 }],
+];
+const HIDES_YEAR_TAILOR = ['KeyT', { x: 517, y: 253 }];
+
+/** The longest line the news can show, all 8 settlers named in one, as 5 lines of it fill the log. */
+const READY_LONGEST_NEWS = 'Day 12, 17:56. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella had a cold night.';
+/** The window sizes at which the reading must keep clear of every other panel. */
+const READY_SIZES = [CLIP, { width: 960, height: 600 }, WIDE];
+/** The clip keeps the clock, the Stockpiles panel, the reading, the houses, the camp, and the house's panel at the bottom left, and leaves out the toolbar. */
+const READY_CLIP = { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 560, colors: 40, decimate: true, speed: 4 };
+
+SCENARIOS.readiness = async (session) => {
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, click } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const play = await session.open(CLIP, { record: true, search: COLD_SEARCH, clock: 'paused' });
+  const { page } = play;
+  const away = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const reading = () =>
+    page.getByRole('status', { name: 'Winter readiness', includeHidden: true }).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { shown: !node.hidden, title: node.querySelector('p')?.textContent.trim() ?? '', rows };
+    });
+  const readingText = (read) => (read.shown ? [read.title, ...Object.entries(read.rows).map(([name, value]) => `${name}: ${value}`)].join('; ') : 'hidden');
+  const selectHouse = async (house) => {
+    let read = null;
+    for (const spot of house.clicks) {
+      read = await click(page, spot);
+      if (read?.title === 'House') break;
+    }
+    await away();
+    await session.still(page);
+    return read;
+  };
+  const place = async (key, pattern, spot) => {
+    await page.keyboard.press(key);
+    await page.mouse.move(spot.x, spot.y, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.up();
+    const line = await said(page, pattern);
+    await page.keyboard.press('Escape');
+    await away();
+    return line;
+  };
+  const heard = new Set();
+  const listen = async () => {
+    for (const line of await lines(page)) heard.add(line);
+  };
+
+  await takeForageView(session, page, COLD_ORDER_VIEW);
+  await session.reach(page, READY_STOPS.orders);
+  const orderedAt = await at(page);
+  const given = [];
+  for (const [key, tool, pattern, spots] of [
+    ['KeyC', 'Chop', /^35 trees marked for felling/, COLD_ORDERS.chop],
+    ['KeyM', 'Quarry', /^2 rock tiles marked for quarrying/, COLD_ORDERS.quarry],
+    ['KeyP', 'Stockpile', /^9 tiles join the stockpile zone/, COLD_ORDERS.stockpile],
+  ]) {
+    await page.keyboard.press(key);
+    await session.drag(page, ...spots);
+    given.push({ tool, pattern, line: await said(page, pattern) });
+    await page.keyboard.press('Escape');
+  }
+  given.push({ tool: 'Woodshed', pattern: /^Woodshed site placed/, line: await place('KeyK', /^Woodshed site placed/, COLD_ORDERS.shed) });
+  given.push({ tool: 'House', pattern: /^House site placed/, line: await place('KeyH', /^House site placed/, COLD_ORDERS.houses[0]) });
+  session.check(
+    `at ${orderedAt} the orders mark 35 trees, 2 rock tiles, and 9 stockpile tiles, and place a woodshed site and one house site`,
+    given.every(({ pattern, line }) => pattern.test(line)) &&
+      (await page.getByRole('status', { name: 'House site' }).count()) === 1 &&
+      (await at(page)) === orderedAt,
+    `${given.map(({ tool, line }) => `${tool}: "${line}"`).join(', ')} at ${await at(page)}`,
+  );
+  const spring = await reading();
+  session.check(`at ${orderedAt} in spring the reading of readiness is hidden`, !spring.shown, readingText(spring));
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
+
+  await session.reach(page, READY_STOPS.summer);
+  const summer = await reading();
+  session.check(`at ${await at(page)}, the last evening of summer, the reading is hidden`, !summer.shown, readingText(summer));
+  await session.reach(page, READY_STOPS.autumn);
+  const autumn = await reading();
+  session.check(
+    `at ${await at(page)}, the first night of autumn, the reading shows with 3 cold nights to come and its four numbers`,
+    autumn.shown && autumn.title === 'Winter readiness, 3 cold nights to come' &&
+      ['Households in a house', 'Houses with firewood', 'Settlers in clothing', 'Cold tonight'].every((label) => label in autumn.rows),
+    readingText(autumn),
+  );
+
+  await session.reach(page, READY_STOPS.second);
+  await session.still(page);
+  const first = await reading();
+  await session.screenshot(page, 'readiness-autumn');
+  session.check(
+    `at ${await at(page)} on the first day of autumn, with one house stocked and 3 households at the camp, the reading counts 1 of 4 households housed, 1 of 1 houses with firewood, 0 of 8 in clothing, and 6 cold tonight, with the camp's fire lit`,
+    first.rows['Households in a house'] === '1 of 4' && first.rows['Houses with firewood'] === '1 of 1' && first.rows['Settlers in clothing'] === '0 of 8' &&
+      first.rows['Cold tonight'] === '6' && /^Lights, \d+ firewood$/.test(first.rows['Camp fire'] ?? ''),
+    readingText(first),
+  );
+  const secondAt = await at(page);
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, -COLD_CLOSER);
+  await away();
+  await session.still(page);
+  const secondLine = await place('KeyH', /^House site placed/, COLD_ORDERS.houses[1]);
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
+  session.check(
+    `at ${secondAt} on day 7 the second house's site is placed with the clock paused`,
+    /^House site placed/.test(secondLine) && (await page.getByRole('status', { name: 'House site' }).count()) === 1 && (await at(page)) === secondAt,
+    `the status line reads "${secondLine}" at ${await at(page)}`,
+  );
+
+  let clipFrom = null;
+  const follow = [];
+  for (const stop of READY_STOPS.follow) {
+    await session.reach(page, stop);
+    clipFrom ??= play.since();
+    const house = await selectHouse(COLD_SPOTS.houses[1]);
+    const read = await reading();
+    follow.push({ at: await at(page), house, read, firewood: house?.title === 'House' ? house.rows.Firewood : (house?.title ?? 'nothing') });
+    if (read.rows['Houses with firewood'] === '2 of 2') break;
+  }
+  const clipTo = play.since();
+  await session.screenshot(page, 'readiness-stocked');
+  const followText = follow.map((step) => `${step.at}: house ${step.firewood}; ${step.read.rows['Households in a house']} housed, ${step.read.rows['Houses with firewood']} with firewood, ${step.read.rows['Cold tonight']} cold`).join(' | ');
+  const finishedAt = follow.findIndex((step) => step.house?.title === 'House');
+  const stockedAt = follow.findIndex((step) => step.read.rows['Houses with firewood'] === '2 of 2');
+  session.check(
+    'while the second house stands as a site the reading counts 1 of 1 houses; once finished, 2 of 4 households are housed and it counts 1 of 2 houses with firewood until its own holds 6',
+    finishedAt > 0 &&
+      follow.slice(0, finishedAt).every((step) => step.read.rows['Houses with firewood'] === '1 of 1' && step.read.rows['Households in a house'] === '1 of 4') &&
+      follow.slice(finishedAt, stockedAt).every((step) => step.read.rows['Houses with firewood'] === '1 of 2' && step.read.rows['Households in a house'] === '2 of 4' && Number(/^(\d) of 6$/.exec(step.house.rows.Firewood)?.[1]) < 6),
+    followText,
+  );
+  const last = follow[stockedAt];
+  session.check(
+    `at ${last?.at ?? 'no stop'} the last house holds 6 firewood and the reading counts 2 of 2 houses with firewood, and Cold tonight has fallen from 6 to 4`,
+    Boolean(last) && last.house.rows.Firewood === '6 of 6' && last.read.rows['Cold tonight'] === '4' && last.read.rows['Households in a house'] === '2 of 4',
+    followText,
+  );
+  await page.keyboard.press('Escape');
+  await away();
+
+  await session.reach(page, READY_STOPS.winterNoon);
+  const noonHouse = await selectHouse(COLD_SPOTS.houses[1]);
+  const noon = await reading();
+  session.check(
+    `at ${await at(page)}, the first winter day before any winter night, the house's panel reads No winter night yet beside its firewood`,
+    noonHouse?.rows['Fire last night'] === 'No winter night yet' && /^\d of 6$/.test(noonHouse?.rows.Firewood ?? ''),
+    `the panel reads "${text(noonHouse)}"; the reading "${readingText(noon)}"`,
+  );
+  await page.keyboard.press('Escape');
+  await away();
+
+  await session.reach(page, READY_STOPS.before);
+  await session.still(page);
+  const before = await reading();
+  await listen();
+  await page.keyboard.press('1');
+  while ((await session.gameMinutes(page)) < clockMinutes(READY_STOPS.after) - COLD_WATCH_UNTIL) {
+    await listen();
+    await page.waitForTimeout(250);
+  }
+  await session.reach(page, READY_STOPS.after);
+  await listen();
+  const after = await reading();
+  const namesIn = (list) => list.split(/, | and /);
+  const told = [...new Set([...heard].flatMap((line) => namesIn(/^Day 10, \d\d:\d\d\. (.+) had a cold night\.$/.exec(line)?.[1] ?? '').filter(Boolean)))];
+  session.check(
+    `the ${before.rows['Cold tonight']} settlers the reading counts cold tonight at ${READY_STOPS.before.time} on day 10 are as many as the news names cold at that dusk`,
+    before.rows['Cold tonight'] === '4' && told.length === 4,
+    `the reading "${readingText(before)}"; heard ${[...heard].filter((line) => line.startsWith('Day 10,')).map((line) => `"${line}"`).join(', ') || 'nothing on day 10'}`,
+  );
+  session.check(
+    `at ${await at(page)}, after the first winter dusk, the reading counts 2 cold nights to come and both houses still hold firewood for them`,
+    after.title === 'Winter readiness, 2 cold nights to come' && after.rows['Houses with firewood'] === '2 of 2',
+    readingText(after),
+  );
+
+  await session.reach(page, READY_STOPS.morning);
+  const morning = await selectHouse(COLD_SPOTS.houses[1]);
+  await session.screenshot(page, 'readiness-house-winter-morning');
+  session.check(
+    `at ${await at(page)}, the morning after the first winter night, the house's panel reads that its fire burned last night, beside its firewood`,
+    morning?.rows['Fire last night'] === 'Burned' && /^\d of 6$/.test(morning?.rows.Firewood ?? ''),
+    `the panel reads "${text(morning)}"`,
+  );
+
+  const layouts = [];
+  for (const size of READY_SIZES) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    const boxes = await uiBoxes(page);
+    // The panel's max-height reads as an unresolved calc(), so the tallest box is measured with the panel stretched to it.
+    const tallest = await page.getByRole('region', { name: 'Selection' }).evaluate((node) => {
+      node.style.height = '100vh';
+      const { x, y, width, height } = node.getBoundingClientRect();
+      node.style.height = '';
+      return { x, y, width, height };
+    });
+    await page.keyboard.press('KeyP');
+    await said(page, /Drag over open ground/);
+    boxes.status = await page.getByRole('status', { name: 'Order' }).boundingBox();
+    await page.keyboard.press('Escape');
+    // The news lines last 30 s of wall time, so the fullest log is a copy that holds its most lines at their longest.
+    boxes.news = await page.getByRole('log', { name: 'Settlement news', includeHidden: true }).evaluate((node, line) => {
+      const copy = node.cloneNode(false);
+      copy.removeAttribute('aria-label');
+      copy.hidden = false;
+      for (let count = 0; count < 5; count++) copy.append(Object.assign(document.createElement('p'), { textContent: line }));
+      node.after(copy);
+      const { x, y, width, height } = copy.getBoundingClientRect();
+      copy.remove();
+      return { x, y, width, height };
+    }, READY_LONGEST_NEWS);
+    const { readiness, selection, ...rest } = boxes;
+    const others = { ...rest, tallestSelection: tallest, selection };
+    const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    const inside = readiness && readiness.x >= 0 && readiness.y >= 0 && readiness.x + readiness.width <= size.width && readiness.y + readiness.height <= size.height;
+    const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
+    const ok = Boolean(inside) && Object.values(others).every((box) => !box || disjoint(readiness, box));
+    const detail = [`readiness ${describe(readiness)}`, ...Object.entries(others).map(([name, box]) => `${name} ${describe(box)}`)].join('; ');
+    layouts.push(detail);
+    session.check(
+      `at ${size.width}x${size.height} the reading, with its camp fire row, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the house's panel, the news log with its 5 longest lines, and the tallest selection panel the page allows`,
+      ok,
+      detail,
+    );
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+  await session.finishClips(play.context, page, [{ label: 'readiness-last-house', from: clipFrom, to: clipTo, ...READY_CLIP }]);
+
+  const year = await session.open(CLIP, { search: '?seed=7', clock: 'paused' });
+  const yearPage = year.page;
+  await takeForageView(session, yearPage, HIDES_YEAR_VIEW);
+  const giveYear = async (orders) => {
+    const lines = [];
+    for (const [key, from, to] of orders) {
+      await yearPage.keyboard.press(key);
+      if (to) await session.drag(yearPage, from, to);
+      else {
+        await yearPage.mouse.move(from.x, from.y, { steps: 3 });
+        await yearPage.mouse.down();
+        await yearPage.mouse.up();
+      }
+      lines.push(await said(yearPage, HIDES_YEAR_SAID[key]));
+      await yearPage.keyboard.press('Escape');
+    }
+    await yearPage.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    return lines;
+  };
+  await session.reach(yearPage, READY_STOPS.orders);
+  const yearAt = clockText(await session.gameMinutes(yearPage));
+  const yearLines = await giveYear(HIDES_YEAR_ORDERS);
+  const wrong = yearLines.filter((line, index) => !HIDES_YEAR_SAID[HIDES_YEAR_ORDERS[index][0]].test(line));
+  const yearSites = await yearPage.getByRole('status', { name: /site$/ }).count();
+  session.check(
+    `at ${yearAt} the year's 6 sites stand as labels: the forager's hut, the barn, the hunter's lodge, two houses, and the woodshed`,
+    yearSites === 6,
+    `${yearSites} site labels`,
+  );
+  session.check(
+    `at ${yearAt} the orders of the year "wood and hides" are given, ${HIDES_YEAR_ORDERS.length} of them, each as its status line says, with the clock paused`,
+    wrong.length === 0 && clockText(await session.gameMinutes(yearPage)) === yearAt,
+    wrong.length === 0 ? `${yearLines.length} orders, the last "${yearLines.at(-1)}", at ${clockText(await session.gameMinutes(yearPage))}` : `refused or unexpected: ${wrong.join(' | ')}`,
+  );
+  await session.reach(yearPage, READY_STOPS.tailor);
+  const [tailorLine] = await giveYear([HIDES_YEAR_TAILOR]);
+  session.check(`at ${clockText(await session.gameMinutes(yearPage))} the tailor's hut is placed`, /^Tailor's hut site placed/.test(tailorLine), `the status line reads "${tailorLine}"`);
+  await session.reach(yearPage, READY_STOPS.yearRead);
+  await session.still(yearPage);
+  const yearRead = await yearPage.getByRole('status', { name: 'Winter readiness', includeHidden: true }).evaluate((node) => {
+    const rows = {};
+    for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+    return { shown: !node.hidden, title: node.querySelector('p')?.textContent.trim() ?? '', rows };
+  });
+  await session.screenshot(yearPage, 'readiness-wood-and-hides-autumn');
+  session.check(
+    `at ${clockText(await session.gameMinutes(yearPage))} on the first day of autumn in the year "wood and hides", the reading shows no household housed, no house, at most the tailor's first piece worn, all 8 cold, and the camp's fire out`,
+    yearRead.shown && yearRead.rows['Households in a house'] === '0 of 4' && yearRead.rows['Houses with firewood'] === '0 of 0' &&
+      /^[01] of 8$/.test(yearRead.rows['Settlers in clothing'] ?? '') && yearRead.rows['Cold tonight'] === '8' && yearRead.rows['Camp fire'] === 'Out, 0 of 4 firewood',
+    readingText(yearRead),
+  );
+  await year.context.close();
+  session.check('no page errors', play.errors.length === 0 && year.errors.length === 0, [...play.errors, ...year.errors].join(' | ') || 'none');
+};
+
 
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
