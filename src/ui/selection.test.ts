@@ -168,7 +168,6 @@ describe("a settler's panel", () => {
         { label: 'Home', value: 'None, sleeps at the camp' },
         { label: 'Missed meals', value: 'None' },
         { label: 'Cold nights', value: 'None' },
-        { label: 'Clothing', value: 'None' },
       ],
     });
     expect(panel(VillagerState.Working, task(SUPPLYING), Good.Stone).rows[1]).toEqual({ label: 'Carries', value: '1 stone' });
@@ -184,9 +183,9 @@ describe("a settler's panel", () => {
     const rows = (id: number) => Object.fromEntries(panel(id).rows.slice(2).map(({ label, value }) => [label, value]));
 
     expect(panel(0).title).toBe('Merek');
-    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None', Clothing: 'None' });
+    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
     expect(panel(1).title).toBe('Elsi');
-    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None', Clothing: 'None' });
+    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
     expect(rows(2)).toMatchObject({ Sex: 'Man', Household: `Household 2, with ${panel(3).title}` });
 
     while (sim.orders.sites.state[0] !== SiteState.Built) step(sim);
@@ -643,7 +642,7 @@ describe("a tailor's hut's panel and a tailor's panel", () => {
     expect(readPanel(hut, factsOf(sim)).rows.find(({ label }) => label === 'Clothing')!.value).toBe('1 of 8');
   });
 
-  it("reads a settler's walk to the tailor's hut, then the piece it wears, while the hut's panel counts down", () => {
+  it("reads a settler's walk to the tailor's hut, then the clothing it wears beside its cold nights, while the hut's panel counts down", () => {
     const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 1, monsters: 0 });
     expect(applyCommand(sim, { kind: 'place', building: Building.Tailor, x: 30, y: 12 })).toMatchObject({ ok: true });
     const slot = sim.orders.siteOf[at(sim.map, 30, 12)]!;
@@ -653,14 +652,16 @@ describe("a tailor's hut's panel and a tailor's panel", () => {
     const hut: Selection = { kind: 'building', slot, anchor: at(sim.map, 30, 12) };
     const row = (selection: Selection, label: string) => readPanel(selection, factsOf(sim)).rows.find((r) => r.label === label)!.value;
     const villager: Selection = { kind: 'villager', id: 0 };
-    expect([row(villager, 'Clothing'), row(hut, 'Clothing')]).toEqual(['None', '2 of 8']);
+    expect([row(villager, 'Cold nights'), row(hut, 'Clothing')]).toEqual(['None', '2 of 8']);
     const seen = new Set<string>();
     while (sim.villagers.worn[0] === Good.None) {
       step(sim);
-      seen.add(`${row(villager, 'Doing')} | ${row(villager, 'Carries')} | ${row(villager, 'Clothing')} | ${row(hut, 'Clothing')}`);
+      seen.add(`${row(villager, 'Doing')} | ${row(villager, 'Carries')} | ${row(villager, 'Cold nights')} | ${row(hut, 'Clothing')}`);
     }
     expect(seen).toContain("Walking to the tailor's hut for clothing | Nothing | None | 2 of 8");
-    expect([...seen].at(-1)).toBe('Idle | Nothing | Wears a piece | 1 of 8');
+    expect([...seen].at(-1)).toBe('Idle | Nothing | None, clothed | 1 of 8');
+    sim.villagers.coldNights[0] = 2;
+    expect(row(villager, 'Cold nights')).toBe('2, cold, clothed');
   });
 
   it("says the tailor's hut is full", () => {

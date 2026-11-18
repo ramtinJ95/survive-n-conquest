@@ -3318,8 +3318,7 @@ const SETTLER_LONGEST = {
   Household: 'Household 4, with Haldor',
   Home: 'None, sleeps at the camp',
   'Missed meals': '2, hungry',
-  'Cold nights': '2, cold',
-  Clothing: 'Wears a piece',
+  'Cold nights': '2, cold, clothed',
 };
 
 SCENARIOS.selecting = async (session) => {
@@ -5795,7 +5794,8 @@ const WEAR_WALK_MINUTES = 90;
 /** Wall seconds of the recording kept before the walk is found and after the piece is put on. */
 const WEAR_MARGIN = 2;
 const WEAR_WALK = "Walking to the tailor's hut for clothing";
-const WEAR_WORN = 'Wears a piece';
+/** A settler's `Cold nights` row ends in these words while it wears clothing. */
+const WEAR_WORN = ', clothed';
 /** The clips keep the clock, the Stockpiles panel, the hut, the camp, the selection panel, and the news. */
 const WEAR_CLIPS = {
   fetch: { crop: { x: 0, y: 0, width: 960, height: 490 }, width: 560, colors: 32, decimate: true },
@@ -5810,6 +5810,8 @@ SCENARIOS.wearing = async (session) => {
   const play = await session.open(CLIP, { record: true, search: WEAR_SEARCH, clock: 'paused' });
   const { page } = play;
   const away = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const wears = (read) => (read?.rows?.['Cold nights'] ?? '').endsWith(WEAR_WORN);
+  const nightsOf = (read) => (read?.rows?.['Cold nights'] ?? '').replace(WEAR_WORN, '');
   const clothingOf = (read) => Number(/^(\d+) of 8$/.exec(read?.rows?.Clothing ?? '')?.[1] ?? NaN);
   const firewoodOf = (read) => Number(/^(\d+) of 12$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
   const namesIn = (list) => list.split(/, | and /).map((name) => name.replace(/ \(died\)$/, ''));
@@ -5973,9 +5975,9 @@ SCENARIOS.wearing = async (session) => {
       await session.reach(page, clockAt(now + WEAR_STEP));
       now = await session.gameMinutes(page);
       const read = await reads(page);
-      stops.push(`${clockText(now)} ${read?.rows?.Doing} / ${read?.rows?.Clothing}`);
+      stops.push(`${clockText(now)} ${read?.rows?.Doing} / ${read?.rows?.['Cold nights']}`);
       if (read?.title !== walker.name) break;
-      if (read.rows.Clothing === WEAR_WORN) {
+      if (wears(read)) {
         after = { read, at: now };
         break;
       }
@@ -6014,7 +6016,7 @@ SCENARIOS.wearing = async (session) => {
   for (const dusk of dusks) {
     session.check(
       `the dusk falls on ${dusk.walker.name}'s walk to the hut: it gives the walk up for the camp, and the piece waits in the hut through the night`,
-      dusk.night.read.rows.Clothing === 'None' && clothingOf(dusk.hut) >= 1,
+      !wears(dusk.night.read) && clothingOf(dusk.hut) >= 1,
       `at ${clockText(dusk.night.at)} the panel reads "${text(dusk.night.read)}"; at ${clockText(dusk.at)}, in the night, the hut reads "${dusk.hut?.rows?.Clothing}", and the first settler found on its way for it the next morning is ${dusk.next ?? 'none'}`,
     );
   }
@@ -6024,17 +6026,17 @@ SCENARIOS.wearing = async (session) => {
   const before = walker.read;
   session.check(
     `at ${clockText(walker.at)} ${walker.name}, selected by a click, walks to the tailor's hut for a piece, carries nothing, and wears no clothing`,
-    before.rows.Doing === WEAR_WALK && before.rows.Carries === 'Nothing' && before.rows.Clothing === 'None',
+    before.rows.Doing === WEAR_WALK && before.rows.Carries === 'Nothing' && !wears(before),
     `the panel reads "${text(before)}"`,
   );
   const { boxes } = layout;
   session.check(
-    `at ${CLIP.width}x${CLIP.height} the settler's panel, with its Clothing row, keeps clear of the Stockpiles panel and shows every row`,
+    `at ${CLIP.width}x${CLIP.height} the settler's panel, with its clothing beside its cold nights, keeps clear of the Stockpiles panel and shows every row`,
     layout.fits,
     `the settler's panel is ${boxes.selection?.width.toFixed(0)}x${boxes.selection?.height.toFixed(0)} from y ${boxes.selection?.y.toFixed(0)}, the Stockpiles panel ${boxes.stockpiles?.width.toFixed(0)}x${boxes.stockpiles?.height.toFixed(0)} from y ${boxes.stockpiles?.y.toFixed(0)}, ending at y ${boxes.stockpiles ? (boxes.stockpiles.y + boxes.stockpiles.height).toFixed(0) : 'missing'}`,
   );
   session.check(
-    `${walker.name} walks to the hut's door, puts the piece on there, and its panel reads that it wears a piece and carries nothing`,
+    `${walker.name} walks to the hut's door, puts the piece on there, and its panel reads that it wears clothing and carries nothing`,
     last.rows.Doing === WEAR_WALK && after.read.rows.Carries === 'Nothing' && after.read.rows.Doing !== WEAR_WALK,
     `at ${clockText(after.at)} the panel reads "${text(after.read)}"; the stops: ${stops.join('; ')}`,
   );
@@ -6059,13 +6061,13 @@ SCENARIOS.wearing = async (session) => {
   await session.reach(page, WEAR_STOPS.noon);
   await session.still(page);
   const noon = await settlersIn('wearing-pair', () => false, 24);
-  const clothed = new Set([...noon.found].filter(([, { read }]) => read.rows.Clothing === WEAR_WORN).map(([name]) => name));
-  const bare = [...noon.found].filter(([, { read }]) => read.rows.Clothing === 'None');
+  const clothed = new Set([...noon.found].filter(([, { read }]) => wears(read)).map(([name]) => name));
+  const bare = [...noon.found].filter(([, { read }]) => !wears(read));
   const dressed = [...noon.found].filter(([name]) => clothed.has(name));
   session.check(
     `at ${await at(page)} a click finds a settler who wears clothing and one who wears none in the same paused frame, at the near view`,
     dressed.length > 0 && bare.length > 0,
-    [...noon.found].map(([name, { read, spot }]) => `${name} at (${spot.x}, ${spot.y}): ${read.rows.Clothing}`).join('; ') || 'no settler found',
+    [...noon.found].map(([name, { read, spot }]) => `${name} at (${spot.x}, ${spot.y}): ${read.rows['Cold nights']}`).join('; ') || 'no settler found',
   );
   await deselect();
 
@@ -6115,18 +6117,18 @@ SCENARIOS.wearing = async (session) => {
     if (morning.size >= 8) break;
   }
   // Clothing never comes off, so a settler that wore it at noon wore it at the dusk, and one without it on the morning after had none at the dusk.
-  const unclothed = [...morning].filter(([, read]) => read.rows.Clothing === 'None').map(([name]) => name);
+  const unclothed = [...morning].filter(([, read]) => !wears(read)).map(([name]) => name);
   const bareAt = new Set([...bare.map(([name]) => name), ...unclothed]);
   session.check(
     'the news of the first winter dusk at the camp names the settlers without clothing as having had a cold night, and none of those who wear clothing',
     told !== null && cold.length > 0 && cold.every((name) => !clothed.has(name) && bareAt.has(name)) && unclothed.every((name) => cold.includes(name)),
     `the line read at ${clockText(clockMinutes(WEAR_STOPS.after))}: "${told ?? 'none'}"; cold ${cold.join(', ') || 'nobody'}; wore clothing at noon of day 10 ${[...clothed].join(', ') || 'nobody'}; without clothing at noon of day 10 or on the morning after ${[...bareAt].join(', ') || 'nobody'}`,
   );
-  const known = [...morning].filter(([name, read]) => clothed.has(name) || read.rows.Clothing === 'None');
+  const known = [...morning].filter(([name, read]) => clothed.has(name) || !wears(read));
   session.check(
     'on the morning after, each settler that wore clothing at the dusk reads no cold night, and each without reads 1 cold night',
-    known.some(([name]) => clothed.has(name)) && known.every(([name, read]) => read.rows['Cold nights'] === (clothed.has(name) ? 'None' : '1, cold')),
-    [...morning].map(([name, read]) => `${name}: Clothing ${read.rows.Clothing}, Cold nights ${read.rows['Cold nights']}${clothed.has(name) ? ' (wore it at noon)' : ''}`).join('; ') || 'no settler found',
+    known.some(([name]) => clothed.has(name)) && known.every(([name, read]) => nightsOf(read) === (clothed.has(name) ? 'None' : '1, cold')),
+    [...morning].map(([name, read]) => `${name}: Cold nights ${read.rows['Cold nights']}${clothed.has(name) ? ' (wore it at noon)' : ''}`).join('; ') || 'no settler found',
   );
 
   await session.finishClips(play.context, page, [
