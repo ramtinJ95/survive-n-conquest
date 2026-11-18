@@ -196,7 +196,7 @@ describe("a tailor's hut", () => {
 
   it('works at half the rate while its tailor is hungry, and walks at full speed', () => {
     const run = (hungry: boolean) => {
-      const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+      const sim = createSim(openMap(), { villagers: 1, monsters: 0, campFood: 0 });
       hidePile(sim, 40, 36, 2);
       const hut = finished(sim, Building.Tailor, 36, 32);
       const tailor = tailorAt(sim, hut);
