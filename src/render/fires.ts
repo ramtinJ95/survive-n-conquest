@@ -1,9 +1,10 @@
 import { InstancedMesh, Matrix4, MeshBasicMaterial } from 'three';
 import { Building, siteMidX, siteMidY } from '../sim/buildings';
-import { heightAt, type TileMap } from '../sim/map';
+import type { TileMap } from '../sim/map';
 import { MAX_SITES, type Orders, SiteState } from '../sim/orders';
 import { flameGeometry } from './camp';
 import type { Shapes } from './shapes';
+import { floorOf } from './sites';
 
 /** The sign of a house whose fire burns: a flame standing this far over the roof's top, this many times the camp's flame. */
 const SIGN = { over: 0.05, scale: 1.3 };
@@ -31,7 +32,7 @@ export function createFires(map: TileMap, shapes: Shapes) {
       if (fires[slot] !== 1 || sites.kind[slot] !== Building.House || sites.state[slot] !== SiteState.Built) continue;
       const x = siteMidX(sites, slot);
       const y = siteMidY(sites, slot);
-      placed.makeScale(SIGN.scale, SIGN.scale, SIGN.scale).setPosition(x - half, heightAt(map, x, y) + roof, y - half);
+      placed.makeScale(SIGN.scale, SIGN.scale, SIGN.scale).setPosition(x - half, floorOf(map, sites, slot) + roof, y - half);
       mesh.setMatrixAt(count++, placed);
     }
     mesh.count = count;
