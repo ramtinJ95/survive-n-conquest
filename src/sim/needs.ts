@@ -2,7 +2,7 @@ import { Good } from './goods';
 import { NO_HOME } from './households';
 import type { Sim } from './sim';
 import { CAMP_STORE, free } from './stores';
-import { type Villagers, die } from './villagers';
+import type { Villagers } from './villagers';
 
 /**
  * A need of every villager: a column of the times in a row it went unmet. A
@@ -22,13 +22,6 @@ const NEEDS: readonly Need[] = [HUNGER];
 
 export function meetNeed(sim: Sim, id: number, need: Need): void {
   need.column(sim.villagers)[id] = 0;
-}
-
-/** Counts the need unmet once more, and kills the villager at the count that kills. */
-export function missNeed(sim: Sim, id: number, need: Need): void {
-  const column = need.column(sim.villagers);
-  column[id] = column[id]! + 1;
-  if (column[id]! >= need.diesAt) die(sim, id);
 }
 
 /** Whether any need of the villager is unmet. */
@@ -51,14 +44,4 @@ export function eat(sim: Sim, id: number, store: number): boolean {
   meetNeed(sim, id, HUNGER);
   sim.tally.meals += 1;
   return true;
-}
-
-/** The villager's meal of the day: it eats, or misses the meal. */
-export function dine(sim: Sim, id: number, store: number): void {
-  if (!eat(sim, id, store)) missMeal(sim, id);
-}
-
-export function missMeal(sim: Sim, id: number): void {
-  sim.tally.missed += 1;
-  missNeed(sim, id, HUNGER);
 }

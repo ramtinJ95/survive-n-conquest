@@ -4,17 +4,19 @@ import { BUILDINGS, Building, Job } from './buildings';
 import { TICKS_PER_DAY, TICKS_PER_SECOND } from './calendar';
 import { isNight } from './daylight';
 import { Claim } from './claims';
+import { EATING } from './eating';
 import { Good, putDown } from './goods';
 import { jobOf } from './jobs';
 import { tileAt } from './map';
 import { type Sim, applyCommand, createSim, step } from './sim';
-import { WOODSHED_FIREWOOD_LIMIT } from './stores';
+import { CAMP_STORE, WOODSHED_FIREWOOD_LIMIT } from './stores';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { VillagerState } from './villagerState';
 import { Stop, WORKSHOP } from './workshops';
 
 const WORK = TASK_KINDS.indexOf(WORKSHOP) + 1;
+const EAT = TASK_KINDS.indexOf(EATING) + 1;
 const SPLIT_TICKS = 10 * TICKS_PER_SECOND;
 
 /** An open map of `size` tiles a side, with its camp at its middle. */
@@ -118,6 +120,32 @@ describe('a woodshed', () => {
     expect([sim.tally.batches, sim.tally.made]).toEqual([1, 2]);
   });
 
+  it('has a hungry woodcutter bring the log in its hands into the woodshed before it eats, and finish a half-split log after its meal', () => {
+    const sim = createSim(openMap(), { villagers: 1, monsters: 0, campFood: 0 });
+    logPile(sim, 40, 36, 2);
+    const shed = finished(sim, Building.Woodshed, 36, 32);
+    const woodcutter = woodcutterAt(sim, shed);
+    const food = sim.stores.held[Good.Food - 1]!;
+    const { progress, input } = sim.workshops;
+    sim.villagers.missedMeals[woodcutter] = 1;
+    runUntil(sim, () => sim.villagers.carried[woodcutter] === Good.Log, TICKS_PER_DAY / 2);
+    food[CAMP_STORE] = 1;
+    runUntil(sim, () => sim.villagers.task[woodcutter] === EAT, TICKS_PER_DAY / 2);
+    expect([input[shed], logsOn(sim, 40, 36), logsOnGround(sim)]).toEqual([1, 1, 1]);
+    runUntil(sim, () => sim.tally.meals === 1, TICKS_PER_DAY / 2);
+    expect(sim.villagers.missedMeals[woodcutter]).toBe(0);
+
+    runUntil(sim, () => progress[shed]! >= SPLIT_TICKS / 2, TICKS_PER_DAY / 2);
+    sim.villagers.missedMeals[woodcutter] = 1;
+    food[CAMP_STORE] = 1;
+    const half = progress[shed]!;
+    runUntil(sim, () => sim.villagers.task[woodcutter] === EAT, 10, () => expect(progress[shed]).toBeLessThanOrEqual(half + 10));
+    const left = progress[shed]!;
+    runUntil(sim, () => sim.tally.meals === 2, TICKS_PER_DAY / 2, () => expect(progress[shed]).toBe(left));
+    runUntil(sim, () => firewood(sim, shed) > 0, TICKS_PER_DAY / 2, () => expect(progress[shed] === 0 || progress[shed]! >= left).toBe(true));
+    expect([firewood(sim, shed), sim.tally.batches]).toEqual([2, 1]);
+  });
+
   it('splits at half the rate while its woodcutter is hungry, and walks at full speed', () => {
     const run = (hungry: boolean) => {
       const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
@@ -125,6 +153,7 @@ describe('a woodshed', () => {
       const shed = finished(sim, Building.Woodshed, 36, 32);
       const woodcutter = woodcutterAt(sim, shed);
       if (hungry) sim.villagers.missedMeals[woodcutter] = 1;
+      sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
       let work = 0;
       let walk = 0;
       runUntil(sim, () => firewood(sim, shed) > 0, TICKS_PER_DAY / 2, () => {

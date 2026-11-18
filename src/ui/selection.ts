@@ -7,6 +7,7 @@ import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, s
 import { SEASONS, seasonIndexAt } from '../sim/calendar';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
+import { EATING } from '../sim/eating';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
@@ -120,6 +121,7 @@ const CARRY = task(CARRYING);
 const SUPPLY = task(SUPPLYING);
 const BUILD = task(BUILDING);
 const STOCK = task(STOCKING);
+const EAT = task(EATING);
 const FORAGE = task(FORAGING);
 const FETCH_KILL = task(FETCHING_KILL);
 const HUNT = task(HUNTING);
@@ -191,6 +193,10 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   [BUILD]: (facts, id, working) => {
     const site = siteNoun(facts, facts.frame.taskTiles[id]!);
     return working ? `Building a ${site}` : `Walking to a ${site} site`;
+  },
+  [EAT]: ({ frame, camp }, id, working) => {
+    if (working) return 'Eating';
+    return frame.taskTiles[id] === camp ? 'Walking to the camp to eat' : 'Walking home to eat';
   },
   [STOCK]: (facts, id) => {
     const { frame, camp } = facts;

@@ -34,16 +34,16 @@ function picksOn(sim: Sim, day: number): number[] {
 }
 
 describe('the first year on seed 7 with a hut', () => {
-  it('has the first forager hired pick 4 food on a spring day and 4 on an autumn day, and keeps all 8 alive past the day the settlement without one dies out', () => {
+  it('has the first forager hired pick 3 food on a spring day and 3 on an autumn day, and keeps all 8 alive past the day the settlement without one dies out', () => {
     const sim = firstYear();
     const hut = sim.orders.siteOf[FIRST_YEAR_HUT.y * sim.map.size + FIRST_YEAR_HUT.x]!;
     const spring = picksOn(sim, 2);
     const foragers = Array.from(sim.villagers.workplace, (place, id) => [place, id] as const).filter(([place]) => place === hut);
     const first = foragers.map(([, id]) => id).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!)[0]!;
     expect(nameOf(sim.villagers.sex[first] as Sex, sim.villagers.name[first]!)).toBe('Ysa');
-    expect(spring[first]).toBe(4);
+    expect(spring[first]).toBe(3);
     const autumn = picksOn(sim, 7);
-    expect(autumn[first]).toBe(4);
+    expect(autumn[first]).toBe(3);
     expect([sim.living, sim.tally.died]).toEqual([8, 0]);
   });
 
@@ -83,8 +83,8 @@ describe('the first year on seed 7 with a barn', () => {
   it('has two foragers pick more with the barn beside the hut than with it far away, where the camp stays nearer every tree', () => {
     const beside = yearWith(FIRST_YEAR_BARNS.beside);
     const far = yearWith(FIRST_YEAR_BARNS.far);
-    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([102, 53, 0, 8]);
-    expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([71, 0, 1, 8]);
+    expect([beside.sim.tally.foraged, beside.barnAtAutumnsEnd, beside.sim.tally.missed, beside.sim.living]).toEqual([78, 30, 0, 8]);
+    expect([far.sim.tally.foraged, far.barnAtAutumnsEnd, far.sim.tally.missed, far.sim.living]).toEqual([56, 0, 16, 8]);
   });
 });
 
@@ -113,8 +113,8 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
     const { sim, lodge, atAutumnsEnd, winterKills } = huntYear(true);
     expect(Array.from(sim.villagers.workplace).filter((place) => place === lodge).length).toBe(2);
     const { tally } = sim;
-    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([96, 17, 14, 84, 29, 58, 0]);
-    expect(atAutumnsEnd).toEqual([117, 9, 13]);
+    expect([tally.foraged, tally.shots, tally.kills, tally.hunted, tally.huntedIn, tally.fromGround, tally.spoiled]).toEqual([73, 17, 14, 84, 28, 57, 0]);
+    expect(atAutumnsEnd).toEqual([97, 6, 13]);
     expect(winterKills).toBe(1);
     expect([tally.meals, tally.missed, sim.living]).toEqual([96, 0, 8]);
   });

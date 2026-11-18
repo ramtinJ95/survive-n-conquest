@@ -6,6 +6,7 @@ import { BUILDINGS, Building, Job } from '../src/sim/buildings';
 import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
+import { EATING } from '../src/sim/eating';
 import { FORAGING } from '../src/sim/foraging';
 import { Good } from '../src/sim/goods';
 import { GATHERING } from '../src/sim/gathering';
@@ -90,7 +91,9 @@ const TAILOR_GRID = process.argv.includes('--no-tailors') ? 0 : LODGE_GRID;
 const TAILOR_BESIDE_LODGE = 3;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
+const EAT = TASK_KINDS.indexOf(EATING) + 1;
 const KINDS = [
+  ['eating', EAT],
   ['stocking', TASK_KINDS.indexOf(STOCKING) + 1],
   ['building', TASK_KINDS.indexOf(BUILDING) + 1],
   ['supplying', SUPPLY],
@@ -293,6 +296,9 @@ function measure(size: number): boolean {
   const campX = (sim.flow.goal % size) + 0.5;
   const campY = Math.floor(sim.flow.goal / size) + 0.5;
   const deaths = { away: 0, atStore: 0, foragers: 0, hunters: 0, farthest: 0 };
+  const lastMissed = Uint8Array.from(sim.villagers.missedMeals);
+  let mealsByDay = 0;
+  const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
   const toStockpile: Trips = { count: 0, length: 0 };
   const toSite: Trips = { count: 0, length: 0 };
   let dayVillagerTicks = 0;
@@ -318,6 +324,7 @@ function measure(size: number): boolean {
       turnLeft = TURN_TICKS;
     }
     const dawnTick = isDawn(sim.tick);
+    const byDay = !isNight(sim.tick) && !dawnTick;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
@@ -330,6 +337,8 @@ function measure(size: number): boolean {
         if (job === Job.Hunter) deaths.hunters++;
         deaths.farthest = Math.max(deaths.farthest, Math.hypot(villagerX[id]! - campX, villagerY[id]! - campY));
       }
+      if (byDay && lastMissed[id]! > 0 && sim.villagers.missedMeals[id] === 0 && state[id] !== VillagerState.Dead) mealsByDay++;
+      lastMissed[id] = sim.villagers.missedMeals[id]!;
       lastState[id] = state[id]!;
       lastWorkplace[id] = workplace[id]!;
     }
@@ -353,6 +362,11 @@ function measure(size: number): boolean {
     const day = !isNight(sim.tick - 1);
     for (let id = 0; id < task.length; id++) {
       const taken = task[id] !== lastTask[id] && taskTile[id]! >= 0;
+      if (taken && task[id] === EAT && turn === 'dawn' && turnLeft >= 0) {
+        dawnMeals.walks++;
+        dawnMeals.byDawn[turnCount.dawn - 1] = (dawnMeals.byDawn[turnCount.dawn - 1] ?? 0) + 1;
+        dawnMeals.length += Math.hypot(villagerX[id]! - ((taskTile[id]! % size) + 0.5), villagerY[id]! - (Math.floor(taskTile[id]! / size) + 0.5));
+      }
       const trip = !taken ? undefined : task[id] === SUPPLY ? toSite : task[id] === CARRY ? toStockpile : undefined;
       if (trip) {
         trip.count++;
@@ -410,6 +424,10 @@ function measure(size: number): boolean {
       `${fed.fromGround} carried from the ground into a store, ${fed.toCamp} carried from a barn to the camp, ` +
       `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
       `${sim.stores.held[Good.Food - 1]![CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start, ${barnFood(sim)} in the barns`,
+  );
+  console.log(
+    `  meals eaten by day after a missed meal, outside dusk and dawn: ${mealsByDay}; walks to eat taken in the 10 ticks from each dawn: ${dawnMeals.walks} (${Array.from({ length: turnCount.dawn }, (_, i) => dawnMeals.byDawn[i] ?? 0).join(', ')}), ` +
+      `a straight line of ${(dawnMeals.length / Math.max(dawnMeals.walks, 1)).toFixed(1)} tiles on average to the store`,
   );
   console.log(
     `  deaths in the measured ticks: ${deaths.away} at a dawn, by a third meal missed away from home, and ${deaths.atStore} at a dusk, by a third meal missed at an empty store; ` +

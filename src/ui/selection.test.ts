@@ -6,6 +6,7 @@ import { BUILDINGS, Building } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
+import { EATING } from '../sim/eating';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { shotHits } from '../sim/hunting';
@@ -226,6 +227,35 @@ describe("a settler's panel", () => {
     expect(keepSelection(merek, sim.orders)).toBe(merek);
     expect(markPlace(merek, factsOf(sim))).toBeNull();
     expect(readPanel({ kind: 'villager', id: 1 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value).toBe('Household 1, with Merek (died)');
+  });
+
+  it('says a settler that missed a meal walks home or to the camp to eat, and eats there', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const sim = createSim(map, { villagers: 3, monsters: 0 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 4, y: 4 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, 4, 4)]!;
+    finishBuilding(sim, house);
+    sim.stores.held[Good.Food - 1]![house] = 2;
+    for (const id of [0, 2]) {
+      sim.villagers.x[id] = sim.villagers.targetX[id] = 28.5;
+      sim.villagers.y[id] = sim.villagers.targetY[id] = 28.5;
+      sim.villagers.missedMeals[id] = 1;
+    }
+    const seen = [new Set<string>(), new Set<string>()];
+    while (sim.tally.meals < 2) {
+      step(sim);
+      const facts = factsOf(sim);
+      seen[0]!.add(settler(facts, 0));
+      seen[1]!.add(settler(facts, 2));
+    }
+    expect(seen[0]).toEqual(new Set(['Idle', 'Walking home to eat']));
+    expect(seen[1]).toEqual(new Set(['Idle', 'Walking to the camp to eat']));
+    // A settler eats on the tick it arrives, so it reads Eating only when its half-rate skips that tick.
+    const facts = factsOf(sim);
+    facts.frame.states[2] = VillagerState.Working;
+    facts.frame.tasks[2] = task(EATING);
+    facts.frame.taskTiles[2] = sim.camp;
+    expect(settler(facts, 2)).toBe('Eating');
   });
 });
 

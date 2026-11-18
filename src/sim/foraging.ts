@@ -8,7 +8,7 @@ import { Wants, nearestCommonStore, storeDoor } from './stores';
 import type { TaskKind } from './tasks';
 
 /** Work ticks by one forager that pick a unit of food from a tile. */
-export const FORAGE_WORK_TICKS = 20 * TICKS_PER_SECOND;
+export const FORAGE_WORK_TICKS = 30 * TICKS_PER_SECOND;
 /** Ticks from a pick until the tile bears again. */
 export const FORAGE_REGROW_TICKS = 2 * TICKS_PER_DAY;
 const WINTER = SEASONS.indexOf('Winter');
