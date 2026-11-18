@@ -5453,6 +5453,14 @@ const COLD_SEARCH = `?seed=7&${FED.slice(1)}`;
 const COLD_ORDER_VIEW = { wheel: -450, turn: { x: 0, y: 0 }, pan: { x: 20, y: 31 } };
 /** Wheel pixels from the order view's 61 m in to the near view of 27 m, toward the same look-at point. */
 const COLD_CLOSER = -550;
+/**
+ * The drag that then moves the near view's look-at point to (127, 123), so the first house's roof and its fire's
+ * sign stand west of the winter readiness panel, which from the first day of autumn covers the page from x 441 to 792
+ * and from y 108 to 249 at 960 by 540. Before the panel the near view looked at (123.99, 125.04), and the sign box
+ * of the first house lay under it. `scripts/aim.ts` puts the near view's pan at (46, 71) before and (-43, 73) after:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-1000,"turn":{"x":0,"y":0},"target":[127,123]}' '[[121,122],[122,123,3],[121,127],[122,128,3],[126,123],[127,124],[127,127]]'`
+ */
+const COLD_NEAR_PAN = { from: { x: 480, y: 270 }, to: { x: 391, y: 272 } };
 const COLD_ORDERS = {
   chop: [{ x: 640, y: 292 }, { x: 697, y: 454 }],
   quarry: [{ x: 512, y: 201 }, { x: 516, y: 211 }],
@@ -5461,18 +5469,19 @@ const COLD_ORDERS = {
   houses: [{ x: 472, y: 246 }, { x: 443, y: 270 }],
 };
 /**
- * Spots of the near view. Each house has the points a click may select it at, its roof and the tile in its middle, the
+ * Spots of the near view after `COLD_NEAR_PAN`, each the spot of the view before it moved by the shift `scripts/aim.ts`
+ * gives for the tile or roof point under it. Each house has the points a click may select it at, its roof and the tile in its middle, the
  * box over its roof where its fire's sign stands, and the box of the whole house, whose thatch in the winter morning
  * reads as tunic yellow, so the search for a settler passes over it. The camp has the points around its fire, which a
  * settler in the ring can take a click from.
  */
 const COLD_SPOTS = {
   houses: [
-    { clicks: [{ x: 462, y: 180 }, { x: 463, y: 217 }], sign: { x: 437, y: 120, width: 50, height: 55 }, body: { x: 415, y: 145, width: 95, height: 100 } },
-    { clicks: [{ x: 389, y: 230 }, { x: 394, y: 270 }], sign: { x: 362, y: 168, width: 50, height: 55 }, body: { x: 335, y: 185, width: 110, height: 120 } },
+    { clicks: [{ x: 370, y: 167 }, { x: 379, y: 206 }], sign: { x: 342, y: 106, width: 50, height: 55 }, body: { x: 325, y: 133, width: 95, height: 100 } },
+    { clicks: [{ x: 280, y: 216 }, { x: 298, y: 258 }], sign: { x: 250, y: 153, width: 50, height: 55 }, body: { x: 230, y: 172, width: 110, height: 120 } },
   ],
-  camp: [{ x: 527, y: 350 }, { x: 519, y: 352 }, { x: 535, y: 352 }, { x: 527, y: 358 }],
-  shed: [{ x: 555, y: 241 }, { x: 551, y: 262 }],
+  camp: [{ x: 427, y: 339 }, { x: 419, y: 341 }, { x: 435, y: 341 }, { x: 427, y: 347 }],
+  shed: [{ x: 467, y: 230 }, { x: 462, y: 251 }],
 };
 const COLD_STOPS = {
   orders: { day: 1, time: '08:15' },
@@ -5610,6 +5619,7 @@ SCENARIOS.cold = async (session) => {
   await session.screenshot(page, 'cold-orders');
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, COLD_CLOSER);
+  await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
   await away();
   await session.still(page);
   await session.screenshot(page, 'cold-view');
@@ -5755,7 +5765,7 @@ SCENARIOS.cold = async (session) => {
  */
 const WEAR_SEARCH = COLD_SEARCH;
 const WEAR_ORDERS = { ...COLD_ORDERS, tailor: COLD_ORDERS.houses[0], lodge: COLD_ORDERS.houses[1] };
-const WEAR_SPOTS = { hut: [{ x: 470, y: 238 }, { x: 463, y: 217 }, { x: 482, y: 228 }], camp: COLD_SPOTS.camp };
+const WEAR_SPOTS = { hut: [{ x: 470, y: 238 }, { x: 463, y: 217 }, { x: 482, y: 228 }], camp: [{ x: 527, y: 350 }, { x: 519, y: 352 }, { x: 535, y: 352 }, { x: 527, y: 358 }] };
 const WEAR_STOPS = {
   orders: { day: 1, time: '08:15' },
   watch: { day: 2, time: '12:00' },
@@ -6299,6 +6309,7 @@ SCENARIOS.readiness = async (session) => {
   session.check(`at ${orderedAt} in spring the reading of readiness is hidden`, !spring.shown, readingText(spring));
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, COLD_CLOSER);
+  await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
   await away();
   await session.still(page);
 
@@ -6325,6 +6336,7 @@ SCENARIOS.readiness = async (session) => {
     readingText(first),
   );
   const secondAt = await at(page);
+  await session.drag(page, COLD_NEAR_PAN.to, COLD_NEAR_PAN.from);
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, -COLD_CLOSER);
   await away();
@@ -6332,6 +6344,7 @@ SCENARIOS.readiness = async (session) => {
   const secondLine = await place('KeyH', /^House site placed/, COLD_ORDERS.houses[1]);
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, COLD_CLOSER);
+  await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
   await away();
   await session.still(page);
   session.check(
