@@ -4,11 +4,18 @@ import type { OrderOutcome } from './sim/orders';
 import { type Command, type Population, type Sim, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
 
 /**
- * `paused` starts the clock paused, before the first step. `pauseAt` pauses the clock when it reaches a tick, so the
- * verification harness can stop the page at an exact game minute; the game itself never sends it.
+ * `paused` starts the clock paused, before the first step. `everyTick` posts a frame after every step, not once a pump,
+ * so the page sees each unit's move of every tick and turns it the same way however its frames are timed. `pauseAt`
+ * pauses the clock when it reaches a tick. The verification harness asks for all three, and a player's page for none.
  */
 export type ToSim =
-  | { readonly kind: 'start'; readonly map: TileMap; readonly population: Population; readonly paused: boolean }
+  | {
+      readonly kind: 'start';
+      readonly map: TileMap;
+      readonly population: Population;
+      readonly paused: boolean;
+      readonly everyTick: boolean;
+    }
   | { readonly kind: 'pauseAt'; readonly tick: number }
   | Command;
 type Control = Exclude<ToSim, { kind: 'start' }>;
@@ -22,7 +29,7 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
   self.postMessage(frame, { transfer });
 }
 
-function host(map: TileMap, population: Population, paused: boolean): (control: Control) => void {
+function host(map: TileMap, population: Population, paused: boolean, everyTick: boolean): (control: Control) => void {
   const sim = createSim(map, population);
   sim.paused = paused;
   let owed = 0;
@@ -34,6 +41,7 @@ function host(map: TileMap, population: Population, paused: boolean): (control: 
     last = now;
     for (; owed >= 1; owed -= 1) {
       step(sim);
+      if (everyTick) publish(sim);
       if (sim.tick === pauseAt) {
         sim.paused = true;
         owed = 0;
@@ -45,7 +53,7 @@ function host(map: TileMap, population: Population, paused: boolean): (control: 
   setInterval(() => {
     const before = sim.tick;
     catchUp();
-    if (sim.tick !== before) publish(sim);
+    if (sim.tick !== before && !everyTick) publish(sim);
   }, PUMP_MS);
   publish(sim);
   return (control) => {
@@ -64,7 +72,7 @@ let receive: ((control: Control) => void) | undefined;
 self.addEventListener('message', ({ data }: MessageEvent<ToSim>) => {
   if (data.kind === 'start') {
     if (receive) throw new Error('the simulation has already started');
-    receive = host(data.map, data.population, data.paused);
+    receive = host(data.map, data.population, data.paused, data.everyTick);
   } else if (receive) {
     receive(data);
   } else {

@@ -639,10 +639,8 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 
     /**
      * Runs the clock to the first tick of a game minute and pauses it there, by the worker's `pauseAt`. `speed` is the
-     * key of the speed it runs at, 8x unless a clip wants the motion slower. The last 2 ticks run at 1x, where the page
-     * draws each tick, because a deer faces the way it moved between the last two frames the page drew, and at 8x those
-     * frames lie 1 or 2 ticks apart from run to run. A settlement that dies out on the way stops the clock itself, and
-     * `reach` returns there.
+     * key of the speed it runs at, 8x unless a clip wants the motion slower. A settlement that dies out on the way stops
+     * the clock itself, and `reach` returns there.
      */
     async reach(page, target, { speed = '4' } = {}) {
       const wanted = clockMinutes(target);
@@ -655,20 +653,13 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       const deadline = Date.now() + (2 * (wanted - from) * 1000) / fastest + 60_000;
       const [worker] = page.workers();
       if (!worker) fail('the page runs no simulation worker');
-      const runTo = async (tick, minute, key) => {
-        await worker.evaluate((at) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick: at } })), tick);
-        await page.keyboard.press(key);
-        while ((await this.gameMinutes(page)) !== minute || !(await paused.isVisible())) {
-          if (await diedOut.isVisible()) return false;
-          if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(minute)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
-          await page.waitForTimeout(20);
-        }
-        return true;
-      };
-      // Two ticks before the minute's first lie in the minute before it, and past the tick the clock stands on once the
-      // minute is two or more ahead.
-      if (wanted - from >= 2 && !(await runTo(tickAt(wanted) - 2, wanted - 1, speed))) return;
-      if (!(await runTo(tickAt(wanted), wanted, '1'))) return;
+      await worker.evaluate((tick) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick } })), tickAt(wanted));
+      await page.keyboard.press(speed);
+      while ((await this.gameMinutes(page)) !== wanted || !(await paused.isVisible())) {
+        if (await diedOut.isVisible()) return;
+        if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(wanted)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
+        await page.waitForTimeout(20);
+      }
       await this.settle(page);
     },
 
@@ -4552,6 +4543,9 @@ const FIREWOOD_SPOTS = {
 /** A felled tree gives 2 logs, the shed takes 6, and a split log gives 2 firewood. */
 const FIREWOOD_LOGS = { perTree: 2, shed: 6, firewoodPerLog: 2 };
 const FIREWOOD_FINISHED = { after: { day: 1, time: '11:00' }, before: { day: 1, time: '13:30' } };
+/** Game minutes between the stops that look for the woodshed's label to go or the woodcutter to stop, and between the stops that read its panel. */
+const FIREWOOD_STEP = 5;
+const FIREWOOD_WATCH_STEP = 1;
 /** The follow starts with a walk to the stockpile by then. */
 const FIREWOOD_FOLLOW_BY = { day: 1, time: '16:00' };
 /** At the dusk of day 1, 19:12, the woodcutter walks to the camp, and its panel and the shed's say so instead. */
@@ -4691,19 +4685,12 @@ SCENARIOS.firewood = async (session) => {
   );
   await session.screenshot(page, 'firewood-site');
 
-  await page.keyboard.press('4');
-  const deadline = Date.now() + 240_000;
-  while ((await label.count()) > 0) {
-    if (Date.now() > deadline) fail('the woodshed site still stood four minutes after the orders at 8×');
-    await page.waitForTimeout(100);
-  }
-  const finished = await session.gameMinutes(page);
-  await session.pause(page);
+  const finished = await session.labelGone(page, 'Woodshed site', { every: FIREWOOD_STEP, until: FIREWOOD_FINISHED.before });
   await session.still(page);
   session.check(
     `the woodshed is finished on day 1 between ${FIREWOOD_FINISHED.after.time} and ${FIREWOOD_FINISHED.before.time}`,
     finished >= clockMinutes(FIREWOOD_FINISHED.after) && finished <= clockMinutes(FIREWOOD_FINISHED.before),
-    `the label was gone at ${clockText(finished)}; paused at ${await at(page)}`,
+    `the label was gone at the stop at ${clockText(finished)}`,
   );
   const shed = await clickShed();
   const name = shed?.rows?.Woodcutter;
@@ -4739,19 +4726,18 @@ SCENARIOS.firewood = async (session) => {
   );
   await session.screenshot(page, 'firewood-woodcutter-panel');
 
-  // Runs at 1× while the woodcutter walks and at 2× while it splits, until its panel reads something else or for at
-  // most `minutes`, and pauses there.
+  // Steps the clock `FIREWOOD_WATCH_STEP` minutes at a time until the woodcutter's panel reads something else, or for at
+  // most `minutes`, and stays paused there.
   const runWhileDoing = async (doing, minutes) => {
-    const until = (await session.gameMinutes(page)) + minutes;
-    await page.keyboard.press(doing === SPLITTING_LOG ? '2' : '1');
-    for (;;) {
+    const until = clockAt((await session.gameMinutes(page)) + minutes);
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + FIREWOOD_WATCH_STEP), { speed: '1' });
+    const changed = async () => {
       const read = await reads(page);
-      if (read?.title !== name || read.rows.Doing !== doing || (await session.gameMinutes(page)) >= until) break;
-      await page.waitForTimeout(60);
-    }
-    await session.pause(page);
+      return (read?.title !== name || read.rows.Doing !== doing) && { read };
+    };
+    const done = await session.runUntil(page, changed, { every: FIREWOOD_WATCH_STEP, until });
     await session.still(page);
-    return reads(page);
+    return done ? done.read : reads(page);
   };
   let read = woodcutter;
   while (read?.title === name && read.rows.Doing !== FETCHING_LOG && (await session.gameMinutes(page)) < clockMinutes(FIREWOOD_FOLLOW_BY)) {
@@ -4811,13 +4797,7 @@ SCENARIOS.firewood = async (session) => {
     `Woodshed firewood read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} at ${done?.at ?? 'no stop'}; the shed's panel then reads "${text(shedAfter)}"`,
   );
 
-  await page.keyboard.press('4');
-  for (;;) {
-    const now = await reads(page);
-    if (now?.rows?.Doing === NO_LOG || (await session.gameMinutes(page)) >= clockMinutes(FIREWOOD_UNTIL)) break;
-    await page.waitForTimeout(100);
-  }
-  await session.pause(page);
+  await session.runUntil(page, async () => (await reads(page))?.rows?.Doing === NO_LOG, { every: FIREWOOD_STEP, until: FIREWOOD_UNTIL });
   await session.still(page);
   const stopped = await reads(page);
   const stoppedTotals = await stockpiles(page);
