@@ -149,10 +149,16 @@ const WORK = task(WORKSHOP);
 const WEAR = task(WEARING);
 const WINTER = SEASONS.indexOf('Winter');
 
-/** The winter nights that have ended at a dawn, on a tick of the winter. */
+/**
+ * The winter nights whose dawn the simulation has run, in a frame at `tick`:
+ * it copies last night's fires as it runs a dawn's tick, so a frame at that
+ * tick still holds the night before's.
+ */
 function winterNightsEnded(tick: number): number {
-  const beforeDawn = isNight(tick) && tickOfDay(tick) < TICKS_PER_DAY / 2;
-  return Math.max(0, Math.floor(tickOfSeason(tick) / TICKS_PER_DAY) - Number(beforeDawn));
+  const ran = tick - 1;
+  if (seasonIndexAt(ran) !== WINTER) return 0;
+  const beforeDawn = isNight(ran) && tickOfDay(ran) < TICKS_PER_DAY / 2;
+  return Math.max(0, Math.floor(tickOfSeason(ran) / TICKS_PER_DAY) - Number(beforeDawn));
 }
 
 const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
