@@ -328,7 +328,7 @@ function coldNights({ frame }: Facts, id: number): string {
   const nights = frame.coldNights[id]!;
   if (frame.states[id] === VillagerState.Dead) return nights === 0 ? 'None' : String(nights);
   const cold = nights === 0 ? 'None' : `${nights}, cold`;
-  return frame.worn[id] === Good.Clothing ? `${cold}, wears clothing` : cold;
+  return frame.worn[id] === Good.Clothing ? `${cold}, clothed` : cold;
 }
 
 const CARRIED_WORDS: Readonly<Record<Good, string>> = {

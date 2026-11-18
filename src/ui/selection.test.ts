@@ -657,9 +657,9 @@ describe("a tailor's hut's panel and a tailor's panel", () => {
       seen.add(`${row(villager, 'Doing')} | ${row(villager, 'Carries')} | ${row(villager, 'Cold nights')} | ${row(hut, 'Clothing')}`);
     }
     expect(seen).toContain("Walking to the tailor's hut for clothing | Nothing | None | 2 of 8");
-    expect([...seen].at(-1)).toBe('Idle | Nothing | None, wears clothing | 1 of 8');
+    expect([...seen].at(-1)).toBe('Idle | Nothing | None, clothed | 1 of 8');
     sim.villagers.coldNights[0] = 2;
-    expect(row(villager, 'Cold nights')).toBe('2, cold, wears clothing');
+    expect(row(villager, 'Cold nights')).toBe('2, cold, clothed');
   });
 
   it("says the tailor's hut is full", () => {

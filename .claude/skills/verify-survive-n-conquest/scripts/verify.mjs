@@ -3311,7 +3311,7 @@ const SETTLER_LONGEST = {
   Household: 'Household 4, with Haldor',
   Home: 'None, sleeps at the camp',
   'Missed meals': '2, hungry',
-  'Cold nights': '2, cold, wears clothing',
+  'Cold nights': '2, cold, clothed',
 };
 
 SCENARIOS.selecting = async (session) => {
@@ -5775,7 +5775,7 @@ const WEAR_WALK_MINUTES = 90;
 const WEAR_MARGIN = 2;
 const WEAR_WALK = "Walking to the tailor's hut for clothing";
 /** A settler's `Cold nights` row ends in these words while it wears clothing. */
-const WEAR_WORN = ', wears clothing';
+const WEAR_WORN = ', clothed';
 /** The clips keep the clock, the Stockpiles panel, the hut, the camp, the selection panel, and the news. */
 const WEAR_CLIPS = {
   fetch: { crop: { x: 0, y: 0, width: 960, height: 490 }, width: 560, colors: 32, decimate: true },
