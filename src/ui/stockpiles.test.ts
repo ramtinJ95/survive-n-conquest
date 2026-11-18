@@ -10,7 +10,7 @@ import { storeTotals, jobCounts, stockpileTotals } from './stockpiles';
 const ROWS = Array.from({ length: 12 }, () => '.'.repeat(12));
 
 describe('stockpileTotals', () => {
-  it('adds up each good on stockpile tiles only, and stops counting a tile that Cancel removes', () => {
+  it('adds up the logs, stone, and hides on stockpile tiles only, and stops counting a tile that Cancel removes', () => {
     const map = mapFrom(ROWS);
     const orders = createOrders(map);
     for (const [x, y, good, size] of [
@@ -19,17 +19,19 @@ describe('stockpileTotals', () => {
       [2, 0, Good.Stone, 2],
       [5, 10, Good.Log, 7],
       [6, 10, Good.Stone, 4],
+      [3, 0, Good.Hide, 2],
+      [7, 10, Good.Hide, 1],
     ] as const) {
       map.stackGood[at(map, x, y)] = good;
       map.stackSize[at(map, x, y)] = size;
     }
-    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 0, [Good.Stone]: 0 });
+    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 0, [Good.Stone]: 0, [Good.Hide]: 0 });
 
     applyOrder(map, orders, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: 3, y1: 0 } });
-    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 8, [Good.Stone]: 2 });
+    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 8, [Good.Stone]: 2, [Good.Hide]: 2 });
 
     applyOrder(map, orders, { kind: 'markArea', order: 'cancel', area: { x0: 1, y0: 0, x1: 1, y1: 0 } });
-    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 3, [Good.Stone]: 2 });
+    expect(stockpileTotals(map, orders.claims)).toMatchObject({ [Good.Log]: 3, [Good.Stone]: 2, [Good.Hide]: 2 });
   });
 });
 

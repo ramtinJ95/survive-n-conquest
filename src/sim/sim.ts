@@ -96,6 +96,8 @@ export interface Tally {
   hunted: number;
   /** Units of food a hunter carried into a store. A settler without a job who carries a kill's food counts in `fromGround`. */
   huntedIn: number;
+  /** Hides the kills left on the ground. */
+  hides: number;
   /** Units of food gone from open ground at a dawn. */
   spoiled: number;
   /** Batches workers finished at workshops, such as the logs a woodcutter split. */
@@ -170,7 +172,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     workers: new Uint8Array(MAX_SITES),
     tally: {
       felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
-      foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, spoiled: 0,
+      foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, hides: 0, spoiled: 0,
       batches: 0, made: 0,
     },
     tick: 0,

@@ -76,6 +76,20 @@ export function firewoodShape(): BufferGeometry {
   return mergeGeometries([piece(-radius, radius / 2), piece(radius, radius / 2), piece(0, 1.4 * radius)]);
 }
 
+/** A hide, on the ground or in hands: a flat, rawhide-brown pelt with its legs spread, redder than a sack of food and paler than a deer, with no model behind it. */
+export function hideShape(): BufferGeometry {
+  const color = 0xa8735a;
+  const thick = 0.03;
+  const leg = (x: number, z: number) => new BoxGeometry(0.12, thick, 0.12).translate(x, thick / 2, z);
+  return mergeGeometries([
+    colored(new BoxGeometry(0.34, thick, 0.46).translate(0, thick / 2, 0), color),
+    ...[leg(-0.2, -0.2), leg(0.2, -0.2), leg(-0.2, 0.2), leg(0.2, 0.2)].map((part) => colored(part, color)),
+  ]);
+}
+
+/** A piece of clothing: a folded blue-grey tunic, flat and square, with no model behind it. */
+export const clothingShape = (): BufferGeometry => colored(new BoxGeometry(0.34, 0.1, 0.3).translate(0, 0.05, 0), 0x4f6d8f);
+
 /**
  * The forager's hut, in meters: a low square of `courses` logs a side, of the
  * stockpiled logs' color, under a steep roof of eight sides in a darker shade
@@ -250,6 +264,36 @@ export function woodshedShape(): BufferGeometry {
     colored(plane, colors.roof),
     colored(new BoxGeometry(stack.width, stackHeight, stack.depth - 0.06).translate(0, stackHeight / 2, half - stack.depth / 2 - 0.06), colors.backing),
     ...pieces,
+  ]);
+}
+
+/**
+ * The tailor's hut: a round hut of pale hide walls under a dark cone roof,
+ * with a hide on a drying frame beside its door. It is the only round
+ * building, so it reads apart from the square house, hut, barn, lodge, and woodshed.
+ */
+export const TAILOR_LOOK = {
+  radius: 0.82,
+  walls: 0.8,
+  roof: { radius: 1.02, height: 0.85 },
+  door: { width: 0.38, height: 0.58 },
+  frame: { x: 0.62, width: 0.42, height: 0.7, pole: 0.05 },
+  colors: { walls: 0xd9c4a0, roof: 0x5a4030, door: 0x3f2a1a, timber: 0x3f2a1a, hide: 0xa8735a },
+};
+
+/** The tailor's hut, with no model behind it, standing on the origin and centered on its footprint, its door facing +z. */
+export function tailorShape(): BufferGeometry {
+  const { radius, walls, roof, door, frame, colors } = TAILOR_LOOK;
+  const z = radius + 0.18;
+  const pole = (x: number) => new BoxGeometry(frame.pole, frame.height, frame.pole).translate(x, frame.height / 2, z);
+  return mergeGeometries([
+    colored(new CylinderGeometry(radius, radius, walls, 10).translate(0, walls / 2, 0), colors.walls),
+    colored(new ConeGeometry(roof.radius, roof.height, 10).translate(0, walls + roof.height / 2, 0), colors.roof),
+    colored(new BoxGeometry(door.width, door.height, 0.06).translate(-0.18, door.height / 2, radius - 0.01), colors.door),
+    colored(pole(frame.x - frame.width / 2), colors.timber),
+    colored(pole(frame.x + frame.width / 2), colors.timber),
+    colored(new BoxGeometry(frame.width, frame.pole, frame.pole).translate(frame.x, frame.height - frame.pole / 2, z), colors.timber),
+    colored(new BoxGeometry(frame.width - frame.pole, frame.height - 0.24, 0.02).translate(frame.x, frame.height / 2 + 0.06, z), colors.hide),
   ]);
 }
 

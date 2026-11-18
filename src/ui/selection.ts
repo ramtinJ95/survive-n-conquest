@@ -17,7 +17,7 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, WOODSHED_FIREWOOD_LIMIT, limitOf, storeKind } from '../sim/stores';
+import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, TAILOR_CLOTHING_LIMIT, WOODSHED_FIREWOOD_LIMIT, limitOf, storeKind } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
@@ -55,6 +55,7 @@ export interface Facts {
     | 'campFoodLimit'
     | 'storeInbound'
     | 'storeFirewood'
+    | 'storeClothing'
     | 'workshopStops'
     | 'animals'
     | 'animalStates'
@@ -125,7 +126,7 @@ const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
 const WINTER = SEASONS.indexOf('Winter');
 
-const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood' };
+const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
 
 /** What the worker at each kind of workshop does, in words: on its way to a unit of input, carrying it in, on its way to a batch that waits, and at work on a batch, and what it says, idle, of each reason it stopped. */
 interface WorkshopWords {
@@ -147,6 +148,18 @@ const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
       [Stop.Full]: 'Idle, the woodshed is full',
       [Stop.NoInput]: `Idle, no log in a stockpile within ${BUILDINGS[Building.Woodshed].reach} tiles of the woodshed`,
       [Stop.ForSites]: 'Idle, the building sites need the logs',
+    },
+  },
+  [Building.Tailor]: {
+    fetching: 'Walking to a stockpile for a hide',
+    carrying: "Carrying a hide to the tailor's hut",
+    going: "Walking to the tailor's hut to make clothing",
+    working: 'Making clothing',
+    stops: {
+      [Stop.Working]: 'Looking for a hide',
+      [Stop.Full]: "Idle, the tailor's hut is full",
+      [Stop.NoInput]: `Idle, no hide in a stockpile within ${BUILDINGS[Building.Tailor].reach} tiles of the tailor's hut`,
+      [Stop.ForSites]: 'Idle, the building sites need the hides',
     },
   },
 };
@@ -235,6 +248,12 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
   return jobAt(orders.sites, frame.workplaces[id]!);
 }
 
+/** Why a worker at a workshop is idle, as its workshop's last look for work found. */
+function workshopIdle(facts: Facts, id: number): string {
+  const slot = facts.frame.workplaces[id]!;
+  return workshopWords(facts, slot).stops[facts.frame.workshopStops[slot] as Stop];
+}
+
 /** What a villager with no task does by day, by its job: a forager or a hunter says why it is not out at its work. */
 const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = {
   [Job.None]: () => 'Idle',
@@ -249,10 +268,8 @@ const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = 
     if (!preyInReach(facts, facts.frame.workplaces[id]!)) return `Idle, no deer within ${BUILDINGS[Building.Lodge].reach} tiles of the lodge`;
     return 'Looking for deer';
   },
-  [Job.Woodcutter]: (facts, id) => {
-    const slot = facts.frame.workplaces[id]!;
-    return workshopWords(facts, slot).stops[facts.frame.workshopStops[slot] as Stop];
-  },
+  [Job.Woodcutter]: (facts, id) => workshopIdle(facts, id),
+  [Job.Tailor]: (facts, id) => workshopIdle(facts, id),
 };
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
@@ -286,6 +303,8 @@ const CARRIED_WORDS: Readonly<Record<Good, string>> = {
   [Good.Stone]: '1 stone',
   [Good.Food]: '1 food',
   [Good.Firewood]: '1 firewood',
+  [Good.Hide]: '1 hide',
+  [Good.Clothing]: '1 piece of clothing',
 };
 
 const builders = ({ frame }: Facts, anchor: number) => {
@@ -449,6 +468,15 @@ const PANELS: Panels = {
     `Its woodcutter carries logs from the stockpiles within ${BUILDINGS[Building.Woodshed].reach} tiles and splits each into 2 firewood.`,
     [
       { label: 'Firewood', read: ({ frame }, { slot }) => `${frame.storeFirewood[slot]} of ${WOODSHED_FIREWOOD_LIMIT}` },
+      { label: 'Doing', read: (facts, { slot }) => workAt(facts, slot) },
+    ],
+  ),
+  tailorSite: sitePanel(Building.Tailor),
+  tailor: workplacePanel(
+    Building.Tailor,
+    `Its tailor carries hides from the stockpiles within ${BUILDINGS[Building.Tailor].reach} tiles and makes 1 piece of clothing from each 2.`,
+    [
+      { label: 'Clothing', read: ({ frame }, { slot }) => `${frame.storeClothing[slot]} of ${TAILOR_CLOTHING_LIMIT}` },
       { label: 'Doing', read: (facts, { slot }) => workAt(facts, slot) },
     ],
   ),

@@ -81,3 +81,21 @@ describe('the woodshed tool', () => {
     expect(sitePreview(map, orders, Building.Hut, 5, 5).line).toBe('Cannot build here. A woodshed stands in the way.');
   });
 });
+
+describe("the tailor's hut tool", () => {
+  it("is picked with T, says what the tailor does, places a tailor's hut site, and says so", () => {
+    const hut = toolFor('KeyT');
+    expect(hut).toMatchObject({ id: 'tailor', label: "Tailor's hut", face: 'Tailor', key: 'T' });
+    expect(hut.hint).toBe("Click to place a tailor's hut on 2 by 2 tiles of open, level ground. Its tailor makes clothing from hides.");
+    const tile = { x: 4, y: 5, onMap: true };
+    const command = orderFor(hut, tile, tile)!;
+    expect(command).toEqual({ kind: 'place', building: Building.Tailor, x: 4, y: 5 });
+    const { map, orders } = ground();
+    expect(outcomeWords(map, orders, applyOrder(map, orders, command), command)).toBe("Tailor's hut site placed.");
+    expect(sitePreview(map, orders, Building.Hut, 5, 5).line).toBe("Cannot build here. A tailor's hut stands in the way.");
+  });
+
+  it('is the ninth of ten tools, before Cancel, each on its own key', () => {
+    expect(TOOLS.map(({ key }) => key)).toEqual(['C', 'M', 'P', 'H', 'G', 'B', 'L', 'K', 'T', 'Del']);
+  });
+});

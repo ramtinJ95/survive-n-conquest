@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS, Building } from '../sim/buildings';
 import { generateMap } from '../sim/mapgen';
 import { SiteState, createOrders } from '../sim/orders';
-import { lodgeShape, primitiveShapes, woodshedShape } from './shapes';
+import { TAILOR_LOOK, lodgeShape, primitiveShapes, tailorShape, woodshedShape } from './shapes';
 import { createSites } from './sites';
 
 const SIZE = 64;
@@ -171,5 +171,41 @@ describe('sites and houses', () => {
     };
     expect(tops(woodshedShape())).toBeGreaterThan(0.3);
     expect(tops(lodgeShape())).toBeLessThan(-0.3);
+  });
+
+  it("draws a tailor's hut on its 2 by 2 tiles, round under a round roof where every other building is square", () => {
+    const map = generateMap(7, SIZE);
+    const orders = createOrders(map);
+    const { buildings, scaffolds, show } = createSites(map, primitiveShapes());
+    const huts = buildings[Building.Tailor]!;
+    orders.sites.x[0] = 20;
+    orders.sites.y[0] = 30;
+    orders.sites.kind[0] = Building.Tailor;
+    orders.sites.state[0] = SiteState.Site;
+    orders.sites.work[0] = BUILDINGS[Building.Tailor].workTicks / 2;
+    show(orders);
+    expect([huts.count, scaffolds[Building.Tailor]!.count, buildings[Building.Woodshed]!.count]).toEqual([1, 1, 0]);
+
+    orders.sites.state[0] = SiteState.Built;
+    show(orders);
+    expect([huts.count, scaffolds[Building.Tailor]!.count]).toEqual([1, 0]);
+    huts.geometry.computeBoundingBox();
+    const hut = huts.geometry.boundingBox!;
+    expect(hut.max.x - hut.min.x).toBeLessThanOrEqual(2.1);
+    expect(hut.max.z - hut.min.z).toBeLessThanOrEqual(2.1);
+    /** How far the roof's farthest corner reaches from the middle, over how far it reaches along x: about 1.05 for a ten-sided round roof, about 1.41 for a square one turned to face its corners out. */
+    const roofSpread = (geometry: ReturnType<typeof tailorShape>, above: number) => {
+      const position = geometry.getAttribute('position');
+      let radius = 0;
+      let alongX = 0;
+      for (let corner = 0; corner < position.count; corner++) {
+        if (position.getY(corner) < above) continue;
+        radius = Math.max(radius, Math.hypot(position.getX(corner), position.getZ(corner)));
+        alongX = Math.max(alongX, Math.abs(position.getX(corner)));
+      }
+      return radius / alongX;
+    };
+    expect(roofSpread(tailorShape(), TAILOR_LOOK.walls - 0.01)).toBeLessThan(1.1);
+    expect(roofSpread(primitiveShapes().house, 1.85)).toBeGreaterThan(1.3);
   });
 });

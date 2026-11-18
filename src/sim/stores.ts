@@ -24,6 +24,7 @@ export const MEALS_PER_DAY = 1;
 
 export const BARN_FOOD_LIMIT = 120;
 export const WOODSHED_FIREWOOD_LIMIT = 40;
+export const TAILOR_CLOTHING_LIMIT = 8;
 
 /**
  * The places under a roof that hold goods, by good at index `good - 1` and
@@ -74,6 +75,7 @@ const BUILDING_STORES: Readonly<Record<Building, { readonly kind: StoreKind; rea
   [Building.Barn]: { kind: StoreKind.Common, limits: { [Good.Food]: BARN_FOOD_LIMIT } },
   [Building.Lodge]: { kind: StoreKind.None, limits: {} },
   [Building.Woodshed]: { kind: StoreKind.Workshop, limits: { [Good.Firewood]: WOODSHED_FIREWOOD_LIMIT } },
+  [Building.Tailor]: { kind: StoreKind.Workshop, limits: { [Good.Clothing]: TAILOR_CLOTHING_LIMIT } },
 };
 
 /** The one place that says which buildings are stores. Anything that is no store holds nothing. */

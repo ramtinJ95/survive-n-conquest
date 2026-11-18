@@ -108,6 +108,16 @@ export const TOOLS: readonly Tool[] = [
     icon: '<path d="M3.5 7 20.5 9.5"/><path d="M5 7.2V20M19 9.3V20"/><circle cx="9" cy="17.5" r="2"/><circle cx="14" cy="17.5" r="2"/><circle cx="11.5" cy="13.5" r="2"/>',
   },
   {
+    id: 'tailor',
+    building: Building.Tailor,
+    label: "Tailor's hut",
+    face: 'Tailor',
+    codes: ['KeyT'],
+    key: 'T',
+    hint: "Click to place a tailor's hut on 2 by 2 tiles of open, level ground. Its tailor makes clothing from hides.",
+    icon: '<path d="M8 4 4 7.5l2 3 2-1.2V20h8V9.3l2 1.2 2-3L16 4"/><path d="M10 4a2 2 0 0 0 4 0"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
@@ -220,6 +230,7 @@ const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> =
   barn: () => `${BUILDING_WORDS[Building.Barn].title} site placed.`,
   lodge: () => `${BUILDING_WORDS[Building.Lodge].title} site placed.`,
   woodshed: () => `${BUILDING_WORDS[Building.Woodshed].title} site placed.`,
+  tailor: () => `${BUILDING_WORDS[Building.Tailor].title} site placed.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 

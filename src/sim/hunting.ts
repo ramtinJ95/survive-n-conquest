@@ -20,6 +20,8 @@ export const SHOT_REACH = 12;
 /** The share of shots that hit. */
 export const HIT_CHANCE = 2 / 3;
 const SHOT_SALT = 0x51a7_0c4d;
+/** A killed deer leaves this many hides beside its food. */
+export const HIDES_PER_KILL = 1;
 
 /** What each villager hunts, as columns of the villager table. */
 export interface Hunting {
@@ -140,8 +142,9 @@ export function shotHits(seed: number, shot: number): boolean {
 
 /**
  * A hit kills the deer and puts its food down on its tile, spilling to the
- * nearest tiles with room, and the hunter carries that food in next. A miss
- * sends the deer running from the hunter.
+ * nearest tiles with room, and its hide on the nearest tile the food left
+ * room for. The hunter carries that food in next, and a settler without a job
+ * carries the hide to a stockpile. A miss sends the deer running from the hunter.
  */
 function shoot(sim: Sim, id: number, deer: number): void {
   const { animals, villagers, hunting, map } = sim;
@@ -154,10 +157,14 @@ function shoot(sim: Sim, id: number, deer: number): void {
   const { food } = ANIMALS[animals.kind[deer] as AnimalKind];
   removeAnimal(animals, deer);
   sim.tally.kills += 1;
-  if (!putDown(sim, tile, Good.Food, food)) return;
-  sim.tally.hunted += food;
-  hunting.kill[id] = tile;
-  hunting.killReach[id] = sim.putDownSearch.reach;
+  if (putDown(sim, tile, Good.Food, food)) {
+    sim.tally.hunted += food;
+    hunting.kill[id] = tile;
+    hunting.killReach[id] = sim.putDownSearch.reach;
+  }
+  // The hide goes down after the food, so it lands on the nearest tile the food left and never moves the food. A
+  // stockpile takes a hide and no food, so the hide can land where the food found no room.
+  if (putDown(sim, tile, Good.Hide, HIDES_PER_KILL)) sim.tally.hides += HIDES_PER_KILL;
 }
 
 /**

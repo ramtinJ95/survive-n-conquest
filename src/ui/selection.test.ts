@@ -138,6 +138,7 @@ describe("a settler's panel", () => {
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
         storeFirewood: new Uint16Array(STORES),
+        storeClothing: new Uint16Array(STORES),
         workshopStops: new Uint8Array(MAX_SITES),
         animals: new Float32Array(0),
         animalStates: new Uint8Array(0),
@@ -447,6 +448,7 @@ function siteFacts() {
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
     storeFirewood: new Uint16Array(STORES),
+    storeClothing: new Uint16Array(STORES),
     workshopStops: new Uint8Array(MAX_SITES),
     animals: new Float32Array(0),
     animalStates: new Uint8Array(0),
@@ -537,6 +539,85 @@ describe("a woodshed's panel and a woodcutter's panel", () => {
       title: 'Woodshed site',
       rows: [
         { label: 'Logs', value: '0/6' },
+        { label: 'Work', value: 'Waiting for materials' },
+        { label: 'Builders', value: '0' },
+      ],
+    });
+  });
+});
+
+/**
+ * A tailor and a settler without a job at the camp of an open map of 38 by 38
+ * tiles, with a tailor's hut at (24, 12) whose one place takes the settler
+ * nearest it, and a stockpile of `hides` hides at (28, 14).
+ */
+function tailorSettlement(hides: number): { sim: Sim; slot: number; tailor: number; hut: Selection } {
+  const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 2, monsters: 0 });
+  applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 28, y0: 14, x1: 28, y1: 14 } });
+  sim.map.stackGood[at(sim.map, 28, 14)] = Good.Hide;
+  sim.map.stackSize[at(sim.map, 28, 14)] = hides;
+  refreshStack(sim, at(sim.map, 28, 14));
+  expect(applyCommand(sim, { kind: 'place', building: Building.Tailor, x: 24, y: 12 })).toMatchObject({ ok: true });
+  const slot = sim.orders.siteOf[at(sim.map, 24, 12)]!;
+  finishBuilding(sim, slot);
+  return { sim, slot, tailor: workersOf(sim, slot)[0]!, hut: { kind: 'building', slot, anchor: at(sim.map, 24, 12) } };
+}
+
+const NO_HIDE = "Idle, no hide in a stockpile within 30 tiles of the tailor's hut";
+
+describe("a tailor's hut's panel and a tailor's panel", () => {
+  it('says what the hut does, names its tailor, its clothing, and why the tailor stopped', () => {
+    const { sim, tailor, hut } = tailorSettlement(0);
+    for (let tick = 0; tick < 10; tick++) step(sim);
+    expect(readPanel(hut, factsOf(sim))).toMatchObject({
+      kind: 'tailor',
+      title: "Tailor's hut",
+      note: 'Its tailor carries hides from the stockpiles within 30 tiles and makes 1 piece of clothing from each 2.',
+      rows: [
+        { label: 'Tailor', value: nameOfId(sim, tailor) },
+        { label: 'Places', value: '1 of 1' },
+        { label: 'Clothing', value: '0 of 8' },
+        { label: 'Doing', value: NO_HIDE },
+      ],
+    });
+    expect(readPanel({ kind: 'villager', id: tailor }, factsOf(sim)).rows.find(({ label }) => label === 'Job')!.value).toBe('Tailor');
+    expect(settler(factsOf(sim), tailor)).toBe(NO_HIDE);
+  });
+
+  it('reads what a tailor does through a piece: to the stockpile for a hide, carrying it to the hut, twice, making clothing, then idle with 1 piece in the hut', () => {
+    const { sim, slot, tailor, hut } = tailorSettlement(2);
+    const seen = new Set<string>();
+    const doing = new Set<string>();
+    const carries = new Set<string>();
+    while (sim.workshops.stopped[slot] !== Stop.NoInput || sim.tally.made === 0) {
+      step(sim);
+      seen.add(settler(factsOf(sim), tailor));
+      doing.add(readPanel(hut, factsOf(sim)).rows.find(({ label }) => label === 'Doing')!.value);
+      carries.add(readPanel({ kind: 'villager', id: tailor }, factsOf(sim)).rows.find(({ label }) => label === 'Carries')!.value);
+    }
+    expect(seen).toEqual(new Set(['Looking for a hide', 'Walking to a stockpile for a hide', "Carrying a hide to the tailor's hut", 'Making clothing', NO_HIDE]));
+    expect(doing).toEqual(seen);
+    expect(carries).toEqual(new Set(['Nothing', '1 hide']));
+    expect(readPanel(hut, factsOf(sim)).rows.find(({ label }) => label === 'Clothing')!.value).toBe('1 of 8');
+  });
+
+  it("says the tailor's hut is full", () => {
+    const full = tailorSettlement(4);
+    full.sim.stores.held[Good.Clothing - 1]![full.slot] = 8;
+    for (let tick = 0; tick < 10; tick++) step(full.sim);
+    expect(settler(factsOf(full.sim), full.tailor)).toBe("Idle, the tailor's hut is full");
+    expect(readPanel(full.hut, factsOf(full.sim)).rows.find(({ label }) => label === 'Doing')!.value).toBe("Idle, the tailor's hut is full");
+  });
+
+  it("is the panel of a tailor's hut site, with its 8 logs and no stone, until the hut is finished", () => {
+    const sim = createSim(mapFrom(Array.from({ length: 38 }, () => '.'.repeat(38)), SEED), { villagers: 0, monsters: 0 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.Tailor, x: 24, y: 12 })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[at(sim.map, 24, 12)]!;
+    expect(readPanel({ kind: 'building', slot, anchor: at(sim.map, 24, 12) }, factsOf(sim))).toEqual({
+      kind: 'tailorSite',
+      title: "Tailor's hut site",
+      rows: [
+        { label: 'Logs', value: '0/8' },
         { label: 'Work', value: 'Waiting for materials' },
         { label: 'Builders', value: '0' },
       ],
