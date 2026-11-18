@@ -5469,7 +5469,7 @@ const COLD_CLOSER = -550;
  * of the first house lay under it. `scripts/aim.ts` puts the near view's pan at (46, 71) before and (-43, 73) after:
  * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-1000,"turn":{"x":0,"y":0},"target":[127,123]}' '[[121,122],[122,123,3],[121,127],[122,128,3],[126,123],[127,124],[127,127]]'`
  */
-const COLD_NEAR_PAN = { from: { x: 480, y: 270 }, to: { x: 391, y: 272 } };
+const COLD_NEAR_PAN = { from: { x: 480, y: 270 }, to: { x: 441, y: 271 } };
 const COLD_ORDERS = {
   chop: [{ x: 640, y: 292 }, { x: 697, y: 454 }],
   quarry: [{ x: 512, y: 201 }, { x: 516, y: 211 }],
