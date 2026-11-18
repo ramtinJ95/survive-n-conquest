@@ -5958,7 +5958,7 @@ SCENARIOS.wearing = async (session) => {
       await session.reach(page, clockAt(now + WEAR_STEP));
       now = await session.gameMinutes(page);
       const read = await reads(page);
-      stops.push(`${clockText(now)} ${read?.rows?.Doing} / ${read?.rows?.Clothing}`);
+      stops.push(`${clockText(now)} ${read?.rows?.Doing} / ${read?.rows?.['Cold nights']}`);
       if (read?.title !== walker.name) break;
       if (wears(read)) {
         after = { read, at: now };
