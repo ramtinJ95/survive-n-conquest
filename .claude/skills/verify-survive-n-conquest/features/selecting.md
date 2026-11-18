@@ -27,20 +27,20 @@ With no order tool active, a click on a settler, a house, a house site, or the c
 Preconditions:
 
 - `$V doctor` passes, or you use `$V run selecting`, which runs doctor itself.
-- Every page opens on seed 7 at 960 by 540 with the settlers, the third at noon and the others with `clock: 'paused'`.
+- Every page opens on seed 7 at 960 by 540 with the settlers, the third at noon and the others with `clock: 'paused'`, at 08:00 on day 1.
 - The scenario finds a settler by the tunic pixels of `UNIT_COLORS.villagers` in a paused screenshot, leaving out the interface boxes. It finds the camp by its `FLAME` pixels at night. It reads the panel by the role `region` and the name `Selection`, its `h2`, its note, and its `dt` and `dd` rows, in one round trip.
 
 - **Select a settler at work.** The first page records video. It reaches 08:15, marks the work of `building` with `markWork`, and zooms by `BUILD_CLOSER`. It clicks `SELECT_OFFSET` pixels to the right of the largest tunic.
   - `a click 10 px beside a settler selects it` reads a settler's panel: its title is the settler's name, and it has a `Sex` row of `Man` or `Woman` and a `Household` row. Every check that a click selects a settler reads the panel this way.
   - `by day over the grass, the mark shows in both of its colors` counts what the selection adds to the paused frame, at least `MARK_LEAST` of `MARK_ACCENT` and of `MARK_EDGE`. `the mark rings the selected settler` finds a tunic within `MARK_ON_SETTLER` pixels of the accent's center.
-- **Follow it.** It presses 3 for 4× and reads the panel every 120 ms until it has read `FOLLOW.distinct` different `Doing` values or the clock reaches 11:20, then pauses.
+- **Follow it.** `runUntil` steps the paused clock `FOLLOW.every`, 2 game minutes, at a time from 08:15 and reads the panel at each stop, until it has read `FOLLOW.distinct`, 5, different `Doing` values or the clock reaches 11:20.
   - `the settler panel follows what the settler does` needs 3 different values, one of them `Walking to ...` and one of them `Chopping a tree`, `Quarrying stone`, or `Building a house`.
   - `the Carries row agrees with what the settler is doing at every reading` needs `1 log` beside `Carrying a log ...`, `1 stone` beside `Carrying stone ...`, and `Nothing` beside every other value.
   - `the mark has followed the settler` needs the accent's center to have moved `MARK_MOVES` pixels and to lie beside a tunic. `while paused the settler panel holds still` reads the panel twice a second apart.
 - **Select the site, then see it become a house.** It reaches 11:30, places the house of `building` at `BUILD_SPOTS.closerHouse`, presses Escape, and clicks the same point.
   - `a House click places the site and leaves the selection alone` keeps the settler's panel. `a click on the site selects it` reads `Logs 0/12`, `Stone 0/6`, `Waiting for materials`, and `Builders 0`.
-  - It runs at 8× until the label reads 50%. `the site panel agrees with the site's label and counts the builders` reads `12/12`, `6/6`, the label's percent, and 1 to 4 builders.
-  - It runs on until the label is gone. `the selected site has become a house in the panel` reads `House` and `A finished house.` without another click. `the mark rings the house` finds the accent centered within 40 pixels of the click. Escape clears the selection, and a click on the house then selects it.
+  - The site driver steps the paused clock `SITE_STEP`, 5 game minutes, at a time until the label reads 50% or more, at 17:00 on day 1 with 51%. `the site panel agrees with the site's label and counts the builders` reads `12/12`, `6/6`, the label's percent, and 1 to 4 builders.
+  - It steps on the same way until the label is gone, at 17:55. `the selected site has become a house in the panel` reads `House` and `A finished house.` without another click. `the mark rings the house` finds the accent centered within 40 pixels of the click. Escape clears the selection, and a click on the house then selects it.
   - The page cuts `selecting-settler.gif` from the selection to the end of the follow, and `selecting-site-to-house.gif` from the 50% stop to the house.
 - **Cancel a selected site.** The second page takes `BUILD_VIEW`, places a house at `BUILD_SPOTS.house`, and clicks it. It presses H and clicks the site, then presses Escape once.
   - `with House active a click on the site places nothing and selects nothing, and one Escape puts the tool away and keeps the selection` reads the refusal in the status line and the site's panel throughout.
@@ -50,7 +50,7 @@ Preconditions:
   - `the camp stays selected until midnight, and its panel then counts all 8 settlers there` reads `Settlers here 8` at spring midnight without another click.
   - Each mark check takes the frame with the selection, presses Escape, and takes the same paused frame without it. They run at spring midnight on the camp, at winter noon over snow on a settler, and at winter midnight on the camp, which it selects again at winter noon.
   - It zooms to the farthest view. `at the farthest zoom a click on the firelit camp selects one of the settlers ringed there` clicks the largest patch of `FIRELIT` ground.
-- **Pick at every view.** The fourth page selects a settler and then clicks bare ground, at the opening view and at the nearest zoom turned by a right drag of `SELECT_TURN` pixels. The bare point lies `BARE_CLEARANCE` pixels from every tunic.
+- **Pick at every view.** The fourth page selects a settler and then clicks bare ground, at the opening view at 08:00, where the page opens, and at the nearest zoom turned by a right drag of `SELECT_TURN` pixels, after `reach` runs the clock to `SELECT_STOPS.nearest`, 09:00. The bare point lies `BARE_CLEARANCE` pixels from every tunic.
   - `a drag that starts on a settler moves the camera and selects nothing` drags 80 pixels from a tunic.
 - **Layout.** `the settler panel`, `the site panel`, and `the camp panel covers no other panel` compare the panel's box with the clock, the toolbar, the Stockpiles panel, the camera controls, and the status line when it shows.
 
@@ -58,8 +58,9 @@ Preconditions:
 
 - Take every reading from a paused frame. Trees, cover, water, and smoke move with the clock, so the mark's pixels are counted as what the selection adds to the same paused frame.
 - The clock's pressed speed button has the accent color, so pixel searches leave out the interface boxes.
-- The `Doing` values the follow sees depend on which settler the click took and on the run. The check asks for kinds of value, not for an order.
+- The `Doing` values the follow sees depend on which settler the click took. The same build reads the same values on every run, but a change to the settlers' work changes them, so the check asks for kinds of value, not for an order.
 - At the farthest zoom of 243 m a settler is less than a pixel of tunic by day, so no scenario can aim at one there. At night the 8 settlers stand within a settler's reach of the fire, so a click on the camp selects a settler, and the camp can be selected only from nearer.
 - A settler that stands in front of the fire covers it, so a click on the flame selects that settler. At 08:00 several settlers still stand in the camp, many in the tents' shade, so the scenario clicks the camp at noon, and clicks again when a settler took the click.
+- At 08:00 all 8 settlers stand in the camp's 2 m. At the opening view a click beside one lands among the others. At the nearest view it lands on the camp, where a settler wins a click only within 4 px of its body. By 09:00 every one has walked out of the camp, so the nearest view picks there.
 - Over a house, a site, or the camp, a settler wins only when the box the picker draws around that building does not hide it. The box is coarser than the models, so a settler just past a roof can lose the click to the building.
 - The winter stops run the clock to day 10, which takes several minutes in a browser that draws on the CPU.

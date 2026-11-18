@@ -1948,7 +1948,7 @@ const BUILD_BOXES = {
   around: { x: 425, y: 185, width: 150, height: 150 },
 };
 /** The clip keeps the clock, the site with its label, the stockpile, the camp's edge, and the rock face's foot. */
-const BUILD_CLIP = { crop: { x: 230, y: 0, width: 480, height: 440 }, width: 480, colors: 64 };
+const BUILD_CLIP = { crop: { x: 230, y: 0, width: 480, height: 440 }, width: 480, colors: 64, decimate: true };
 /**
  * The marks go down at 08:15 and the house at 11:30, once carriers have stocked logs, so that the site takes some of
  * its units from the stockpile. Both are `reach` stops, so each command lands within 4 ticks of the same tick on every
@@ -2475,8 +2475,8 @@ const HOME_BOXES = {
 /**
  * In the pylon the camp box differed from the bare map at midnight in 882 pixels with two households at home and in
  * 1632 with all 8 settlers at the camp, a share of 0.54, in both of two runs. At 03:30 the land beside the upper and
- * the left house held 0 and 0 tunic pixels, and at 03:40 they held 97 and 102 to 104. The same boxes of the page with
- * no houses held 0 and 15 to 17 at 03:40, where those of the left box are the bare ground's.
+ * the left house held 0 and 0 tunic pixels, and at 03:40 they held 97 and 100. The same boxes of the page with no
+ * houses held 0 and 15 at 03:40, where those of the left box are the bare ground's.
  */
 const HOME_LIMITS = { campShare: [0.3, 0.75], tunicsBefore: 5, tunicsAfter: 40, tunicsWithoutHomes: 30 };
 const HOME_CLIP = { crop: { x: 180, y: 0, width: 480, height: 455 }, width: 480, colors: 64 };
@@ -2595,8 +2595,11 @@ const HUNGER_STOPS = {
 };
 const HUNGER_SEARCH = '?seed=7';
 const HUNGER_NAMES = ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella'];
-/** The clip leaves out the camera controls at the bottom and plays 3 times as fast as it was recorded, so three game days at 8× take about 40 s. */
-const HUNGER_CLIP = { crop: { x: 0, y: 0, width: 960, height: 496 }, width: 640, colors: 48, speed: 3 };
+/**
+ * The clip leaves out the camera controls at the bottom. It drops the frames of each paused stop but one, as
+ * `decimate` does, and keeps one of every 3 frames left.
+ */
+const HUNGER_CLIP = { crop: { x: 0, y: 0, width: 960, height: 496 }, width: 640, colors: 48, speed: 3, decimate: true };
 /** Wheel pixels from the opening view of about 120 m in to about 49 m, so the settlers at the camp show in the clip. */
 const HUNGER_WHEEL = -600;
 /** From the last meal the clock steps 30 game minutes at a time, reading the news and the camp, until the end shows, by day 7 at most. */
