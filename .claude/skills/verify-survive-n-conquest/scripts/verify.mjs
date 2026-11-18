@@ -3869,26 +3869,27 @@ const STORE_CLIP = { crop: { x: 0, y: 0, width: 760, height: 490 }, width: 560, 
 const STORE_RISE = 3;
 /**
  * The ground page: `?food=8` and four forager's huts, on (136, 127), (135, 123), (135, 131), and (133, 119), whose
- * eight places take every settler, so nobody without a job is left to carry food from the ground. With the camp's 24
- * food the camp filled and the foragers waited, and no unit lay on the ground. With 30 seconds of work for a unit, the
- * camp fills on day 4, not day 3, so the units the foragers hold are put down at the dusk of day 3, not day 2. Run
- * headless with these orders landing at any tick from 10 to 20, 2 to 6 units lie on the ground at day 4 09:00, at
- * (131..139, 119..133) beside the camp, and none at day 5 09:00, after the dawn of day 5, the second after they were
- * put down. With 20 seconds they lay on day 3 instead, and the stops were day 3 12:00 and day 4 12:00.
+ * eight places take every settler, so nobody without a job is left to carry food from the ground. With 30 seconds of
+ * work for a unit the camp fills on day 4, so the units the foragers hold are put down at the dusk of day 3. With the
+ * orders at tick 0, 4 units lie on (132, 132), (134, 125), (134, 121), and (136, 120) on the morning of day 4, and none
+ * after the dawn of day 5, the second after they were put down. From 10:30 on day 4 the foragers carry their own
+ * units past the camp, so the stops come before that, at 10:20 on day 4 and on day 5.
  */
 const GROUND_SEARCH = '?seed=7&food=8';
 const GROUND_HUTS = [{ x: 509, y: 212 }, { x: 451, y: 230 }, { x: 569, y: 219 }, { x: 392, y: 261 }];
-const GROUND_STOPS = { lying: { day: 4, time: '09:00' }, gone: { day: 5, time: '09:00' } };
+const GROUND_STOPS = { lying: { day: 4, time: '10:20' }, gone: { day: 5, time: '10:20' } };
 /**
  * The lit top of the sack of a unit of food, `foodShape` in `src/render/shapes.ts`, which read 205, 166, 100 at noon
- * on day 3. Each of the two sacks beside the camp showed 49 such pixels, and the box around the camp read 3 once they
- * were gone. The same sacks match at 09:00 on day 4, in early summer, and read 121 pixels, but not at its noon, under
- * the summer sun, where they read 1. The box leaves out the clock and the camera controls, whose text has pixels of that color.
+ * on day 3. A sack in shade does not match, and neither does it under the summer noon sun.
  */
 const FOOD_SACK = ([r, g, b]) => Math.abs(r - 205) <= 8 && Math.abs(g - 166) <= 8 && Math.abs(b - 100) <= 8;
-/** From y 190 the box reaches the tiles beside the northern hut at (133, 119), where a sack read 40 pixels at y 220 to 230. */
-const GROUND_BOX = { x: 400, y: 190, width: 300, height: 230 };
-const GROUND_SACKS = { lying: 40, gone: 10 };
+/**
+ * At 10:20 on day 4 the sun lights 3 of the 4 sacks, at about 372, 228, 475, 208, and 672, 240, and they read 37, 35,
+ * and 39 pixels; the fourth lies in a hut's shade. The box holds the three and leaves out the panels, whose text has
+ * pixels of that color. It read 115 pixels then and 4 at 10:20 on day 5. `lying` is two sacks' worth.
+ */
+const GROUND_BOX = { x: 350, y: 190, width: 350, height: 230 };
+const GROUND_SACKS = { lying: 70, gone: 10 };
 
 SCENARIOS.storing = async (session) => {
   const seen = [];
