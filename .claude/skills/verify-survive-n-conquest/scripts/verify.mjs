@@ -5379,8 +5379,8 @@ SCENARIOS.clothing = async (session) => {
   }
   const stopped = await reads(page);
   session.check(
-    `at ${await at(page)}, after its first piece, the tailor's hut's panel says its tailor has stopped for lack of hides`,
-    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) >= 1,
+    `at ${await at(page)}, after its first piece, which the tailor puts on before it looks for hides again, the tailor's hut's panel says its tailor has stopped for lack of hides and holds no clothing`,
+    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) === 0,
     `the panel reads "${text(stopped)}"`,
   );
   await session.screenshot(page, 'clothing-hut-stopped');
@@ -5972,31 +5972,29 @@ SCENARIOS.wearing = async (session) => {
       break;
     }
     if (!night) break;
-    // The dusk ends the walk and frees the piece. The night passes in long steps, and the next morning the first settler to look for work takes it.
+    // The dusk ends the walk and frees the piece, which nobody takes by night. The night passes in long steps with the hut's panel open, until its tailor is out again.
     await session.screenshot(page, 'wearing-dusk-walk');
-    while (WEAR_NIGHT.test((await reads(page))?.rows?.Doing ?? '')) {
-      await session.reach(page, clockAt(now + WEAR_NIGHT_STEP));
-      now = await session.gameMinutes(page);
-    }
-    const morning = await reads(page);
     await deselect();
     const hutRead = await selectOne(WEAR_SPOTS.hut, "Tailor's hut");
+    const nightAt = await session.gameMinutes(page);
+    counts.push(`${clockText(nightAt)} ${hutRead?.rows?.Clothing}`);
+    let dawn = hutRead;
+    while (WEAR_NIGHT.test(dawn?.rows?.Doing ?? '')) {
+      await session.reach(page, clockAt(now + WEAR_NIGHT_STEP));
+      now = await session.gameMinutes(page);
+      dawn = await reads(page);
+    }
     now = await session.gameMinutes(page);
-    counts.push(`${clockText(now)} ${hutRead?.rows?.Clothing}`);
-    dusks.push({ walker, night, morning, hut: hutRead, at: now, stops });
-    walker = clothingOf(hutRead) > 0 ? await findWalker(clothingOf(hutRead)) : null;
+    counts.push(`${clockText(now)} ${dawn?.rows?.Clothing}`);
+    dusks.push({ walker, night, hut: hutRead, at: nightAt, stops });
+    walker = clothingOf(dawn) > 0 ? await findWalker(clothingOf(dawn)) : null;
     dusks.at(-1).next = walker?.name ?? null;
   }
-  session.check(
-    "with the tailor's hut's panel open, the hut reads a piece as the tailor makes it, and one fewer when a settler takes it",
-    piece !== null && taken !== null && taken.to === taken.from - 1 && taken.at > piece.at,
-    `the hut's clothing at each change: ${counts.join('; ')}${tailor ? `; its tailor is ${tailor}` : ''}`,
-  );
   for (const dusk of dusks) {
     session.check(
       `the dusk falls on ${dusk.walker.name}'s walk to the hut: it gives the walk up for the camp, and the piece waits in the hut through the night`,
       dusk.night.read.rows.Clothing === 'None' && clothingOf(dusk.hut) >= 1,
-      `at ${clockText(dusk.night.at)} the panel reads "${text(dusk.night.read)}"; at ${clockText(dusk.at)} the hut reads "${dusk.hut?.rows?.Clothing}", and the first settler found on its way for it is ${dusk.next ?? 'none yet'}`,
+      `at ${clockText(dusk.night.at)} the panel reads "${text(dusk.night.read)}"; at ${clockText(dusk.at)}, in the night, the hut reads "${dusk.hut?.rows?.Clothing}", and the first settler found on its way for it the next morning is ${dusk.next ?? 'none'}`,
     );
   }
   if (!fetched) fail(`no settler put a piece on by ${clockText(now)}: ${counts.join('; ')}`);
@@ -6028,6 +6026,12 @@ SCENARIOS.wearing = async (session) => {
     `at ${await at(page)} the tailor's hut's panel reads one piece fewer than when ${walker.name} set out for it`,
     clothingOf(hutAfter) === walker.pieces - 1,
     `${walker.pieces} of 8 at ${clockText(walker.at)}, then "${text(hutAfter)}"`,
+  );
+  if (!taken && clothingOf(hutAfter) === walker.pieces - 1) taken = { at: await session.gameMinutes(page), from: walker.pieces, to: clothingOf(hutAfter), read: hutAfter };
+  session.check(
+    "with the tailor's hut's panel open, the hut reads a piece as the tailor makes it, and one fewer when a settler takes it",
+    piece !== null && taken !== null && taken.to === taken.from - 1 && taken.at > piece.at,
+    `the hut's clothing at each change: ${counts.join('; ')}${tailor ? `; its tailor is ${tailor}` : ''}`,
   );
   await deselect();
 
