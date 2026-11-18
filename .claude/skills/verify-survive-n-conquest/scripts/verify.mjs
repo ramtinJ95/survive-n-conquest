@@ -4581,8 +4581,14 @@ const FIREWOOD_UNTIL = { day: 1, time: '19:05' };
  * shed's door, a tile about 25 to 30 pixels across, while it splits.
  */
 const FIREWOOD_AT = { stockpile: 70, door: 45 };
-/** Game minutes between the stops that read the stores after the split, and the most they wait for a unit carried to the camp, a walk of about 5 tiles. */
-const FIREWOOD_STORED = { step: 3, within: 20 };
+/**
+ * Game minutes between the stops that read the stores after the split, and the most they wait for the 2 units to be in
+ * a store again. A game minute is about 0.21 s at 1× and a settler walks 1.5 tiles a second, so the 5 tiles from the
+ * shed to the camp take about 16 game minutes, after the carrier's walk to the shed, and each unit has its own
+ * carrier. In `src/sim` runs with the orders at 08:13 to 08:18, both units were in a store again 26 to 79 game minutes
+ * after the split.
+ */
+const FIREWOOD_STORED = { step: 5, within: 90 };
 /**
  * The search for the woodcutter: at most `clicks` clicks on one paused frame, none within `besidePx` of a click that
  * opened another settler, and `tries` more frames 3 game minutes apart. The shed's builders stand at its corners when
