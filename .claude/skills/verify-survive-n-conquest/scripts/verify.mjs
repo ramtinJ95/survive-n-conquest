@@ -4882,7 +4882,10 @@ SCENARIOS.firewood = async (session) => {
   await page.keyboard.press('Escape');
   await session.still(page);
   const split = FIREWOOD_LOGS.firewoodPerLog * (FIREWOOD_SPOTS.trees.length * FIREWOOD_LOGS.perTree - FIREWOOD_LOGS.shed);
-  const base = lastSplit?.firewood ?? NaN;
+  // A unit of an earlier batch in someone's hands leaves the reading at the split odd; the stores held at least the
+  // reading rounded up to whole batches, and they come back to whole batches once every carrier is in.
+  const per = FIREWOOD_LOGS.firewoodPerLog;
+  const base = Math.ceil((lastSplit?.firewood ?? NaN) / per) * per;
   const readStores = async () => {
     const camp = await readCamp();
     const shed = await reads(page);
@@ -4900,7 +4903,7 @@ SCENARIOS.firewood = async (session) => {
     }
   };
   const describeStops = (stops) => stops.map((stop) => `${firewoodOf(stop.shed)} and ${campFirewoodOf(stop.camp)}, a total of ${stop.total}, at ${stop.at}`).join('; ');
-  const batchesOf = (more) => more >= FIREWOOD_LOGS.firewoodPerLog && more <= split && more % FIREWOOD_LOGS.firewoodPerLog === 0;
+  const batchesOf = (more) => more >= per && base + more <= split && more % per === 0;
   const stored = await storesUntil((sum) => batchesOf(sum - base), clockMinutes(FIREWOOD_UNTIL));
   const reached = stored.at(-1);
   session.check(
@@ -4908,7 +4911,7 @@ SCENARIOS.firewood = async (session) => {
     Boolean(lastSplit) && done.doing !== SPLITTING_LOG && reached.total === reached.sum && batchesOf(reached.sum - base),
     `Firewood in stores read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} when the split was done at ${done?.at ?? 'no stop'}; ` +
       `the shed and the camp held ${describeStops(stored)}; ` +
-      `${batchesOf(reached.sum - base) ? `${reached.sum - base} more, ${(reached.sum - base) / FIREWOOD_LOGS.firewoodPerLog} logs' worth, at ${reached.at}` : 'never 2 more for each log split'}; the shed's panel then reads "${text(reached.shed)}" and the camp's "${text(reached.camp)}"`,
+      `${batchesOf(reached.sum - base) ? `${reached.sum - base} more, ${(reached.sum - base) / per} logs' worth, at ${reached.at}` : 'never 2 more for each log split'}; the shed's panel then reads "${text(reached.shed)}" and the camp's "${text(reached.camp)}"`,
   );
 
   await page.keyboard.press('4');
