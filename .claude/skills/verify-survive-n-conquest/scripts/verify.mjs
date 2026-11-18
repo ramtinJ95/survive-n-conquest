@@ -639,12 +639,15 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 
     /**
      * Runs the clock to the first tick of a game minute and pauses it there, by the worker's `pauseAt`. `speed` is the
-     * key of the speed it runs at, 8x unless a clip wants the motion slower. A settlement that dies out on the way
-     * stops the clock itself, and `reach` returns there.
+     * key of the speed it runs at, 8x unless a clip wants the motion slower. The last 2 ticks run at 1x, where the page
+     * draws each tick, because a deer faces the way it moved between the last two frames the page drew, and at 8x those
+     * frames lie 1 or 2 ticks apart from run to run. A settlement that dies out on the way stops the clock itself, and
+     * `reach` returns there.
      */
     async reach(page, target, { speed = '4' } = {}) {
       const wanted = clockMinutes(target);
       const paused = page.getByRole('button', { name: 'Pause', exact: true, pressed: true });
+      const diedOut = page.getByRole('alertdialog', { name: 'The settlement has died out' });
       const from = await this.gameMinutes(page);
       if (from === wanted && (await paused.isVisible())) return;
       if (from >= wanted) fail(`the clock reads ${clockText(from)}, so it cannot be run to ${clockText(wanted)}`);
@@ -652,14 +655,20 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       const deadline = Date.now() + (2 * (wanted - from) * 1000) / fastest + 60_000;
       const [worker] = page.workers();
       if (!worker) fail('the page runs no simulation worker');
-      await worker.evaluate((tick) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick } })), tickAt(wanted));
-      await page.keyboard.press(speed);
-      const diedOut = page.getByRole('alertdialog', { name: 'The settlement has died out' });
-      while ((await this.gameMinutes(page)) !== wanted || !(await paused.isVisible())) {
-        if (await diedOut.isVisible()) return;
-        if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(wanted)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
-        await page.waitForTimeout(20);
-      }
+      const runTo = async (tick, minute, key) => {
+        await worker.evaluate((at) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick: at } })), tick);
+        await page.keyboard.press(key);
+        while ((await this.gameMinutes(page)) !== minute || !(await paused.isVisible())) {
+          if (await diedOut.isVisible()) return false;
+          if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(minute)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
+          await page.waitForTimeout(20);
+        }
+        return true;
+      };
+      // Two ticks before the minute's first lie in the minute before it, and past the tick the clock stands on once the
+      // minute is two or more ahead.
+      if (wanted - from >= 2 && !(await runTo(tickAt(wanted) - 2, wanted - 1, speed))) return;
+      if (!(await runTo(tickAt(wanted), wanted, '1'))) return;
       await this.settle(page);
     },
 
