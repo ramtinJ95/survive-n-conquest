@@ -591,9 +591,15 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
       await page.goto(instance.url + search);
+      // The clock runs from the first frame, and the first frames can take seconds, so a paused page pauses as soon as
+      // its speed controls show, at the opening minute.
+      if (clock === 'paused') {
+        await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
+        await this.pause(page);
+      }
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
-      await start(page);
+      if (clock !== 'paused') await start(page);
       return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
 
