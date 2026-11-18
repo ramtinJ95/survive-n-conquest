@@ -12,6 +12,7 @@ import type { Sim } from './sim';
 import { STOCKING } from './stocking';
 import { SUPPLYING } from './supplying';
 import { NO_TASK } from './villagerState';
+import { WEARING } from './wearing';
 import { WORKSHOP } from './workshops';
 
 
@@ -53,7 +54,7 @@ export interface TaskKind {
  * first kind its job allows that has one open. A kind goes where its urgency
  * puts it, since every reader finds a kind's column value by its place here.
  */
-export const TASK_KINDS: readonly TaskKind[] = [EATING, STOCKING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING, WORKSHOP];
+export const TASK_KINDS: readonly TaskKind[] = [EATING, STOCKING, WEARING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING, WORKSHOP];
 
 export function allows(kind: TaskKind, job: Job): boolean {
   return kind.job === ANYONE || kind.job === job;

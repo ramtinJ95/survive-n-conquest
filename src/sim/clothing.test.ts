@@ -32,6 +32,13 @@ function runUntil(sim: Sim, done: () => boolean, limit: number, each: () => void
   }
 }
 
+/** A settlement whose settlers already wear clothing, so the tailor's pieces stay in the hut. */
+function clothedSim(size: number, villagers: number): Sim {
+  const sim = createSim(openMap(size), { villagers, monsters: 0 });
+  sim.villagers.worn.fill(Good.Clothing);
+  return sim;
+}
+
 /** A building of `kind` anchored on (x, y), finished at once. Returns its slot. */
 function finished(sim: Sim, kind: Building, x: number, y: number): number {
   expect(applyCommand(sim, { kind: 'place', building: kind, x, y })).toMatchObject({ ok: true });
@@ -225,7 +232,7 @@ describe("a tailor's hut", () => {
 
   it('takes hides from a stockpile 30 tiles from its middle, and none from one beyond', () => {
     const run = (x: number) => {
-      const sim = createSim(openMap(80), { villagers: 1, monsters: 0 });
+      const sim = clothedSim(80, 1);
       const hut = finished(sim, Building.Tailor, 10, 60);
       hidePile(sim, x, 60, 2);
       runUntil(sim, () => sim.tick >= TICKS_PER_DAY / 2, TICKS_PER_DAY);
@@ -246,7 +253,7 @@ describe("a tailor's hut", () => {
   });
 
   it('stops once the hut holds 8 pieces of clothing, and says it is full', () => {
-    const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+    const sim = clothedSim(64, 1);
     hidePile(sim, 40, 36, 6);
     const hut = finished(sim, Building.Tailor, 36, 32);
     sim.stores.held[Good.Clothing - 1]![hut] = TAILOR_CLOTHING_LIMIT - 1;
@@ -256,7 +263,7 @@ describe("a tailor's hut", () => {
   });
 
   it('says it has no hide in reach once the stockpiles in reach are empty, with 1 hide kept in the hut toward the next piece', () => {
-    const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+    const sim = clothedSim(64, 1);
     hidePile(sim, 40, 36, 3);
     const hut = finished(sim, Building.Tailor, 36, 32);
     runUntil(sim, () => sim.workshops.stopped[hut] === Stop.NoInput, TICKS_PER_DAY / 2);
