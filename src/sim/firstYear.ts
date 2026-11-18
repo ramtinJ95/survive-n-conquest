@@ -1,6 +1,10 @@
-import { Building } from './buildings';
-import type { TileArea } from './orders';
-import type { Command } from './sim';
+import { BUILDINGS, Building } from './buildings';
+import { LOGS_PER_TREE, STONE_PER_ROCK } from './gathering';
+import { Good } from './goods';
+import { generateMap } from './mapgen';
+import { SiteState, type TileArea } from './orders';
+import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { CAMP_FIREWOOD_LIMIT, HOUSE_FIREWOOD_LIMIT } from './stores';
 
 /**
  * The one forager's hut of the first year on seed 7, which
@@ -124,4 +128,119 @@ export function huntYearCommands({ hut }: { readonly hut: boolean }): Command[] 
     { kind: 'markArea', order: 'quarry', area: tile(FIRST_YEAR_LODGE_ROCK) },
   ] satisfies Command[];
   return hut ? commands : commands.filter((command) => !(command.kind === 'place' && command.building === Building.Hut));
+}
+
+/**
+ * The trees nearest the camp center that #30's orders leave standing, nearest
+ * first, then the lowest tile. The years with warmth fell the first of them,
+ * as many as their buildings and firewood need.
+ */
+export const WINTER_TREES: readonly (readonly [number, number])[] = [
+  [141, 132], [142, 126], [139, 137], [141, 120], [142, 133], [144, 129], [144, 132], [144, 121],
+  [145, 126], [145, 128], [144, 134], [145, 131], [141, 139], [145, 132], [143, 137], [145, 121],
+  [146, 127], [143, 116], [146, 131], [145, 119], [143, 139], [147, 125], [147, 130], [144, 116],
+  [143, 114], [147, 132], [147, 121], [147, 120], [141, 143], [148, 123], [145, 115], [142, 143],
+  [144, 113], [149, 126], [149, 129], [145, 114], [145, 140], [148, 135], [146, 139],
+];
+/** The rock tiles nearest the camp center that #30's orders leave unmarked, nearest first. */
+export const WINTER_ROCKS: readonly (readonly [number, number])[] = [
+  [123, 113],
+  [122, 113],
+  [121, 113],
+];
+
+/** Where a year with warmth puts its woodshed, its stockpile, and its tailor's hut. */
+export interface WarmthLayout {
+  readonly woodshed: { readonly x: number; readonly y: number };
+  readonly stockpile: TileArea;
+  readonly tailor: { readonly x: number; readonly y: number } | null;
+}
+
+/**
+ * 4.2's layout, east of the camp, with no tailor's hut. The woodshed takes the
+ * anchor that the rules accept beside #30's buildings and two houses whose
+ * middle lies nearest the camp center, 3.5 tiles, and the stockpile the 3 by 3
+ * square nearest the camp center, 4.0 tiles.
+ */
+export const WOOD_LAYOUT: WarmthLayout = { woodshed: { x: 126, y: 123 }, stockpile: { x0: 130, y0: 126, x1: 132, y1: 128 }, tailor: null };
+/**
+ * 4.4's layout, west of the camp: the stockpile and the tailor's hut of #36's
+ * tailor year, and the woodshed on the anchor the rules accept beside them
+ * whose middle lies nearest the camp center, 3.5 tiles.
+ */
+export const HIDES_LAYOUT: WarmthLayout = { woodshed: { x: 124, y: 124 }, stockpile: { x0: 122, y0: 126, x1: 124, y1: 128 }, tailor: { x: 126, y: 123 } };
+
+const WINTER_NIGHTS = 3;
+const HOUSE_FIRE = 2;
+const CAMP_FIRE = 4;
+
+/** When a year with warmth gives its commands: all at the first tick, or the tailor's hut on the tick the lodge is finished, so the lodge hires its hunters first. */
+export type TailorOrder = 'at start' | 'after lodge';
+
+export interface WinterYear {
+  readonly atStart: readonly Command[];
+  /** Given on the tick the hunter's lodge is finished. */
+  readonly afterLodge: readonly Command[];
+}
+
+/** Stage 3's year with a hut, a barn, and a lodge, with nothing for warmth. */
+export const NOTHING_FOR_WARMTH: WinterYear = { atStart: huntYearCommands({ hut: true }), afterLodge: [] };
+
+/**
+ * #30's commands, the first `houses` of the first year's houses, the layout's
+ * stockpile, tailor's hut, and woodshed, and chop and quarry orders on the
+ * winter's trees and rocks for the logs and stone of these buildings and for
+ * the firewood that fills each fire the winter lights once and then burns on
+ * each of its nights. The camp's fire is among them while fewer houses than
+ * households stand.
+ */
+export function winterYearCommands({ houses, layout, tailor }: { readonly houses: number; readonly layout: WarmthLayout; readonly tailor: TailorOrder }): WinterYear {
+  const split = BUILDINGS[Building.Woodshed].recipe!;
+  const firewoodPerLog = split.outputs / split.inputs;
+  const logs = (building: Building) => BUILDINGS[building].needs[Good.Log] ?? 0;
+  const firewood =
+    houses * (HOUSE_FIREWOOD_LIMIT + HOUSE_FIRE * WINTER_NIGHTS) + (houses < FIRST_YEAR_HOUSES.length ? CAMP_FIREWOOD_LIMIT + CAMP_FIRE * WINTER_NIGHTS : 0);
+  const logsNeeded = logs(Building.Woodshed) + (layout.tailor ? logs(Building.Tailor) : 0) + houses * logs(Building.House) + Math.ceil(firewood / firewoodPerLog);
+  const trees = Math.ceil(logsNeeded / LOGS_PER_TREE);
+  const rocks = Math.ceil((houses * (BUILDINGS[Building.House].needs[Good.Stone] ?? 0)) / STONE_PER_ROCK);
+  if (trees > WINTER_TREES.length || rocks > WINTER_ROCKS.length) throw new Error(`a year with ${houses} houses needs ${trees} trees and ${rocks} rocks`);
+  const placeTailor: Command[] = layout.tailor ? [{ kind: 'place', building: Building.Tailor, x: layout.tailor.x, y: layout.tailor.y }] : [];
+  return {
+    atStart: [
+      ...huntYearCommands({ hut: true }),
+      ...FIRST_YEAR_HOUSES.slice(0, houses).map(([x, y]): Command => ({ kind: 'place', building: Building.House, x, y })),
+      { kind: 'markArea', order: 'stockpile', area: layout.stockpile },
+      ...(tailor === 'at start' ? placeTailor : []),
+      { kind: 'place', building: Building.Woodshed, x: layout.woodshed.x, y: layout.woodshed.y },
+      ...WINTER_TREES.slice(0, trees).map((at): Command => ({ kind: 'markArea', order: 'chop', area: tile(at) })),
+      ...WINTER_ROCKS.slice(0, rocks).map((at): Command => ({ kind: 'markArea', order: 'quarry', area: tile(at) })),
+    ],
+    afterLodge: tailor === 'after lodge' ? placeTailor : [],
+  };
+}
+
+/**
+ * A simulation on seed 7 with the year's first commands, the slot of its
+ * lodge, and a step that gives the commands that wait for the lodge right
+ * after the tick that finishes it. Throws on a refused command.
+ */
+export function playWinterYear(year: WinterYear): { readonly sim: Sim; readonly lodge: number; readonly step: () => void } {
+  const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
+  const give = (command: Command) => {
+    const outcome = applyCommand(sim, command);
+    if (!outcome?.ok) throw new Error(`refused at tick ${sim.tick}: ${JSON.stringify(command)} ${JSON.stringify(outcome)}`);
+  };
+  year.atStart.forEach(give);
+  const lodge = sim.orders.siteOf[FIRST_YEAR_LODGE.y * sim.map.size + FIRST_YEAR_LODGE.x]!;
+  let waiting = year.afterLodge.length > 0;
+  return {
+    sim,
+    lodge,
+    step: () => {
+      step(sim);
+      if (!waiting || sim.orders.sites.state[lodge] !== SiteState.Built) return;
+      waiting = false;
+      year.afterLodge.forEach(give);
+    },
+  };
 }
