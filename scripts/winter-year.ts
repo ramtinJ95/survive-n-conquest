@@ -126,7 +126,7 @@ function runYear(year: WinterYear) {
   };
   let barnAtYearEnd = 0;
   // The year runs to the dawn after its last night, so a villager that never got home that night is judged too.
-  while (!sim.over && !(isDawn(sim.tick) && dateAt(sim.tick).day > DAYS_PER_YEAR)) {
+  while (!sim.over && !(isDawn(sim.tick - 1) && dateAt(sim.tick - 1).day > DAYS_PER_YEAR)) {
     const { day } = dateAt(sim.tick);
     if (tickOfDay(sim.tick) === 0 && SEASON_ENDS.includes(day - 1)) {
       storesRow(`end of day ${day - 1}`);
@@ -190,7 +190,7 @@ function runYear(year: WinterYear) {
       const camp = before[id] === VillagerState.GoingToCamp && (now === VillagerState.Settling || now === VillagerState.Dead);
       const away = isDawn(ticked) && before[id] !== VillagerState.Settling && before[id] !== VillagerState.Inside;
       if (!home && !camp && !away) continue;
-      const night = dateAt(ticked).day - Number(isDawn(ticked));
+      const night = dateAt(ticked).day - Number(tickOfDay(ticked) < TICKS_PER_DAY / 2);
       const cold = sim.villagers.coldNights[id]! > coldBefore[id]!;
       const store = home ? sim.households.home[sim.villagers.household[id]!]! : CAMP_STORE;
       const clothed = sim.villagers.worn[id] === Good.Clothing ? 'clothed' : 'no clothing';

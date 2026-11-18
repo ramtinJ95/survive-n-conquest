@@ -175,7 +175,7 @@ describe('the first year on seed 7 with warmth', () => {
     const coldBeforeNight: number[] = [];
     const coldNightsAtDusk: number[] = [];
     let barnAtYearEnd = 0;
-    while (!sim.over && !(isDawn(sim.tick) && dateAt(sim.tick).day > DAYS_PER_YEAR)) {
+    while (!sim.over && !(isDawn(sim.tick - 1) && dateAt(sim.tick - 1).day > DAYS_PER_YEAR)) {
       const { day, season } = dateAt(sim.tick);
       if (season === 'Winter' && tickOfDay(sim.tick) === TICKS_PER_DAY / 2) coldAtNoon.push(readinessOf(sim)!.cold);
       if (season === 'Winter' && isDusk(sim.tick + 1)) coldBeforeNight.push(readinessOf(sim)!.cold);
