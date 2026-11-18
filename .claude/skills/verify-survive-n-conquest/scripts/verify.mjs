@@ -4617,13 +4617,15 @@ const FIREWOOD_UNTIL = { day: 1, time: '19:05' };
  */
 const FIREWOOD_AT = { stockpile: 70, door: 45 };
 /**
- * Game minutes between the stops that read the stores after the split, and the most they wait for the 2 units to be in
- * a store again. A game minute is about 0.21 s at 1× and a settler walks 1.5 tiles a second, so the 5 tiles from the
- * shed to the camp take about 16 game minutes, after the carrier's walk to the shed, and each unit has its own
- * carrier. In `src/sim` runs with the orders at 08:13 to 08:18, both units were in a store again 26 to 79 game minutes
- * after the split.
+ * Game minutes between the stops that read the stores. A settler without a job carries each unit from the shed to the
+ * camp, and while it walks, the unit is in neither store, so a stop can find the shed and the camp short by the units
+ * in hands. Nothing else takes firewood out of either store before the first cold night, and the camp's 12 hold all 8,
+ * so once the last carrier is in, the two hold 2 for each log split, and keep it. The stops run until they read that:
+ * after the split, 2 more, or a further 2 for each later log split, and after the woodcutter stops, all 8. In `src/sim`
+ * runs with the orders at 08:13 to 08:18, both units of the first split were in a store again 26 to 79 game minutes
+ * after it. A game minute is about 0.21 s at 1×, and a carry from the shed to the camp takes about 16 game minutes.
  */
-const FIREWOOD_STORED = { step: 5, within: 90 };
+const FIREWOOD_STORED = { step: 5 };
 /**
  * The search for the woodcutter: at most `clicks` clicks on one paused frame, none within `besidePx` of a click that
  * opened another settler, and `tries` more frames 3 game minutes apart. The shed's builders stand at its corners when
@@ -4878,27 +4880,34 @@ SCENARIOS.firewood = async (session) => {
   const done = follow[follow.length - 1];
   await page.keyboard.press('Escape');
   await session.still(page);
-  // A settler without a job can pick a unit up for the camp as soon as it is split, and a unit in someone's hands is in
-  // no store, so the stores are read at short stops until that walk is done.
-  const wanted = (lastSplit?.firewood ?? NaN) + FIREWOOD_LOGS.firewoodPerLog;
-  const stored = [];
-  const storedBy = (await session.gameMinutes(page)) + FIREWOOD_STORED.within;
-  for (;;) {
+  const split = FIREWOOD_LOGS.firewoodPerLog * (FIREWOOD_SPOTS.trees.length * FIREWOOD_LOGS.perTree - FIREWOOD_LOGS.shed);
+  const base = lastSplit?.firewood ?? NaN;
+  const readStores = async () => {
     const camp = await readCamp();
     const shed = await reads(page);
-    const stop = { at: await at(page), shed, camp, total: (await stockpiles(page)).firewood, sum: firewoodOf(shed) + campFirewoodOf(camp) };
-    stored.push(stop);
-    if (stop.sum === wanted || (await session.gameMinutes(page)) >= storedBy) break;
-    await session.reach(page, clockAt((await session.gameMinutes(page)) + FIREWOOD_STORED.step));
-    await session.still(page);
-  }
+    return { at: await at(page), shed, camp, total: (await stockpiles(page)).firewood, sum: firewoodOf(shed) + campFirewoodOf(camp) };
+  };
+  // Reads the stores at paused stops `FIREWOOD_STORED.step` game minutes apart until `enough` holds of a stop, or until `by`.
+  const storesUntil = async (enough, by) => {
+    const stops = [];
+    for (;;) {
+      const stop = await readStores();
+      stops.push(stop);
+      if ((stop.total === stop.sum && enough(stop.sum)) || (await session.gameMinutes(page)) >= by) return stops;
+      await session.reach(page, clockAt((await session.gameMinutes(page)) + FIREWOOD_STORED.step));
+      await session.still(page);
+    }
+  };
+  const describeStops = (stops) => stops.map((stop) => `${firewoodOf(stop.shed)} and ${campFirewoodOf(stop.camp)}, a total of ${stop.total}, at ${stop.at}`).join('; ');
+  const batchesOf = (more) => more >= FIREWOOD_LOGS.firewoodPerLog && more <= split && more % FIREWOOD_LOGS.firewoodPerLog === 0;
+  const stored = await storesUntil((sum) => batchesOf(sum - base), clockMinutes(FIREWOOD_UNTIL));
   const reached = stored.at(-1);
   session.check(
-    `when the split is done, the shed's and the camp's panels together, and the Firewood in stores total, read 2 more firewood within ${FIREWOOD_STORED.within} game minutes`,
-    Boolean(lastSplit) && done.doing !== SPLITTING_LOG && reached.sum === wanted && reached.total === wanted,
+    `when the split is done, the shed's and the camp's panels together, and the Firewood in stores total, read 2 more firewood, or a further 2 for each later log split`,
+    Boolean(lastSplit) && done.doing !== SPLITTING_LOG && reached.total === reached.sum && batchesOf(reached.sum - base),
     `Firewood in stores read ${lastSplit?.firewood ?? 'nothing'} while it split at ${lastSplit?.at ?? 'no stop'} and ${done?.firewood ?? 'nothing'} when the split was done at ${done?.at ?? 'no stop'}; ` +
-      `the shed and the camp held ${stored.map((stop) => `${firewoodOf(stop.shed)} and ${campFirewoodOf(stop.camp)}, a total of ${stop.total}, at ${stop.at}`).join('; ')}; ` +
-      `${reached.sum === wanted ? `the ${wanted} were reached at ${reached.at}` : `the ${wanted} were never reached`}; the shed's panel then reads "${text(reached.shed)}" and the camp's "${text(reached.camp)}"`,
+      `the shed and the camp held ${describeStops(stored)}; ` +
+      `${batchesOf(reached.sum - base) ? `${reached.sum - base} more, ${(reached.sum - base) / FIREWOOD_LOGS.firewoodPerLog} logs' worth, at ${reached.at}` : 'never 2 more for each log split'}; the shed's panel then reads "${text(reached.shed)}" and the camp's "${text(reached.camp)}"`,
   );
 
   await page.keyboard.press('4');
@@ -4910,13 +4919,14 @@ SCENARIOS.firewood = async (session) => {
   await session.pause(page);
   await session.still(page);
   const stopped = await reads(page);
+  const stoppedAt = await at(page);
   const stoppedTotals = await stockpiles(page);
-  const stoppedCamp = await readCamp();
-  const split = FIREWOOD_LOGS.firewoodPerLog * (FIREWOOD_SPOTS.trees.length * FIREWOOD_LOGS.perTree - FIREWOOD_LOGS.shed);
+  const allIn = await storesUntil((sum) => sum === split, clockMinutes(FIREWOOD_UNTIL));
+  const last = allIn.at(-1);
   session.check(
-    `at ${await at(page)}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, with every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood in the shed and at the camp`,
-    stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && firewoodOf(stopped) + campFirewoodOf(stoppedCamp) === split && stoppedTotals.logs === 0 && stoppedTotals.firewood === split,
-    `the panel reads "${text(stopped)}"; the camp's panel reads "${text(stoppedCamp)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs} and Firewood in stores ${stoppedTotals.firewood}`,
+    `at ${stoppedAt}, with no log left on the stockpile, the shed's panel says its woodcutter stopped for lack of logs, and the shed and the camp come to hold every log beyond the shed's ${FIREWOOD_LOGS.shed} split into ${split} firewood`,
+    stopped?.title === 'Woodshed' && stopped.rows.Woodcutter === name && stopped.rows.Doing === NO_LOG && stoppedTotals.logs === 0 && last.sum === split && last.total === split,
+    `the panel reads "${text(stopped)}"; the Stockpiles panel reads Logs ${stoppedTotals.logs}; the shed and the camp held ${describeStops(allIn)}; the camp's panel then reads "${text(last.camp)}"`,
   );
   await session.screenshot(page, 'firewood-shed-stopped');
   const shedPanel = apart(await uiBoxes(page));
