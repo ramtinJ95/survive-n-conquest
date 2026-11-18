@@ -4,6 +4,7 @@ import { Good } from './goods';
 import { generateMap } from './mapgen';
 import { SiteState, type TileArea } from './orders';
 import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
+import { CAMP_FIREWOOD_LIMIT, HOUSE_FIREWOOD_LIMIT } from './stores';
 
 /**
  * The one forager's hut of the first year on seed 7, which
@@ -189,14 +190,16 @@ export const NOTHING_FOR_WARMTH: WinterYear = { atStart: huntYearCommands({ hut:
  * #30's commands, the first `houses` of the first year's houses, the layout's
  * stockpile, tailor's hut, and woodshed, and chop and quarry orders on the
  * winter's trees and rocks for the logs and stone of these buildings and for
- * the firewood their fires burn on the winter's nights. The camp's fire is
- * among them while fewer houses than households stand.
+ * the firewood that fills each fire the winter lights once and then burns on
+ * each of its nights. The camp's fire is among them while fewer houses than
+ * households stand.
  */
 export function winterYearCommands({ houses, layout, tailor }: { readonly houses: number; readonly layout: WarmthLayout; readonly tailor: TailorOrder }): WinterYear {
   const split = BUILDINGS[Building.Woodshed].recipe!;
   const firewoodPerLog = split.outputs / split.inputs;
   const logs = (building: Building) => BUILDINGS[building].needs[Good.Log] ?? 0;
-  const firewood = WINTER_NIGHTS * (houses * HOUSE_FIRE + (houses < FIRST_YEAR_HOUSES.length ? CAMP_FIRE : 0));
+  const firewood =
+    houses * (HOUSE_FIREWOOD_LIMIT + HOUSE_FIRE * WINTER_NIGHTS) + (houses < FIRST_YEAR_HOUSES.length ? CAMP_FIREWOOD_LIMIT + CAMP_FIRE * WINTER_NIGHTS : 0);
   const logsNeeded = logs(Building.Woodshed) + (layout.tailor ? logs(Building.Tailor) : 0) + houses * logs(Building.House) + Math.ceil(firewood / firewoodPerLog);
   const trees = Math.ceil(logsNeeded / LOGS_PER_TREE);
   const rocks = Math.ceil((houses * (BUILDINGS[Building.House].needs[Good.Stone] ?? 0)) / STONE_PER_ROCK);
