@@ -633,8 +633,11 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
     },
 
-    /** Runs the clock at 4x to the first tick of a game minute and pauses it there, by the worker's `pauseAt`. */
-    async reach(page, target) {
+    /**
+     * Runs the clock to the first tick of a game minute and pauses it there, by the worker's `pauseAt`. `speed` is the
+     * key of the speed it runs at, 8x unless a clip wants the motion slower.
+     */
+    async reach(page, target, { speed = '4' } = {}) {
       const wanted = clockMinutes(target);
       const paused = page.getByRole('button', { name: 'Pause', exact: true, pressed: true });
       const from = await this.gameMinutes(page);
@@ -645,7 +648,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       const [worker] = page.workers();
       if (!worker) fail('the page runs no simulation worker');
       await worker.evaluate((tick) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick } })), tickAt(wanted));
-      await page.keyboard.press('4');
+      await page.keyboard.press(speed);
       while ((await this.gameMinutes(page)) !== wanted || !(await paused.isVisible())) {
         if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(wanted)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
         await page.waitForTimeout(20);
@@ -666,6 +669,14 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
         if (now >= last) return null;
         await this.reach(page, clockAt(Math.min(now + every, last)));
       }
+    },
+
+    /** Steps the clock `every` game minutes until a site's label is gone, and returns the minute of that stop. */
+    async labelGone(page, name, { every, until }) {
+      const gone = await this.runUntil(page, async () => (await page.getByRole('status', { name }).count()) === 0 && this.gameMinutes(page), { every, until });
+      if (gone === null) fail(`the ${name} still stood at ${clockText(await this.gameMinutes(page))}`);
+      await this.settle(page);
+      return gone;
     },
 
     async screenshot(page, label) {
@@ -1995,6 +2006,9 @@ const LABEL_INK = ([r, g, b]) => Math.min(r, g, b) > 200;
 const BUILD_LEAST = { stocked: 1, logs: 80, logsAtWork: 40, stone: 80, timber: 40, roof: 730, walkers: 45, ink: 60 };
 const BUILD_MOST = { goodsBefore: 10, roofBefore: 100, goodsAfter: 10 };
 
+/** Game minutes between the stops at which the site driver reads a site's label. */
+const SITE_STEP = 5;
+
 function siteDriver(session) {
   const site = (page) => page.getByRole('status', { name: 'House site' });
   const order = (page) => page.getByRole('status', { name: 'Order' });
@@ -2030,17 +2044,11 @@ function siteDriver(session) {
     await session.still(page);
     return { line, asideWithTool, shownAfter: await site(page).isVisible() };
   };
-  // Runs the clock at 8× until the label shows what `done` waits for, then pauses, so that every check reads a paused frame.
+  // Steps the clock `SITE_STEP` game minutes at a time until the label shows what `done` waits for, for at most two days.
   const runUntil = async (page, what, done) => {
-    await page.keyboard.press('4');
-    const deadline = Date.now() + 180_000;
-    for (;;) {
-      const label = await reads(page);
-      if (done(label)) break;
-      if (Date.now() > deadline) fail(`the site never ${what} in three minutes at 8×; the label reads "${label?.text ?? 'nothing'}"`);
-      await page.waitForTimeout(100);
-    }
-    await session.pause(page);
+    const until = clockAt((await session.gameMinutes(page)) + 2 * MINUTES_PER_DAY);
+    const met = await session.runUntil(page, async () => done(await reads(page)), { every: SITE_STEP, until });
+    if (!met) fail(`the site never ${what} by ${clockText(clockMinutes(until))}; the label reads "${(await reads(page))?.text ?? 'nothing'}"`);
     await session.still(page);
   };
   const markWork = async (page) => {
@@ -2459,6 +2467,8 @@ const HOME_FOCUS = { x: 450, y: 300 };
  * about 8 ticks, after it, so a settler that came out of a house has walked at most about a tile and a half from its
  * door, while the camp lies 4 tiles and more from either house.
  */
+/** Game minutes between the stops that look for the house sites' labels to go. */
+const HOME_STEP = 5;
 const HOME_STOPS = {
   dusk: { day: 2, time: '19:00' },
   walked: { day: 2, time: '19:50' },
@@ -2497,15 +2507,6 @@ SCENARIOS.households = async (session) => {
     await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
     await session.still(page);
   };
-  const runAt = async (page, key, when) => {
-    await page.keyboard.press(key);
-    const wanted = clockMinutes(when);
-    const deadline = Date.now() + 240_000;
-    while ((await session.gameMinutes(page)) < wanted) {
-      if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in four minutes`);
-      await page.waitForTimeout(100);
-    }
-  };
   const stops = ['midnight', 'beforeDawn', 'afterDawn'];
   const visit = async (page, label) => {
     const shots = {};
@@ -2540,27 +2541,22 @@ SCENARIOS.households = async (session) => {
   }
   await page.keyboard.press('Escape');
   await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
-  await page.keyboard.press('4');
-  const deadline = Date.now() + 600_000;
-  while ((await sites(page).count()) > 0) {
-    if (Date.now() > deadline) fail('the two houses were not finished in ten minutes at 8×');
-    await page.waitForTimeout(500);
-  }
-  await session.pause(page);
-  const finished = await session.gameMinutes(page);
+  const finished = await session.runUntil(page, async () => (await sites(page).count()) === 0 && session.gameMinutes(page), {
+    every: HOME_STEP,
+    until: HOME_STOPS.dusk,
+  });
   session.check(
     'both houses are finished before the dusk of day 2',
-    finished < clockMinutes(HOME_STOPS.dusk),
-    `the last site label went at ${clockText(finished)}`,
+    finished !== null && finished < clockMinutes(HOME_STOPS.dusk),
+    finished === null ? `a site label still stood at ${clockText(clockMinutes(HOME_STOPS.dusk))}` : `the last site label was gone at the stop at ${clockText(finished)}`,
   );
   await closer(page);
   await session.screenshot(page, 'households-homes');
   await session.reach(page, HOME_STOPS.dusk);
   const from = town.since();
-  await runAt(page, '1', HOME_STOPS.walked);
-  await runAt(page, '4', HOME_STOPS.night);
-  await runAt(page, '1', HOME_STOPS.dawn);
-  await session.pause(page);
+  await session.reach(page, HOME_STOPS.walked, { speed: '1' });
+  await session.reach(page, HOME_STOPS.night);
+  await session.reach(page, HOME_STOPS.dawn, { speed: '1' });
   const to = town.since();
   const homes = await visit(page, 'households');
   await session.finishClips(town.context, page, [{ label: 'households-dusk-and-dawn', from, to, ...HOME_CLIP }]);
@@ -3129,10 +3125,10 @@ const SELECT_DRAG = 80;
 /** A click here is at least this far from every tunic, so it lands on bare ground. */
 const BARE_CLEARANCE = 90;
 /**
- * The follow runs at 4× from 08:15, when the marks go down, until the settler has done this many different things or
- * the clock reaches the stop, and reads the panel every `FOLLOW_POLL_MS`.
+ * The follow steps the clock from 08:15, when the marks go down, `every` game minutes, and reads the panel at each
+ * paused stop, until the settler has done this many different things or the clock reaches the stop.
  */
-const FOLLOW = { distinct: 5, until: { day: 1, time: '11:20' }, pollMs: 120 };
+const FOLLOW = { distinct: 5, until: { day: 1, time: '11:20' }, every: 2 };
 const SELECT_STOPS = {
   springMidnight: { day: 2, time: '00:00' },
   winterNoon: { day: 10, time: '12:00' },
@@ -3366,18 +3362,13 @@ SCENARIOS.selecting = async (session) => {
   );
 
   const readings = [];
-  await page.keyboard.press('3');
-  const deadline = Date.now() + 240_000;
-  const stopAt = clockMinutes(FOLLOW.until);
-  for (;;) {
+  const followed = async () => {
     const read = await reads(page);
     const doing = read?.rows.Doing;
     if (doing && readings.at(-1)?.doing !== doing) readings.push({ doing, carries: read.rows.Carries });
-    const distinct = new Set(readings.map((reading) => reading.doing)).size;
-    if (distinct >= FOLLOW.distinct || (await session.gameMinutes(page)) >= stopAt || Date.now() > deadline || !read) break;
-    await page.waitForTimeout(FOLLOW.pollMs);
-  }
-  await session.pause(page);
+    return !read || new Set(readings.map((reading) => reading.doing)).size >= FOLLOW.distinct;
+  };
+  await session.runUntil(page, followed, FOLLOW);
   await session.still(page);
   const followTo = work.since();
   const followShot = await session.screenshot(page, 'selecting-settler');
@@ -3599,14 +3590,22 @@ const FORAGE_SPOTS = {
   hut: { x: 505, y: 189 },
   roof: { x: 519, y: 154 },
   trees: [{ x: 555, y: 170 }, { x: 578, y: 152 }, { x: 615, y: 221 }, { x: 688, y: 211 }],
+  // The middles of Merek's and Ysa's tunics at 08:10 on day 2, read from that paused frame. They walk in the shade of the
+  // crowns there, where a tunic is too dark for `tunicPixels`.
+  foragers: [{ x: 452, y: 217 }, { x: 560, y: 190 }],
 };
 const FORAGE_SEARCH = '?seed=7';
 /**
- * The orders land at the paused tick a few minutes after 08:00. With them given at 08:00, the hut stood at 12:18 in
- * `scripts/first-year.ts`, and Ysa and Jorrin took its places. The camp gains a unit for each one picked, 8 on day 2.
+ * The orders land at tick 0, 08:00, with the page paused there. The hut stands at 12:18, as in `scripts/first-year.ts`,
+ * and Ysa and Jorrin take its places; after Fewer and More places at 12:20, Ysa and Merek hold them. Before sunrise on
+ * day 2 only the settlers the fire lights show their tunics, and from 05:30 both foragers pick under the crowns on
+ * x 140. At 08:10 both carry their first unit of the day to the camp in the open, on (134.7, 125.5) and
+ * (135.6, 129.5). The camp holds 20 food then and 26 at 19:00.
  */
 const FORAGE_FINISHED = { after: { day: 1, time: '11:30' }, before: { day: 1, time: '13:30' } };
-const FORAGE_STOPS = { dawn: { day: 2, time: '05:00' }, dusk: { day: 2, time: '19:00' } };
+const FORAGE_STOPS = { morning: { day: 2, time: '08:10' }, dusk: { day: 2, time: '19:00' } };
+/** Game minutes between the stops that look for the hut's label to go. */
+const FORAGE_STEP = 5;
 const FORAGE_RISE = 4;
 /** The fewest pixels of the green that previews a fitting site, as `orders` asks of a house. */
 const FORAGE_PREVIEW_FITS = 30;
@@ -3635,7 +3634,7 @@ async function takeForageView(session, page) {
 SCENARIOS.foraging = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
-  const { reads, text, uiBoxes, skipOf, tunicPixels, click } = selectionDriver(session);
+  const { reads, text, click } = selectionDriver(session);
   const { food, lines } = hungerDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const label = (page) => page.getByRole('status', { name: "Forager's hut site" });
@@ -3664,18 +3663,10 @@ SCENARIOS.foraging = async (session) => {
   };
   // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels instead.
   const clickForager = async (page, shot) => {
-    const png = await session.screenshot(page, shot);
-    const boxes = skipOf(await uiBoxes(page));
-    const cells = new Map();
-    for (const { x, y } of await tunicPixels(page, png)) {
-      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
-      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
-      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
-      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
-    }
+    await session.screenshot(page, shot);
     let read = null;
-    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, 12)) {
-      read = await click(page, { x: cell.x / cell.count, y: cell.y / cell.count });
+    for (const spot of FORAGE_SPOTS.foragers) {
+      read = await click(page, spot);
       if (read?.rows?.Job === 'Forager') return read;
     }
     return read;
@@ -3731,19 +3722,15 @@ SCENARIOS.foraging = async (session) => {
   );
   await session.screenshot(page, 'foraging-site');
 
-  await page.keyboard.press('4');
-  const deadline = Date.now() + 240_000;
-  while ((await label(page).count()) > 0) {
-    if (Date.now() > deadline) fail('the hut site still stood four minutes after the orders at 8×');
-    await page.waitForTimeout(100);
-  }
-  const finished = await session.gameMinutes(page);
-  await session.pause(page);
+  const finished = await session.runUntil(page, async () => (await label(page).count()) === 0 && session.gameMinutes(page), {
+    every: FORAGE_STEP,
+    until: FORAGE_FINISHED.before,
+  });
   await session.still(page);
   session.check(
     `the hut is finished on day 1 between ${FORAGE_FINISHED.after.time} and ${FORAGE_FINISHED.before.time}`,
-    finished >= clockMinutes(FORAGE_FINISHED.after) && finished <= clockMinutes(FORAGE_FINISHED.before),
-    `the label was gone at ${clockText(finished)}; paused at ${await at(page)}`,
+    finished !== null && finished >= clockMinutes(FORAGE_FINISHED.after),
+    finished === null ? `the label still stood at ${await at(page)}` : `the label was gone at the stop at ${clockText(finished)}`,
   );
 
   const hut = await clickHut(page);
@@ -3793,7 +3780,7 @@ SCENARIOS.foraging = async (session) => {
   const foragers = named(more?.rows?.Foragers);
   await page.keyboard.press('Escape');
 
-  await session.reach(page, FORAGE_STOPS.dawn);
+  await session.reach(page, FORAGE_STOPS.morning);
   await session.still(page);
   const forager = await clickForager(page, 'foraging-forager-aim');
   session.check(
@@ -3808,7 +3795,7 @@ SCENARIOS.foraging = async (session) => {
     `the panel is ${whole.shown} px tall and its rows take ${whole.holds} px`,
   );
   await session.screenshot(page, 'foraging-forager-panel');
-  const dawn = { at: await at(page), food: await food(page) };
+  const morning = { at: await at(page), food: await food(page) };
   const from = play.since();
   await session.reach(page, FORAGE_STOPS.dusk);
   await session.still(page);
@@ -3816,9 +3803,9 @@ SCENARIOS.foraging = async (session) => {
   const dusk = { at: await at(page), food: await food(page), jobs: await jobs(page), forager: await reads(page) };
   await session.screenshot(page, 'foraging-dusk');
   session.check(
-    `the food at the camp rises by at least ${FORAGE_RISE} from ${dawn.at} to ${dusk.at}`,
-    dusk.food.camp - dawn.food.camp >= FORAGE_RISE,
-    `the camp held ${dawn.food.camp} food at ${dawn.at} and ${dusk.food.camp} at ${dusk.at}`,
+    `the food at the camp rises by at least ${FORAGE_RISE} from ${morning.at} to ${dusk.at}`,
+    dusk.food.camp - morning.food.camp >= FORAGE_RISE,
+    `the camp held ${morning.food.camp} food at ${morning.at} and ${dusk.food.camp} at ${dusk.at}`,
   );
   session.check(
     'the two foragers keep their places through the day',
@@ -3872,6 +3859,8 @@ const STORE_STOPS = {
  * followed settler's panel, the house, the barn, the forest's edge, and the camp.
  */
 const STORE_SELECT_AT = { day: 4, time: '03:42' };
+/** The stops that look for the hut's and the barn's labels to go. */
+const STORE_BUILT = { every: 5, until: { day: 3, time: '18:00' } };
 const STORE_CLIP_UNTIL = { day: 4, time: '06:30' };
 const HOUSE_DOORS = { x: 370, y: 80, width: 170, height: 140 };
 /** A tunic in the light of 03:42, before sunrise: it read 138, 80, 9 at the house's door, where daylight's test needs red over 170. */
@@ -3954,14 +3943,13 @@ SCENARIOS.storing = async (session) => {
     return { at: await at(page), barn: count(barn), camp: count(camp), house: count(house), reads: [barn, camp, house], totals: await food(page) };
   };
   const words = (read) => `barn ${read.barn}, camp ${read.camp}, house ${read.house}; the Stockpiles panel reads ${read.totals.camp} in barns and camp and ${read.totals.homes} in homes`;
-  const labelsGone = async (page, names, minutes) => {
-    const deadline = Date.now() + minutes * 60_000;
+  const labelsGone = async (page, names) => {
     const gone = {};
-    while (names.some((name) => gone[name] === undefined)) {
-      if (Date.now() > deadline) fail(`${names.filter((name) => gone[name] === undefined).join(' and ')} still stood ${minutes} minutes after the orders at 8×`);
+    const all = async () => {
       for (const name of names) if (gone[name] === undefined && (await page.getByRole('status', { name }).count()) === 0) gone[name] = await session.gameMinutes(page);
-      await page.waitForTimeout(100);
-    }
+      return names.every((name) => gone[name] !== undefined);
+    };
+    if (!(await session.runUntil(page, all, STORE_BUILT))) fail(`${names.filter((name) => gone[name] === undefined).join(' and ')} still stood at ${await at(page)}`);
     return gone;
   };
 
@@ -4006,14 +3994,12 @@ SCENARIOS.storing = async (session) => {
   await page.mouse.wheel(0, STORE_CLOSER);
   await session.still(page);
 
-  await page.keyboard.press('4');
-  const gone = await labelsGone(page, ["Forager's hut site", 'Barn site'], 12);
-  await session.pause(page);
+  const gone = await labelsGone(page, ["Forager's hut site", 'Barn site']);
   await session.still(page);
   session.check(
     'the settlers build the hut and the barn',
     gone["Forager's hut site"] !== undefined && gone['Barn site'] !== undefined,
-    `the hut's label went at ${clockText(gone["Forager's hut site"])} and the barn's at ${clockText(gone['Barn site'])}; paused at ${await at(page)}`,
+    `the hut's label was gone at the stop at ${clockText(gone["Forager's hut site"])} and the barn's at ${clockText(gone['Barn site'])}`,
   );
   const built = await readOne(page, STORE_SPOTS.barn, 'Barn');
   session.check(
@@ -4030,13 +4016,8 @@ SCENARIOS.storing = async (session) => {
   await session.reach(page, STORE_STOPS.beforeDawn);
   await session.still(page);
   const from = play.since();
-  const runTo = async (target) => {
-    await page.keyboard.press('2');
-    while ((await session.gameMinutes(page)) < clockMinutes(target)) await page.waitForTimeout(50);
-    await session.pause(page);
-    await session.still(page);
-  };
-  await runTo(STORE_SELECT_AT);
+  await session.reach(page, STORE_SELECT_AT, { speed: '2' });
+  await session.still(page);
   const doors = ffmpeg(['-i', await session.screenshot(page, 'storing-doors'), '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   const cells = new Map();
   for (let y = HOUSE_DOORS.y; y < HOUSE_DOORS.y + HOUSE_DOORS.height; y++) for (let x = HOUSE_DOORS.x; x < HOUSE_DOORS.x + HOUSE_DOORS.width; x++) {
@@ -4056,7 +4037,8 @@ SCENARIOS.storing = async (session) => {
     follow?.rows?.Home === 'A house',
     `the panel reads "${text(follow)}"`,
   );
-  await runTo(STORE_CLIP_UNTIL);
+  await session.reach(page, STORE_CLIP_UNTIL, { speed: '2' });
+  await session.still(page);
   const to = play.since();
   await session.reach(page, STORE_STOPS.morning);
   await session.still(page);
@@ -4203,6 +4185,9 @@ const DEER_WALK_PER_MINUTE = 0.8 * (300 / MINUTES_PER_DAY);
 /** The chained steps of a flight the check needs, each faster than a deer walks, and the most a deer may jump between two stops. */
 const FLIGHT = { steps: 3, jump: 120, settlerPx: 220 };
 const HUNT_FINISHED = { after: { day: 2, time: '06:00' }, before: { day: 2, time: '18:00' } };
+/** The stops that look for a site's label to go, and the game minutes between the stops that read the hunter's panel. */
+const HUNT_BUILT = { every: 5, until: HUNT_FINISHED.before };
+const HUNT_WATCH_STEP = 2;
 const HUNT_UNTIL = { day: 2, time: '19:05' };
 const HUNTER_DOING = /^(Stalking a deer|Aiming at a deer|Walking to a kill to pick up food|Carrying food to (a barn|the camp)|Looking for deer|Idle, no deer within 40 tiles of the lodge|Idle, waiting for room in a store)$/;
 /** The view the follow keeps the hunter near, inside the clip's crop. */
@@ -4263,14 +4248,6 @@ SCENARIOS.hunting = async (session) => {
       for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
       return { withJob: Number(rows['Settlers with a job']), withoutJob: Number(rows['Settlers with no job']) };
     });
-  const labelGone = async (name, minutes) => {
-    const deadline = Date.now() + minutes * 60_000;
-    while ((await page.getByRole('status', { name }).count()) > 0) {
-      if (Date.now() > deadline) fail(`the ${name} still stood ${minutes} minutes after its order at 8×`);
-      await page.waitForTimeout(100);
-    }
-    return session.gameMinutes(page);
-  };
 
   await move(HUNT_ORDER_VIEW);
   const orders = [];
@@ -4362,9 +4339,7 @@ SCENARIOS.hunting = async (session) => {
     lone ? `a click at ${Math.round(lone.x)},${Math.round(lone.y)}, the middle of the coat of the deer that ran, ${onDeer ? `opened "${text(onDeer)}"` : 'left no panel'}` : 'the deer that ran was not found clear of the settlers at the last stop',
   );
 
-  await page.keyboard.press('4');
-  const barnAt = await labelGone('Barn site', 6);
-  await session.pause(page);
+  const barnAt = await session.labelGone(page, 'Barn site', HUNT_BUILT);
   await session.still(page);
   await away();
   await page.keyboard.press('KeyL');
@@ -4391,14 +4366,12 @@ SCENARIOS.hunting = async (session) => {
     `the label reads "${siteLabel ?? 'nothing'}"`,
   );
 
-  await page.keyboard.press('4');
-  const lodgeAt = await labelGone("Hunter's lodge site", 6);
-  await session.pause(page);
+  const lodgeAt = await session.labelGone(page, "Hunter's lodge site", HUNT_BUILT);
   await session.still(page);
   session.check(
     `the lodge is finished on day 2 between ${HUNT_FINISHED.after.time} and ${HUNT_FINISHED.before.time}`,
     lodgeAt >= clockMinutes(HUNT_FINISHED.after) && lodgeAt <= clockMinutes(HUNT_FINISHED.before),
-    `the label was gone at ${clockText(lodgeAt)}; paused at ${await at(page)}`,
+    `the label was gone at the stop at ${clockText(lodgeAt)}`,
   );
   const lodge = await readOne(HUNT_SPOTS.lodgeRoof, "Hunter's lodge");
   const hunters = (lodge?.rows?.Hunters ?? '').split(' and ').filter(Boolean);
@@ -4477,19 +4450,18 @@ SCENARIOS.hunting = async (session) => {
     if (Math.hypot(focus.x - HUNT_AIM_AT.x, focus.y - HUNT_AIM_AT.y) >= HUNT_RECENTRE) await panBy({ x: HUNT_AIM_AT.x - focus.x, y: HUNT_AIM_AT.y - focus.y });
     return seen;
   };
-  // Runs at 2× while the hunter stalks and aims and at 4× while it walks with the food, until its panel reads something
-  // else or for at most `minutes`, and pauses there.
+  // Steps the clock `HUNT_WATCH_STEP` minutes at a time until the hunter's panel reads something else, or for at most
+  // `minutes`, and stays paused there.
   const runWhileDoing = async (doing, minutes) => {
-    const until = (await session.gameMinutes(page)) + minutes;
-    await page.keyboard.press(/^(Walking to a kill|Carrying food)/.test(doing) ? '3' : '2');
-    for (;;) {
+    const until = clockAt((await session.gameMinutes(page)) + minutes);
+    await session.reach(page, clockAt((await session.gameMinutes(page)) + HUNT_WATCH_STEP));
+    const changed = async () => {
       const read = await reads(page);
-      if (read?.title !== name || read.rows.Doing !== doing || (await session.gameMinutes(page)) >= until) break;
-      await page.waitForTimeout(60);
-    }
-    await session.pause(page);
+      return (read?.title !== name || read.rows.Doing !== doing) && { read };
+    };
+    const done = await session.runUntil(page, changed, { every: HUNT_WATCH_STEP, until });
     await session.still(page);
-    return reads(page);
+    return done ? done.read : reads(page);
   };
   const hunt = [];
   let huntFrom = null;
@@ -5008,14 +4980,6 @@ SCENARIOS.clothing = async (session) => {
       if (read?.title === title) return read;
     }
     return read;
-  };
-  const labelGone = async (name, minutes) => {
-    const deadline = Date.now() + minutes * 60_000;
-    while ((await page.getByRole('status', { name }).count()) > 0) {
-      if (Date.now() > deadline) fail(`the ${name} still stood ${minutes} minutes after its order at 8×`);
-      await page.waitForTimeout(100);
-    }
-    return session.gameMinutes(page);
   };
   // Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels, and pass
   // over the cells beside a click that opened another settler.
