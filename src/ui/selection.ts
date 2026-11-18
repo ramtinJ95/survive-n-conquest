@@ -323,10 +323,12 @@ function missedMeals({ frame }: Facts, id: number): string {
   return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
 }
 
+/** A settler's cold nights, and beside them whether it wears clothing, which a dead settler's is gone with. */
 function coldNights({ frame }: Facts, id: number): string {
   const nights = frame.coldNights[id]!;
-  if (nights === 0) return 'None';
-  return frame.states[id] === VillagerState.Dead ? String(nights) : `${nights}, cold`;
+  if (frame.states[id] === VillagerState.Dead) return nights === 0 ? 'None' : String(nights);
+  const cold = nights === 0 ? 'None' : `${nights}, cold`;
+  return frame.worn[id] === Good.Clothing ? `${cold}, wears clothing` : cold;
 }
 
 const CARRIED_WORDS: Readonly<Record<Good, string>> = {
@@ -468,7 +470,6 @@ const PANELS: Panels = {
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
       { label: 'Cold nights', read: (facts, { id }) => coldNights(facts, id) },
-      { label: 'Clothing', read: ({ frame }, { id }) => (frame.worn[id] === Good.Clothing ? 'Wears a piece' : 'None') },
     ],
   },
   houseSite: sitePanel(Building.House),
