@@ -3298,16 +3298,17 @@ const settlerPanel = (read) =>
   Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
 
 /**
- * The longest reading of each settler row, by its label: the tailor's idle words, the longest `Doing`, and a household
- * of two whose other member has died, under the longest of the settlers' names. A row missing from here keeps the
- * reading it has, so a new row adds its height to the measured copy.
+ * The longest reading of each settler row, by its label: the tailor's idle words, the longest `Doing`, under the
+ * longest of the settlers' names, in a household of two. A row missing from here keeps the reading it has, so a new
+ * row adds its height to the measured copy. A household member who died adds ` (died)` and a third line to
+ * `Household`, and with these readings that panel reaches above the Stockpiles panel's bottom.
  */
 const SETTLER_LONGEST = {
   Doing: "Idle, no hide in a stockpile within 30 tiles of the tailor's hut",
   Carries: '1 firewood',
   Job: 'Woodcutter',
   Sex: 'Woman',
-  Household: 'Household 4, with Haldor (died)',
+  Household: 'Household 4, with Haldor',
   Home: 'None, sleeps at the camp',
   'Missed meals': '2, hungry',
   'Cold nights': '2, cold',
