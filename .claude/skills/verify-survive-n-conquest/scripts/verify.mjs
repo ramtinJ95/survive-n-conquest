@@ -2236,7 +2236,7 @@ const LOOK_BOXES = {
   house: { x: 305, y: 126, width: 115, height: 125 },
   fire: { x: 253, y: 308, width: 50, height: 50 },
   camp: { x: 203, y: 258, width: 145, height: 153 },
-  land: { x: 0, y: 40, width: 640, height: 420 },
+  land: { x: 0, y: 60, width: 640, height: 420 },
 };
 /** The thatch of the house roof in daylight: a dull gold, yellower than timber and soil. Its sunlit slope is as bright as a tunic. */
 const THATCH = ([r, g, b]) => r > 120 && g > 0.6 * r && g < 0.8 * r && b > 0.15 * r && b < 0.4 * r;
@@ -5474,10 +5474,12 @@ const COLD_CLOSER = -550;
  * The drag that then moves the near view's look-at point to (127, 123), so the first house's roof and its fire's
  * sign stand west of the winter readiness panel, which from the first day of autumn covers the page from x 441 to 792
  * and from y 108 to 249 at 960 by 540. Before the panel the near view looked at (123.99, 125.04), and the sign box
- * of the first house lay under it. `scripts/aim.ts` puts the near view's pan at (46, 71) before and (-43, 73) after:
+ * of the first house lay under it. `scripts/aim.ts` puts the near view's pan at (46, 71) before and (-43, 73) after,
+ * in the pixels of a drag at the settled near zoom, so the drag is (-89, 2) once the wheel's zoom has eased in. A drag
+ * while it eases moves the view by the distance of that moment:
  * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-1000,"turn":{"x":0,"y":0},"target":[127,123]}' '[[121,122],[122,123,3],[121,127],[122,128,3],[126,123],[127,124],[127,127]]'`
  */
-const COLD_NEAR_PAN = { from: { x: 480, y: 270 }, to: { x: 441, y: 271 } };
+const COLD_NEAR_PAN = { from: { x: 480, y: 270 }, to: { x: 391, y: 272 } };
 const COLD_ORDERS = {
   chop: [{ x: 640, y: 292 }, { x: 697, y: 454 }],
   quarry: [{ x: 512, y: 201 }, { x: 516, y: 211 }],
@@ -5636,6 +5638,8 @@ SCENARIOS.cold = async (session) => {
   await session.screenshot(page, 'cold-orders');
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
   await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
   await away();
   await session.still(page);
@@ -6335,6 +6339,8 @@ SCENARIOS.readiness = async (session) => {
   session.check(`at ${orderedAt} in spring the reading of readiness is hidden`, !spring.shown, readingText(spring));
   await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
   await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
   await session.drag(page, COLD_NEAR_PAN.from, COLD_NEAR_PAN.to);
   await away();
   await session.still(page);
