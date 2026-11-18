@@ -1,9 +1,10 @@
-/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel. */
+/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel. At 400 pixels a settler's longest readings wrap to two lines, so its panel stays clear of the stockpiles panel at 960 by 540. */
 .selection {
   position: fixed;
   left: var(--edge-gap);
   bottom: calc(var(--edge-gap) + 44px);
-  width: 256px;
+  width: 400px;
+  max-width: calc(100% - 2 * var(--edge-gap));
   max-height: calc(100% - 2 * var(--edge-gap) - 44px - 184px);
   overflow: hidden;
   box-sizing: border-box;

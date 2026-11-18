@@ -3297,6 +3297,22 @@ function selectionDriver(session) {
 const settlerPanel = (read) =>
   Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
 
+/**
+ * The longest reading of each settler row, by its label: the tailor's idle words, the longest `Doing`, and a household
+ * of two whose other member has died, under the longest of the settlers' names. A row missing from here keeps the
+ * reading it has, so a new row adds its height to the measured copy.
+ */
+const SETTLER_LONGEST = {
+  Doing: "Idle, no hide in a stockpile within 30 tiles of the tailor's hut",
+  Carries: '1 firewood',
+  Job: 'Woodcutter',
+  Sex: 'Woman',
+  Household: 'Household 4, with Haldor (died)',
+  Home: 'None, sleeps at the camp',
+  'Missed meals': '2, hungry',
+  'Cold nights': '2, cold',
+};
+
 SCENARIOS.selecting = async (session) => {
   const seen = [];
   const sites = siteDriver(session);
@@ -3393,6 +3409,25 @@ SCENARIOS.selecting = async (session) => {
   const pausedRead = await reads(page);
   session.check('while paused the settler panel holds still', text(pausedRead) === text(followRead), `"${text(followRead)}" then "${text(pausedRead)}"`);
   await fitsApart(page, 'settler');
+  const longest = await page.getByRole('region', { name: 'Selection' }).evaluate((node, readings) => {
+    const copy = node.cloneNode(true);
+    copy.removeAttribute('aria-label');
+    for (const name of copy.querySelectorAll('dt')) {
+      const value = name.nextElementSibling?.firstChild;
+      if (value && readings[name.textContent.trim()] !== undefined) value.textContent = readings[name.textContent.trim()];
+    }
+    node.after(copy);
+    const { x, y, width, height } = copy.getBoundingClientRect();
+    const fit = { box: { x, y, width, height }, shown: copy.clientHeight, holds: copy.scrollHeight, rows: copy.querySelectorAll('dt').length };
+    copy.remove();
+    return fit;
+  }, SETTLER_LONGEST);
+  const stockpilesBox = (await uiBoxes(page)).stockpiles;
+  session.check(
+    'at 960x540 the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row',
+    Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && longest.holds <= longest.shown,
+    `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
+  );
 
   await session.reach(page, BUILD_STOPS.placed);
   const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);

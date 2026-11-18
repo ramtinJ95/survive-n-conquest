@@ -52,7 +52,7 @@ Preconditions:
   - It zooms to the farthest view. `at the farthest zoom a click on the firelit camp selects one of the settlers ringed there` clicks the largest patch of `FIRELIT` ground.
 - **Pick at every view.** The fourth page selects a settler and then clicks bare ground, at the opening view and at the nearest zoom turned by a right drag of `SELECT_TURN` pixels. The bare point lies `BARE_CLEARANCE` pixels from every tunic.
   - `a drag that starts on a settler moves the camera and selects nothing` drags 80 pixels from a tunic.
-- **Layout.** `the settler panel`, `the site panel`, and `the camp panel covers no other panel` compare the panel's box with the clock, the toolbar, the Stockpiles panel, the camera controls, and the status line when it shows.
+- **Layout.** `the settler panel`, `the site panel`, and `the camp panel covers no other panel` compare the panel's box with the clock, the toolbar, the Stockpiles panel, the camera controls, and the status line when it shows. After the settler's, `the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row` copies the open settler panel beside it, puts the longest reading of each row in `SETTLER_LONGEST` into the copy, and measures the copy: its top must lie at or below the Stockpiles panel's bottom, and its rows must fit its height. A row that `SETTLER_LONGEST` lacks keeps its reading, so a new row adds its height to the copy. On 2026-11-18 the copy was 400x225 from y 259, and the Stockpiles panel ended at y 237.
 
 ## Gotchas
 
