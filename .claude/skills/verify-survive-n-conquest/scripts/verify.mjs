@@ -2219,7 +2219,7 @@ const LOOK_CLIP = { crop: { x: 60, y: 40, width: 560, height: 420 }, width: 560,
 const LOOK_PAN = 40;
 /**
  * Pixels the land is dragged west in the same drag, so the house and the camp stand west of the winter readiness
- * panel, which from the first day of autumn covers the page from x 441 to 792 and from y 108 to 235 at 960 by 540.
+ * panel, which from the first day of autumn covers the page from x 464 to 792 and from y 108 to 234 at 960 by 540.
  * Before the panel the drag was straight up and the house's box lay under it: at the winter noon it read 140 thatch
  * pixels against the 1900 needed. In a run with this drag the near view at noon on day 2 moved the house's thatch by
  * (-150, -24) pixels and the midnight flame by (-187, -22), and the boxes below moved with them.
@@ -5472,8 +5472,8 @@ const COLD_ORDER_VIEW = { wheel: -450, turn: { x: 0, y: 0 }, pan: { x: 20, y: 31
 const COLD_CLOSER = -550;
 /**
  * The drag that then moves the near view's look-at point to (127, 123), so the first house's roof and its fire's
- * sign stand west of the winter readiness panel, which from the first day of autumn covers the page from x 441 to 792
- * and from y 108 to 249 at 960 by 540. Before the panel the near view looked at (123.99, 125.04), and the sign box
+ * sign stand west of the winter readiness panel, which from the first day of autumn covers the page from x 464 to 792
+ * and from y 108 to 234 at 960 by 540. Before the panel the near view looked at (123.99, 125.04), and the sign box
  * of the first house lay under it. `scripts/aim.ts` puts the near view's pan at (46, 71) before and (-43, 73) after,
  * in the pixels of a drag at the settled near zoom, so the drag is (-89, 2) once the wheel's zoom has eased in. A drag
  * while it eases moves the view by the distance of that moment:
