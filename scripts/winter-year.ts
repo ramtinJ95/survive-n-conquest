@@ -2,7 +2,7 @@
 // With no run named it prints 4.5's three years, wood, hides, and nothing. The runs two-houses (4.2's year) and
 // clothing-at-start and clothing-after-lodge (4.4's two years) print the earlier years of the stage the same way.
 import { BUILDINGS, Building } from '../src/sim/buildings';
-import { DAYS_PER_YEAR, MINUTES_PER_DAY, TICKS_PER_DAY, dateAt, tickOfDay } from '../src/sim/calendar';
+import { DAYS_PER_YEAR, TICKS_PER_DAY, dateAt, tickOfDay } from '../src/sim/calendar';
 import { isColdNight, isDawn, isNight } from '../src/sim/daylight';
 import {
   FIRST_YEAR_HOUSES,
@@ -28,7 +28,6 @@ const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const SEASON_ENDS = [3, 6, 9, 12];
 const NOON_DAYS = [7, 8, 9, 10, 11, 12];
 const WINTER_DAYS = [10, 11, 12];
-const NOON = MINUTES_PER_DAY / 2;
 
 const clock = (tick: number) => {
   const { day, minuteOfDay } = dateAt(tick);
@@ -128,14 +127,14 @@ function runYear(year: WinterYear) {
   let barnAtYearEnd = 0;
   // The year runs to the dawn after its last night, so a villager that never got home that night is judged too.
   while (!sim.over && !(isDawn(sim.tick) && dateAt(sim.tick).day > DAYS_PER_YEAR)) {
-    const { day, minuteOfDay } = dateAt(sim.tick);
+    const { day } = dateAt(sim.tick);
     if (tickOfDay(sim.tick) === 0 && SEASON_ENDS.includes(day - 1)) {
       storesRow(`end of day ${day - 1}`);
       seasonRow(day - 1);
     }
     if (tickOfDay(sim.tick) === TICKS_PER_DAY - 1 && WINTER_DAYS.includes(day)) firesRow(day);
     if (tickOfDay(sim.tick) === 0 && day - 1 === DAYS_PER_YEAR) barnAtYearEnd = goodIn(sim, Good.Food, StoreKind.Common);
-    if (minuteOfDay === NOON && dateAt(sim.tick - 1).minuteOfDay !== NOON && NOON_DAYS.includes(day)) {
+    if (tickOfDay(sim.tick) === TICKS_PER_DAY / 2 && NOON_DAYS.includes(day)) {
       readingRow(`day ${day} 12:00`);
       if (WINTER_DAYS.includes(day)) coldBy.set(day, { noon: readinessOf(sim)!.cold, beforeDusk: -1 });
     }
@@ -200,8 +199,8 @@ function runYear(year: WinterYear) {
       nights[id]!.set(night, { cold, why: starved ? 'starved before its night' : `${cold ? 'cold' : 'warm'} (${where}, ${clothed})${now === VillagerState.Dead ? ', froze' : ''}` });
     }
   }
-  if (sim.over) barnAtYearEnd = goodIn(sim, Good.Food, StoreKind.Common);
   if (sim.over) {
+    barnAtYearEnd = goodIn(sim, Good.Food, StoreKind.Common);
     storesRow(`died out ${clock(sim.tick - 1)}`);
     seasonRow(dateAt(sim.tick - 1).day);
   }
