@@ -4,7 +4,8 @@ import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
 import { AnimalState } from '../sim/animals';
 import { BUILDING } from '../sim/building';
 import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY, withinReach } from '../sim/buildings';
-import { SEASONS, seasonIndexAt } from '../sim/calendar';
+import { SEASONS, TICKS_PER_DAY, seasonIndexAt, tickOfDay, tickOfSeason } from '../sim/calendar';
+import { isNight } from '../sim/daylight';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
@@ -74,6 +75,7 @@ export interface Facts {
     | 'storeFirewood'
     | 'storeClothing'
     | 'workshopStops'
+    | 'firesLastNight'
     | 'animals'
     | 'animalStates'
   >;
@@ -108,6 +110,8 @@ interface Button<S> {
 interface Row<S> {
   readonly label: string;
   readonly read: (facts: Facts, selection: S) => string;
+  /** Whether the row shows. A row without it always does. */
+  readonly shows?: (facts: Facts) => boolean;
   readonly buttons?: readonly Button<S>[];
 }
 
@@ -144,6 +148,12 @@ const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
 const WEAR = task(WEARING);
 const WINTER = SEASONS.indexOf('Winter');
+
+/** The winter nights that have ended at a dawn, on a tick of the winter. */
+function winterNightsEnded(tick: number): number {
+  const beforeDawn = isNight(tick) && tickOfDay(tick) < TICKS_PER_DAY / 2;
+  return Math.max(0, Math.floor(tickOfSeason(tick) / TICKS_PER_DAY) - Number(beforeDawn));
+}
 
 const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
 
@@ -479,6 +489,14 @@ const PANELS: Panels = {
       { label: 'Household', read: (facts, { slot }) => livingIn(facts, slot) },
       { label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${HOUSE_FOOD_LIMIT}` },
       { label: 'Firewood', read: ({ frame }, { slot }) => `${frame.storeFirewood[slot]} of ${HOUSE_FIREWOOD_LIMIT}` },
+      {
+        label: 'Fire last night',
+        shows: ({ frame }) => seasonIndexAt(frame.tick) === WINTER,
+        read: ({ frame }, { slot }) => {
+          if (winterNightsEnded(frame.tick) === 0) return 'No winter night yet';
+          return frame.firesLastNight[slot] === 1 ? 'Burned' : 'Did not burn';
+        },
+      },
     ],
   },
   hutSite: sitePanel(Building.Hut),
@@ -531,7 +549,7 @@ function show<K extends PanelKind>(panels: Panels, kind: K, selection: PanelSele
     kind,
     title: typeof panel.title === 'string' ? panel.title : panel.title(facts, selection),
     ...(panel.note === undefined ? {} : { note: panel.note }),
-    rows: panel.rows.map(({ label, read, buttons }) => ({
+    rows: panel.rows.filter(({ shows }) => shows?.(facts) ?? true).map(({ label, read, buttons }) => ({
       label,
       value: read(facts, selection),
       ...(buttons && {
@@ -632,7 +650,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
 
   let selection: Selection | null = null;
   let frame: SimFrame | null = null;
-  let shown: PanelKind | null = null;
+  let shown: string | null = null;
   let values: HTMLElement[] = [];
   let controls: HTMLButtonElement[][] = [];
   let text: PanelText | null = null;
@@ -647,8 +665,9 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
       return;
     }
     text = readPanel(selection, known, panels);
-    if (text.kind !== shown) {
-      shown = text.kind;
+    const layout = [text.kind, ...text.rows.map(({ label }) => label)].join('|');
+    if (layout !== shown) {
+      shown = layout;
       values = text.rows.map(() => document.createElement('span'));
       controls = text.rows.map(({ buttons = [] }, row) =>
         buttons.map(({ text: face, name: accessible }, index) => {

@@ -143,6 +143,7 @@ describe("a settler's panel", () => {
         storeInbound: new Uint16Array(STORES),
         storeFirewood: new Uint16Array(STORES),
         storeClothing: new Uint16Array(STORES),
+        firesLastNight: new Uint8Array(STORES),
         workshopStops: new Uint8Array(MAX_SITES),
         animals: new Float32Array(0),
         animalStates: new Uint8Array(0),
@@ -487,6 +488,7 @@ function siteFacts() {
     storeInbound: new Uint16Array(STORES),
     storeFirewood: new Uint16Array(STORES),
     storeClothing: new Uint16Array(STORES),
+    firesLastNight: new Uint8Array(STORES),
     workshopStops: new Uint8Array(MAX_SITES),
     animals: new Float32Array(0),
     animalStates: new Uint8Array(0),
@@ -732,6 +734,31 @@ describe('a building panel', () => {
         { label: 'Firewood', value: '0 of 6' },
       ],
     });
+  });
+
+  it("says in winter whether a house's fire burned last night, and nothing of it outside winter", () => {
+    const { map, camp, orders, slot, building, frame } = siteFacts();
+    orders.sites.state[slot] = SiteState.Built;
+    const facts: Facts = { map, orders, camp, frame: frame([3.5, 3.5], [0], [-1]) };
+    const at = (day: number, minute: number) => {
+      let tick = 0;
+      while (dateAt(tick).day < day || (dateAt(tick).day === day && dateAt(tick).minuteOfDay < minute)) tick += 1;
+      return tick;
+    };
+    const fire = (day: number, minute: number, burned: number) => {
+      (facts.frame as { tick: number }).tick = at(day, minute);
+      facts.frame.firesLastNight[slot] = burned;
+      return readPanel(building, facts).rows.find(({ label }) => label === 'Fire last night')?.value ?? null;
+    };
+    expect(fire(9, 12 * 60, 1)).toBeNull();
+    expect(fire(10, 0, 0)).toBe('No winter night yet');
+    expect(fire(10, 12 * 60, 0)).toBe('No winter night yet');
+    expect(fire(11, 2 * 60, 0)).toBe('No winter night yet');
+    expect(fire(11, 8 * 60, 1)).toBe('Burned');
+    expect(fire(12, 8 * 60, 0)).toBe('Did not burn');
+    expect(fire(12, 23 * 60, 1)).toBe('Burned');
+    expect(fire(13, 8 * 60, 1)).toBeNull();
+    expect(readPanel(building, facts).rows.map(({ label }) => label)).toEqual(['Household', 'Food', 'Firewood']);
   });
 
   it("names the household that lives in a house, and nobody in a house past the last household's, by internals for the houses", () => {
