@@ -24,6 +24,7 @@ import { COLD } from '../src/sim/needs';
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
 import { NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
+import { WEARING } from '../src/sim/wearing';
 import { Stop, WORKSHOP } from '../src/sim/workshops';
 
 const SEED = 7;
@@ -106,6 +107,7 @@ const EAT = TASK_KINDS.indexOf(EATING) + 1;
 const KINDS = [
   ['eating', EAT],
   ['stocking', TASK_KINDS.indexOf(STOCKING) + 1],
+  ['fetching clothing', TASK_KINDS.indexOf(WEARING) + 1],
   ['building', TASK_KINDS.indexOf(BUILDING) + 1],
   ['supplying', SUPPLY],
   ['carrying', CARRY],
@@ -174,11 +176,18 @@ function firewoodIn(sim: Sim, kind: StoreKind): number {
   return firewood;
 }
 
-/** The clothing in the tailor's huts. Nothing takes clothing out of one yet, so its growth over the measured ticks is the clothing made in them. */
+/** The clothing in the tailor's huts. With the pieces put on, its growth over the measured ticks is the clothing made in them. */
 function tailorClothing(sim: Sim): number {
   let clothing = 0;
   for (let slot = 0; slot < sim.orders.sites.used; slot++) clothing += sim.stores.held[Good.Clothing - 1]![slot]!;
   return clothing;
+}
+
+/** The living villagers that wear clothing. */
+function clothed(sim: Sim): number {
+  let count = 0;
+  for (let id = 0; id < sim.villagers.state.length; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) count++;
+  return count;
 }
 
 /** The hides on stockpile tiles. */
@@ -296,6 +305,7 @@ function measure(size: number, run: string): boolean {
   const tailorHutsBefore = built(sim, Building.Tailor);
   const tailorsBefore = holding(sim, Job.Tailor);
   const clothingBefore = tailorClothing(sim);
+  const clothedBefore = clothed(sim);
   const tailorFull = new Uint8Array(MAX_SITES);
   const tailorForHides = new Uint8Array(MAX_SITES);
   const foragersBefore = holding(sim, Job.Forager);
@@ -491,7 +501,8 @@ function measure(size: number, run: string): boolean {
       `${built(sim, Building.Woodshed) - shedsBefore} in the measured ticks, ${woodsheds - built(sim, Building.Woodshed)} unfinished at the end; ` +
       `woodcutters ${woodcuttersBefore} at the start and ${holding(sim, Job.Woodcutter)} in the ${built(sim, Building.Woodshed) * BUILDINGS[Building.Woodshed].places} places of the finished woodsheds at the end`,
   );
-  const pieces = tailorClothing(sim) - clothingBefore;
+  const dressed = sim.tally.dressed - tallyBefore.dressed;
+  const pieces = tailorClothing(sim) + dressed - clothingBefore;
   console.log(
     `  firewood in the measured ticks: ${sim.tally.batches - tallyBefore.batches - pieces} logs split, ${sim.tally.made - tallyBefore.made - pieces} firewood made, ` +
       `${firewoodIn(sim, StoreKind.Workshop)} in the woodsheds at the end; woodsheds that stopped at some measured tick: ${count(stoppedFull)} full, ` +
@@ -504,7 +515,8 @@ function measure(size: number, run: string): boolean {
   );
   console.log(
     `  clothing in the measured ticks: ${hunt.hides} hides left by kills, ${stockedHides(sim)} hides on stockpile tiles at the end, ${pieces} pieces made, ` +
-      `${tailorClothing(sim)} in the tailor's huts at the end; tailor's huts that stopped at some measured tick: ${count(tailorFull)} full, ${count(tailorForHides)} with no hide in reach`,
+      `${dressed} put on, ${tailorClothing(sim)} in the tailor's huts at the end; tailor's huts that stopped at some measured tick: ${count(tailorFull)} full, ${count(tailorForHides)} with no hide in reach; ` +
+      `villagers that wear clothing ${clothedBefore} at the start and ${clothed(sim)} living at the end, ${tallyBefore.dressed} pieces put on in the warm-up ticks`,
   );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
   console.log(
