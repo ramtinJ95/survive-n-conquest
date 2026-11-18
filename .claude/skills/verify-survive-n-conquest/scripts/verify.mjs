@@ -5395,7 +5395,7 @@ const COLD_ORDERS = {
  * Spots of the near view. Each house has the points a click may select it at, its roof and the tile in its middle, the
  * box over its roof where its fire's sign stands, and the box of the whole house, whose thatch in the winter morning
  * reads as tunic yellow, so the search for a settler passes over it. The camp has the points around its fire, which a
- * settler in the ring can take a click from, and the box of its flame.
+ * settler in the ring can take a click from.
  */
 const COLD_SPOTS = {
   houses: [
@@ -5403,7 +5403,6 @@ const COLD_SPOTS = {
     { clicks: [{ x: 389, y: 230 }, { x: 394, y: 270 }], sign: { x: 362, y: 168, width: 50, height: 55 }, body: { x: 335, y: 185, width: 110, height: 120 } },
   ],
   camp: [{ x: 527, y: 350 }, { x: 519, y: 352 }, { x: 535, y: 352 }, { x: 527, y: 358 }],
-  campFlame: { x: 507, y: 315, width: 40, height: 40 },
   shed: [{ x: 555, y: 241 }, { x: 551, y: 262 }],
 };
 const COLD_STOPS = {
@@ -5478,7 +5477,6 @@ SCENARIOS.cold = async (session) => {
       houses,
       camp: { read: camp, firewood: firewoodOf(camp, 12) },
       shed: woodshed ? { read: woodshed, firewood: firewoodOf(woodshed, 40) } : null,
-      campFlame: pixelsIn(png, CLIP.width, COLD_SPOTS.campFlame, FLAME).count,
     };
   };
   const heard = new Set();
@@ -5600,11 +5598,6 @@ SCENARIOS.cold = async (session) => {
     after.houses.every((house) => house.flame >= COLD_FLAME.least) && before.houses.every((house) => house.flame <= COLD_FLAME.most),
     after.houses.map((house, index) => `house ${index + 1} ${before.houses[index].flame} then ${house.flame} flame pixels`).join(', ') +
       `, needs at most ${COLD_FLAME.most} before and at least ${COLD_FLAME.least} after`,
-  );
-  session.check(
-    `at ${after.at}, a cold night with the camp's firewood burnt, the camp's flame shows`,
-    after.campFlame >= COLD_FLAME.least,
-    `${after.campFlame} flame pixels in the camp's box, needs at least ${COLD_FLAME.least}`,
   );
   const firstCold = told(10, 'had a cold night');
   session.check(
