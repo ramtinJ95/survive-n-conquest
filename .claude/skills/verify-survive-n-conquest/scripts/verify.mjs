@@ -6117,7 +6117,9 @@ SCENARIOS.wearing = async (session) => {
       }),
     ),
   ];
-  const told = shown.find((line) => /^Day 10, \d\d:\d\d\. .+ had a cold night\.$/.test(line)) ?? null;
+  // A line shows for 30 s of wall time, so the check reads every text the line took while the scenario listened, and the stop at 18:30 only says whether it still shows.
+  const told = [...heard].filter((line) => /^Day 10, \d\d:\d\d\. .+ had a cold night\.$/.test(line)).at(-1) ?? null;
+  const stillShown = shown.includes(told);
 
   const morning = new Map();
   for (const stop of WEAR_STOPS.morning) {
@@ -6134,13 +6136,13 @@ SCENARIOS.wearing = async (session) => {
   session.check(
     'the news of the first winter dusk at the camp names the settlers without clothing as having had a cold night, and none of those who wear clothing',
     told !== null && cold.length > 0 && cold.every((name) => !clothed.has(name) && bareAt.has(name)) && unclothed.every((name) => cold.includes(name)),
-    `the line read at ${clockText(clockMinutes(WEAR_STOPS.after))}: "${told ?? 'none'}"; cold ${cold.join(', ') || 'nobody'}; wore clothing at noon of day 10 ${[...clothed].join(', ') || 'nobody'}; without clothing at noon of day 10 or on the morning after ${[...bareAt].join(', ') || 'nobody'}`,
+    `the last text of the day 10 line: "${told ?? 'none'}", ${stillShown ? 'still' : 'no longer'} shown at ${clockText(clockMinutes(WEAR_STOPS.after))}; cold ${cold.join(', ') || 'nobody'}; wore clothing at noon of day 10 ${[...clothed].join(', ') || 'nobody'}; without clothing at noon of day 10 or on the morning after ${[...bareAt].join(', ') || 'nobody'}`,
   );
   const known = [...morning].filter(([name, read]) => clothed.has(name) || !wears(read));
   session.check(
     'on the morning after, each settler that wore clothing at the dusk reads no cold night, and each without reads 1 cold night',
-    known.some(([name]) => clothed.has(name)) && known.every(([name, read]) => nightsOf(read) === (clothed.has(name) ? 'None' : '1, cold')),
-    [...morning].map(([name, read]) => `${name}: Cold nights ${read.rows['Cold nights']}${clothed.has(name) ? ' (wore it at noon)' : ''}`).join('; ') || 'no settler found',
+    known.some(([name]) => clothed.has(name)) && known.some(([name]) => !clothed.has(name)) && known.every(([name, read]) => nightsOf(read) === (clothed.has(name) ? 'None' : '1, cold')),
+    `${[...morning].map(([name, read]) => `${name}: Cold nights ${read.rows['Cold nights']}${clothed.has(name) ? ' (wore it at noon)' : ''}`).join('; ') || 'no settler found'}; ${morning.size} of 8 settlers found`,
   );
 
   await session.finishClips(play.context, page, [
