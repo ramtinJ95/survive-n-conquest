@@ -45,6 +45,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly hired: Uint32Array;
   /** The meals each villager missed in a row, in id order. */
   readonly missedMeals: Uint8Array;
+  /** The cold nights each villager had in a row, in id order. */
+  readonly coldNights: Uint8Array;
+  /** The `Good` each villager's stocking task carries in id order, or `Good.None`. */
+  readonly stockGoods: Uint8Array;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -55,6 +59,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly storeFirewood: Uint16Array;
   /** The clothing in each store, by store id. */
   readonly storeClothing: Uint16Array;
+  /** 1 for each store whose fire burns tonight, by store id. */
+  readonly fires: Uint8Array;
   /** One `Stop` per site slot: what the worker of the workshop there does, or why it stopped, as its last look for work found. */
   readonly workshopStops: Uint8Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
@@ -103,11 +109,14 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     workplaces: villagers.workplace.slice(),
     hired: villagers.hired.slice(),
     missedMeals: villagers.missedMeals.slice(),
+    coldNights: villagers.coldNights.slice(),
+    stockGoods: villagers.stockGood.slice(),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
     storeFirewood: sim.stores.held[Good.Firewood - 1]!.slice(),
     storeClothing: sim.stores.held[Good.Clothing - 1]!.slice(),
+    fires: sim.stores.burning.slice(),
     workshopStops: sim.workshops.stopped.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
@@ -131,10 +140,13 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.workplaces,
     frame.hired,
     frame.missedMeals,
+    frame.coldNights,
+    frame.stockGoods,
     frame.storeFood,
     frame.storeInbound,
     frame.storeFirewood,
     frame.storeClothing,
+    frame.fires,
     frame.workshopStops,
     frame.tiles,
     frame.orders.claims,

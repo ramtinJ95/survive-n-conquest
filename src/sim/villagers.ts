@@ -1,6 +1,7 @@
 import { AnimalState, MAX_ANIMALS, grazes } from './animals';
 import { nearestDoor } from './buildings';
 import { TICKS_PER_SECOND } from './calendar';
+import { isColdNight } from './daylight';
 import { EATING, wantsMeal } from './eating';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
@@ -9,7 +10,7 @@ import { loseWorker } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
-import { HUNGER, type Need, eat, storeOf, wanting } from './needs';
+import { COLD, HUNGER, type Need, WARM_SOURCES, eat, lightFire, meetNeed, storeOf, wanting, warmth } from './needs';
 import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
@@ -74,6 +75,10 @@ export interface Villagers {
   readonly household: Int16Array;
   /** The meals each villager missed in a row. */
   readonly missedMeals: Uint8Array;
+  /** The cold nights each villager had in a row. */
+  readonly coldNights: Uint8Array;
+  /** The `Good` a stocking task carries, or `Good.None`. */
+  readonly stockGood: Uint8Array;
   /** The site slot of the workplace where each villager holds a place, or -1. Its job is the job of that building's kind. */
   readonly workplace: Int16Array;
   /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
@@ -152,6 +157,8 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     sex: new Uint8Array(count),
     household: new Int16Array(count),
     missedMeals: new Uint8Array(count),
+    coldNights: new Uint8Array(count),
+    stockGood: new Uint8Array(count),
     workplace: new Int16Array(count).fill(-1),
     hired: new Uint32Array(count),
   };
@@ -230,8 +237,8 @@ function idle(sim: Sim, id: number): void {
 
 /**
  * By night, walks the villager along the camp's flow field to the camp center,
- * where it takes its meal, then straight out to its spot, where it stays. A
- * villager with no walk to the camp stays where it stands.
+ * where it takes its meal and its night is judged, then straight out to its
+ * spot, where it stays. A villager with no walk to the camp stays where it stands.
  */
 function goToCamp(sim: Sim, id: number): void {
   const { map, flow, villagers } = sim;
@@ -245,7 +252,7 @@ function goToCamp(sim: Sim, id: number): void {
   const centerY = Math.floor(flow.goal / map.size) + 0.5;
   if (tile === flow.goal && x[id] === centerX && y[id] === centerY) {
     state[id] = VillagerState.Settling;
-    dine(sim, id, CAMP_STORE);
+    comeHome(sim, id, CAMP_STORE);
     if (state[id] === VillagerState.Settling) stepToward(map, villagers, id, villagers.spotX[id]!, villagers.spotY[id]!);
     return;
   }
@@ -277,7 +284,17 @@ function nightfall(sim: Sim, id: number): void {
   villagers.pathCursor[id] = 0;
 }
 
-/** Walks a villager going in toward its door, once it has planned its route on a think tick, and takes it inside there to its meal. */
+/**
+ * The villager's meal, then its night, as it comes home to `store`. The meal
+ * comes first, so a villager that freezes tonight has eaten, and one that
+ * starves is not judged for the night.
+ */
+function comeHome(sim: Sim, id: number, store: number): void {
+  dine(sim, id, store);
+  if (sim.villagers.state[id] !== VillagerState.Dead) judgeNight(sim, id, store);
+}
+
+/** Walks a villager going in toward its door, once it has planned its route on a think tick, and takes it inside there to its meal and its night. */
 function goIn(sim: Sim, id: number, thinks: boolean): void {
   const { villagers } = sim;
   const door = villagers.workTile[id]!;
@@ -292,7 +309,7 @@ function goIn(sim: Sim, id: number, thinks: boolean): void {
   if (!walkRoute(sim, id)) villagers.workTile[id] = -1;
   else if (atWork(villagers, id)) {
     villagers.state[id] = VillagerState.Inside;
-    dine(sim, id, storeOf(sim, id));
+    comeHome(sim, id, storeOf(sim, id));
   }
 }
 
@@ -300,7 +317,9 @@ function goIn(sim: Sim, id: number, thinks: boolean): void {
 function missNeed(sim: Sim, id: number, need: Need): void {
   const column = need.column(sim.villagers);
   column[id] = column[id]! + 1;
-  if (column[id]! >= need.diesAt) die(sim, id);
+  if (column[id]! < need.diesAt) return;
+  sim.tally[need.deaths] += 1;
+  die(sim, id);
 }
 
 /** The villager's meal of the day: it eats, or misses the meal. */
@@ -314,16 +333,40 @@ function missMeal(sim: Sim, id: number): void {
 }
 
 /**
+ * Judges the villager's night as it comes home to `store`, its house or the
+ * camp, or -1 when it never got home. On a cold night the first to come home
+ * lights the store's fire when it can, and the villager is warm with
+ * `WARM_SOURCES` of its sources of warmth, or has a cold night. Every other
+ * night is warm.
+ */
+export function judgeNight(sim: Sim, id: number, store: number): void {
+  if (!isColdNight(sim.tick)) {
+    meetNeed(sim, id, COLD);
+    return;
+  }
+  if (store >= 0) lightFire(sim, store);
+  if (warmth(sim, id, store) >= WARM_SOURCES) {
+    meetNeed(sim, id, COLD);
+    return;
+  }
+  sim.tally.coldNights += 1;
+  missNeed(sim, id, COLD);
+}
+
+/**
  * Starts the villager's day where it stands. One that never came home missed
- * its meal. One that came home hungry eats now if the store it came home to
- * has food: the camp for one that slept there, even when its household gained
- * a house in the night, and its house for one inside.
+ * its meal, and had its night with no house and no fire. One that came home
+ * hungry eats now if the store it came home to has food: the camp for one that
+ * slept there, even when its household gained a house in the night, and its
+ * house for one inside.
  */
 function daybreak(sim: Sim, id: number): void {
   const { villagers } = sim;
   const came = villagers.state[id] === VillagerState.Settling || villagers.state[id] === VillagerState.Inside;
-  if (!came) missMeal(sim, id);
-  else if (villagers.missedMeals[id]! > 0) eat(sim, id, villagers.state[id] === VillagerState.Inside ? storeOf(sim, id) : CAMP_STORE);
+  if (!came) {
+    missMeal(sim, id);
+    if (villagers.state[id] !== VillagerState.Dead) judgeNight(sim, id, -1);
+  } else if (villagers.missedMeals[id]! > 0) eat(sim, id, villagers.state[id] === VillagerState.Inside ? storeOf(sim, id) : CAMP_STORE);
   if (villagers.state[id] === VillagerState.Dead) return;
   villagers.state[id] = VillagerState.Idle;
   villagers.targetX[id] = villagers.x[id]!;

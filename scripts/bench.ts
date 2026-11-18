@@ -3,7 +3,7 @@ import { arch, cpus, loadavg, platform, totalmem } from 'node:os';
 import { BUILDING } from '../src/sim/building';
 import { AnimalKind } from '../src/sim/animals';
 import { BUILDINGS, Building, Job } from '../src/sim/buildings';
-import { TICKS_PER_DAY, TICKS_PER_SECOND, tickOfDay } from '../src/sim/calendar';
+import { MINUTES_PER_DAY, OPENING_MINUTE, TICKS_PER_DAY, TICKS_PER_SECOND, seasonAt, tickOfDay } from '../src/sim/calendar';
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
 import { EATING } from '../src/sim/eating';
@@ -16,11 +16,12 @@ import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { Claim, MAX_SITES, SiteState } from '../src/sim/orders';
-import { BENCHMARK_POPULATION, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
+import { BENCHMARK_POPULATION, type Population, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
 import { STOCKING } from '../src/sim/stocking';
-import { CAMP_STORE } from '../src/sim/stores';
+import { COLD } from '../src/sim/needs';
+import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
 import { NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
 import { Stop, WORKSHOP } from '../src/sim/workshops';
@@ -89,6 +90,16 @@ const WOODSHED_GRID = process.argv.includes('--no-woodsheds') ? 0 : 4;
  */
 const TAILOR_GRID = process.argv.includes('--no-tailors') ? 0 : LODGE_GRID;
 const TAILOR_BESIDE_LODGE = 3;
+/**
+ * The winter run warms up to the midnight that opens day 10, the first day of
+ * winter, and measures its three nights and the dawn of spring after them. Its
+ * camp starts with food for every villager's meals of the year, so the
+ * villagers live to the winter and the deaths it measures are the winter's.
+ * Foraging stops in winter, so only the tick time decides whether it passes.
+ * `--no-winter` leaves it out.
+ */
+const WINTER = { warmupTicks: 9 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: 20_000 };
+const RUNS = process.argv.includes('--no-winter') ? ['spring'] : ['spring', 'winter'];
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const EAT = TASK_KINDS.indexOf(EATING) + 1;
@@ -106,6 +117,7 @@ const KINDS = [
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built', 'foraged'] as const satisfies readonly (keyof Tally)[];
 const FED = ['meals', 'missed', 'carriedHome', 'fromGround', 'toCamp', 'died'] as const satisfies readonly (keyof Tally)[];
+const WARMED = ['coldNights', 'froze', 'starved', 'fires', 'burnt', 'firewoodHome', 'firewoodToCamp'] as const satisfies readonly (keyof Tally)[];
 const HUNTED = ['shots', 'kills', 'hunted', 'huntedIn', 'fromGround', 'hides', 'spoiled'] as const satisfies readonly (keyof Tally)[];
 /** The goods a stockpile takes, at index `good - 1`. */
 const GOOD_NAMES = ['logs', 'stone'] as const;
@@ -156,9 +168,9 @@ function barnFood(sim: Sim): number {
   return food;
 }
 
-function woodshedFirewood(sim: Sim): number {
+function firewoodIn(sim: Sim, kind: StoreKind): number {
   let firewood = 0;
-  for (let slot = 0; slot < sim.orders.sites.used; slot++) firewood += sim.stores.held[Good.Firewood - 1]![slot]!;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) if (storeKind(sim.orders, slot) === kind) firewood += sim.stores.held[Good.Firewood - 1]![slot]!;
   return firewood;
 }
 
@@ -209,7 +221,7 @@ function atCamp(sim: Sim): number {
 // before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
 // every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
 // The tiles of each site on the site grid, of each hut on the hut grid, and of each barn on the barn grid keep no tree, so the site can be placed.
-function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: number; lodges: number; woodsheds: number; tailors: number } {
+function setUp(size: number, population: Population): { sim: Sim; sites: number; huts: number; barns: number; lodges: number; woodsheds: number; tailors: number } {
   const map = generateMap(SEED, size);
   const camp = campTile(map);
   for (let tile = 0; tile < size * size; tile++) {
@@ -243,7 +255,7 @@ function setUp(size: number): { sim: Sim; sites: number; huts: number; barns: nu
   for (const [x, y] of tailorAnchors) {
     for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
   }
-  const sim = createSim(map, BENCHMARK_POPULATION);
+  const sim = createSim(map, population);
   const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.House, x, y })!.ok).length;
   const huts = anchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })!.ok).length;
   const barns = barnCenters.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Barn, x, y })!.ok).length;
@@ -260,12 +272,15 @@ interface Trips {
   length: number;
 }
 
-function measure(size: number): boolean {
+function measure(size: number, run: string): boolean {
+  const winter = run === 'winter';
+  const population = winter ? { ...BENCHMARK_POPULATION, campFood: WINTER.campFood } : BENCHMARK_POPULATION;
   const setupStart = performance.now();
-  const { sim, sites, huts, barns, lodges, woodsheds, tailors } = setUp(size);
+  const { sim, sites, huts, barns, lodges, woodsheds, tailors } = setUp(size, population);
   const setupMs = performance.now() - setupStart;
 
-  for (let tick = 0; tick < WARMUP_TICKS; tick++) step(sim);
+  const warmup = winter ? WINTER.warmupTicks : WARMUP_TICKS;
+  for (let tick = 0; tick < warmup; tick++) step(sim);
   const monsterDraws = sum(sim.monsters.draws);
   const spentBefore = spentRock(sim.map);
   const tallyBefore = { ...sim.tally };
@@ -295,7 +310,7 @@ function measure(size: number): boolean {
   const lastState = Uint8Array.from(state);
   const campX = (sim.flow.goal % size) + 0.5;
   const campY = Math.floor(sim.flow.goal / size) + 0.5;
-  const deaths = { away: 0, atStore: 0, foragers: 0, hunters: 0, farthest: 0 };
+  const deaths = { away: 0, atStore: 0, starvedAway: 0, starvedHome: 0, frozeAway: 0, frozeHome: 0, foragers: 0, hunters: 0, farthest: 0 };
   const lastMissed = Uint8Array.from(sim.villagers.missedMeals);
   let mealsByDay = 0;
   const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
@@ -330,8 +345,11 @@ function measure(size: number): boolean {
     samples[tick] = performance.now() - start;
     for (let id = 0; id < state.length; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
+        const froze = sim.villagers.coldNights[id]! >= COLD.diesAt;
         if (dawnTick) deaths.away++;
         else deaths.atStore++;
+        if (froze) deaths[dawnTick ? 'frozeAway' : 'frozeHome']++;
+        else deaths[dawnTick ? 'starvedAway' : 'starvedHome']++;
         const job = lastWorkplace[id]! < 0 ? Job.None : BUILDINGS[sim.orders.sites.kind[lastWorkplace[id]!] as Building].job;
         if (job === Job.Forager) deaths.foragers++;
         if (job === Job.Hunter) deaths.hunters++;
@@ -386,6 +404,7 @@ function measure(size: number): boolean {
   const heapGrowth = fullGC() - heapBefore;
   const work = Object.fromEntries(TALLIED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof TALLIED)[number], number>;
   const fed = Object.fromEntries(FED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof FED)[number], number>;
+  const warmed = Object.fromEntries(WARMED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof WARMED)[number], number>;
   const hunt = Object.fromEntries(HUNTED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof HUNTED)[number], number>;
   const count = (flags: Uint8Array) => flags.reduce((total, flag) => total + flag, 0);
   const allWork = TALLIED.every((name) => work[name] > 0);
@@ -397,16 +416,17 @@ function measure(size: number): boolean {
   const p99 = quantile(samples, 0.99);
   const busy = dayTaskTicks / dayVillagerTicks;
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
-  const pass = p99 < LIMIT_MS && workHeld && allWork;
+  const pass = p99 < LIMIT_MS && (winter || (workHeld && allWork));
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
 
-  console.log(`\nmap ${size}x${size}`);
+  console.log(`\nmap ${size}x${size}, ${winter ? `winter run: ${warmup} warm-up ticks to the first midnight of winter and food for the year at the camp` : 'spring run'}`);
+  console.log(`  measured from ${seasonAt(warmup)} day ${Math.floor((warmup + (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY) / TICKS_PER_DAY) + 1}`);
   console.log(`  median ${ms(median)}, p99 ${ms(p99)}, max ${ms(samples[samples.length - 1]!)}`);
   for (const name of ['dusk', 'dawn'] as const) {
     const largest = Array.from(turns[name].subarray(0, turnCount[name]), ms).join(', ');
-    console.log(`  largest tick in the ${TURN_TICKS} ticks from each ${name}: ${largest || 'no ' + name + ' in the measured ticks'}`);
+    console.log(`  largest tick in the ${TURN_TICKS} ticks from each ${winter && name === 'dusk' ? 'winter dusk' : name}: ${largest || 'no ' + name + ' in the measured ticks'}`);
   }
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);
@@ -423,15 +443,21 @@ function measure(size: number): boolean {
     `  food in the measured ticks: ${fed.meals} meals eaten, ${fed.missed} meals missed, ${fed.carriedHome} units carried home, ` +
       `${fed.fromGround} carried from the ground into a store, ${fed.toCamp} carried from a barn to the camp, ` +
       `${fed.died} villagers died; at the end ${hungry(sim)} living villagers hungry, ` +
-      `${sim.stores.held[Good.Food - 1]![CAMP_STORE]} food left at the camp of ${BENCHMARK_POPULATION.campFood} at the start, ${barnFood(sim)} in the barns`,
+      `${sim.stores.held[Good.Food - 1]![CAMP_STORE]} food left at the camp of ${population.campFood} at the start, ${barnFood(sim)} in the barns`,
   );
   console.log(
     `  meals eaten by day after a missed meal, outside dusk and dawn: ${mealsByDay}; walks to eat taken in the 10 ticks from each dawn: ${dawnMeals.walks} (${Array.from({ length: turnCount.dawn }, (_, i) => dawnMeals.byDawn[i] ?? 0).join(', ')}), ` +
       `a straight line of ${(dawnMeals.length / Math.max(dawnMeals.walks, 1)).toFixed(1)} tiles on average to the store`,
   );
   console.log(
-    `  deaths in the measured ticks: ${deaths.away} at a dawn, by a third meal missed away from home, and ${deaths.atStore} at a dusk, by a third meal missed at an empty store; ` +
+    `  deaths in the measured ticks: ${deaths.away} at a dawn, away from home, and ${deaths.atStore} at a dusk, as they came home; ` +
+      `starved ${deaths.starvedAway} at a dawn and ${deaths.starvedHome} at a dusk, froze ${deaths.frozeAway} at a dawn and ${deaths.frozeHome} at a dusk; ` +
       `${deaths.foragers} of them foragers and ${deaths.hunters} hunters; the farthest ${deaths.farthest.toFixed(0)} tiles from the camp center`,
+  );
+  console.log(
+    `  warmth in the measured ticks: ${warmed.coldNights} cold nights, ${warmed.froze} froze and ${warmed.starved} starved, ${warmed.fires} fires lit burning ${warmed.burnt} firewood, ` +
+      `${warmed.firewoodHome} firewood carried home and ${warmed.firewoodToCamp} to the camp; at the end ${firewoodIn(sim, StoreKind.Home)} firewood in homes, ` +
+      `${sim.stores.held[Good.Firewood - 1]![CAMP_STORE]} at the camp, ${firewoodIn(sim, StoreKind.Workshop)} in the woodsheds`,
   );
   console.log(
     `  house sites: ${sites} placed on a grid of ${SITE_GRID} by ${SITE_GRID}, ${housesBefore} built in the warm-up ticks, ` +
@@ -468,7 +494,7 @@ function measure(size: number): boolean {
   const pieces = tailorClothing(sim) - clothingBefore;
   console.log(
     `  firewood in the measured ticks: ${sim.tally.batches - tallyBefore.batches - pieces} logs split, ${sim.tally.made - tallyBefore.made - pieces} firewood made, ` +
-      `${woodshedFirewood(sim)} in the woodsheds at the end; woodsheds that stopped at some measured tick: ${count(stoppedFull)} full, ` +
+      `${firewoodIn(sim, StoreKind.Workshop)} in the woodsheds at the end; woodsheds that stopped at some measured tick: ${count(stoppedFull)} full, ` +
       `${count(stoppedForLogs)} with no log in reach, ${count(stoppedForSites)} leaving the logs to the building sites`,
   );
   console.log(
@@ -524,7 +550,7 @@ console.log(
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
     `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, and ${TAILOR_GRID * TAILOR_GRID} tailor's hut sites, stockpile on every other open tile, ` +
-    `${WARMUP_TICKS} warm-up ticks, then ${MEASURED_TICKS} measured ticks`,
+    `${WARMUP_TICKS} warm-up ticks in the spring run and ${WINTER.warmupTicks} in the winter run, then ${MEASURED_TICKS} measured ticks`,
 );
-const results = SIZES.map(measure);
+const results = RUNS.flatMap((run) => SIZES.map((size) => measure(size, run)));
 if (!results.every(Boolean)) process.exitCode = 1;

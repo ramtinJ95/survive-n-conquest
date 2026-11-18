@@ -18,7 +18,19 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { BARN_FOOD_LIMIT, CAMP_STORE, HOUSE_FOOD_LIMIT, StoreKind, TAILOR_CLOTHING_LIMIT, WOODSHED_FIREWOOD_LIMIT, limitOf, storeKind } from '../sim/stores';
+import { COLD } from '../sim/needs';
+import {
+  BARN_FOOD_LIMIT,
+  CAMP_FIREWOOD_LIMIT,
+  CAMP_STORE,
+  HOUSE_FIREWOOD_LIMIT,
+  HOUSE_FOOD_LIMIT,
+  StoreKind,
+  TAILOR_CLOTHING_LIMIT,
+  WOODSHED_FIREWOOD_LIMIT,
+  limitOf,
+  storeKind,
+} from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
@@ -52,6 +64,8 @@ export interface Facts {
     | 'workplaces'
     | 'hired'
     | 'missedMeals'
+    | 'coldNights'
+    | 'stockGoods'
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
@@ -200,8 +214,10 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   },
   [STOCK]: (facts, id) => {
     const { frame, camp } = facts;
-    if (frame.carried[id] !== Good.Food) return `Walking to ${storeAt(facts, frame.taskTiles[id]!)} for food`;
-    return frame.destinations[id] === camp ? 'Carrying food to the camp' : 'Carrying food home';
+    const good = frame.stockGoods[id] as Good;
+    const from = good === Good.Firewood ? 'a woodshed' : storeAt(facts, frame.taskTiles[id]!);
+    if (frame.carried[id] === Good.None) return `Walking to ${from} for ${GOOD_NAMES[good]}`;
+    return `Carrying ${GOOD_NAMES[good]} ${frame.destinations[id] === camp ? 'to the camp' : 'home'}`;
   },
   [FORAGE]: (facts, id, working) => {
     if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
@@ -284,12 +300,12 @@ const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
   [VillagerState.Settling]: 'Resting at the camp',
   [VillagerState.GoingIn]: 'Walking home',
   [VillagerState.Inside]: 'At home',
-  [VillagerState.Dead]: 'Died of hunger',
 };
 
-/** What a villager is doing, in words. */
+/** What a villager is doing, in words. A dead one says what it died of: the need whose count reached the count that kills. */
 function doing(facts: Facts, id: number): string {
   const state = facts.frame.states[id]! as VillagerState;
+  if (state === VillagerState.Dead) return facts.frame.coldNights[id]! >= COLD.diesAt ? 'Died of cold' : 'Died of hunger';
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[facts.frame.tasks[id]!];
@@ -301,6 +317,12 @@ function missedMeals({ frame }: Facts, id: number): string {
   const missed = frame.missedMeals[id]!;
   if (missed === 0) return 'None';
   return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
+}
+
+function coldNights({ frame }: Facts, id: number): string {
+  const nights = frame.coldNights[id]!;
+  if (nights === 0) return 'None';
+  return frame.states[id] === VillagerState.Dead ? String(nights) : `${nights}, cold`;
 }
 
 const CARRIED_WORDS: Readonly<Record<Good, string>> = {
@@ -441,6 +463,7 @@ const PANELS: Panels = {
         read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
+      { label: 'Cold nights', read: (facts, { id }) => coldNights(facts, id) },
     ],
   },
   houseSite: sitePanel(Building.House),
@@ -450,6 +473,7 @@ const PANELS: Panels = {
     rows: [
       { label: 'Household', read: (facts, { slot }) => livingIn(facts, slot) },
       { label: 'Food', read: ({ frame }, { slot }) => `${frame.storeFood[slot]} of ${HOUSE_FOOD_LIMIT}` },
+      { label: 'Firewood', read: ({ frame }, { slot }) => `${frame.storeFirewood[slot]} of ${HOUSE_FIREWOOD_LIMIT}` },
     ],
   },
   hutSite: sitePanel(Building.Hut),
@@ -491,6 +515,7 @@ const PANELS: Panels = {
     rows: [
       { label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) },
       { label: 'Food', read: ({ frame }) => `${frame.storeFood[CAMP_STORE]} of ${frame.campFoodLimit}` },
+      { label: 'Firewood', read: ({ frame }) => `${frame.storeFirewood[CAMP_STORE]} of ${CAMP_FIREWOOD_LIMIT}` },
     ],
   },
 };

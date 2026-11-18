@@ -52,6 +52,7 @@ describe('createSwarm', () => {
       ['carried stone', InstancedMesh, 0],
       ['carried food', InstancedMesh, 0],
       ['carried hides', InstancedMesh, 0],
+      ['carried firewood', InstancedMesh, 0],
     ]);
   });
 

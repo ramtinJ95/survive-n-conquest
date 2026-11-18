@@ -1,10 +1,20 @@
 import { ANYONE, Job, nearestDoor, siteMidX, siteMidY } from './buildings';
-import { Good, putDownHeld } from './goods';
+import { Good, type Unit, putDownHeld } from './goods';
 import { NO_HOME } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
-import { CAMP_STORE, DAYS_KEPT_AT_CAMP, DAYS_KEPT_AT_HOME, MEALS_PER_DAY, Wants, limitOf, nearestCommonStore, storeDoor } from './stores';
+import {
+  CAMP_STORE,
+  DAYS_KEPT_AT_CAMP,
+  DAYS_KEPT_AT_HOME,
+  MEALS_PER_DAY,
+  Wants,
+  limitOf,
+  nearestCommonStore,
+  nearestWorkshopWith,
+  storeDoor,
+} from './stores';
 import type { TaskKind } from './tasks';
 
 /**
@@ -30,43 +40,77 @@ export function campLacks(sim: Sim): number {
   return wanted - stores.held[Good.Food - 1]![CAMP_STORE]! - stores.inbound[Good.Food - 1]![CAMP_STORE]!;
 }
 
+/** The units of firewood a store lacks to be full, counting the units on their way in. */
+export function firewoodLacks(sim: Sim, store: number): number {
+  const { stores } = sim;
+  const index = Good.Firewood - 1;
+  return limitOf(sim.orders, stores.campLimit, store, Good.Firewood) - stores.held[index]![store]! - stores.inbound[index]![store]!;
+}
+
 const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.household[id]!]!;
 
 /**
- * Sends a villager with empty hands, whose home lacks food, to the common
- * store nearest its home that has a unit no carrier spoke for, the camp or a
- * barn, and reserves the unit and its place in the home. A villager without a
- * job whose home lacks nothing keeps the camp stocked the same way, from the
- * barn nearest the camp, for the households that eat there. The house is the
- * home of the villager's household, which stays its home while a member lives.
+ * The store a unit of `good` for store `to` comes from, nearest the point
+ * (`px`, `py`): a common store for food, which for the camp is a barn, and a
+ * workshop for firewood. Returns -1 when none has a unit no carrier spoke for.
  */
-function take(sim: Sim, id: number): boolean {
+function sourceOf(sim: Sim, good: Unit, to: number, px: number, py: number): number {
+  if (good === Good.Firewood) return nearestWorkshopWith(sim, px, py, Good.Firewood);
+  return nearestCommonStore(sim, px, py, Wants.Unit, Good.Food, to === CAMP_STORE);
+}
+
+/**
+ * Sends the villager with empty hands to fetch 1 unit of `good` from the
+ * store nearest the point (`px`, `py`) that has one no carrier spoke for, for
+ * store `to`, and reserves the unit and its place in `to`. Returns false when
+ * no store has one or no walk reaches it.
+ */
+function fetchFor(sim: Sim, id: number, good: Unit, to: number, px: number, py: number): boolean {
   const { villagers, stores, flow } = sim;
-  if (villagers.carried[id] !== Good.None) return false;
-  const home = homeOf(sim, id);
-  let to: number;
-  if (home !== NO_HOME && lacks(sim, villagers.household[id]!) > 0) to = home;
-  else if (stores.barnCount > 0 && jobOf(sim, id) === Job.None && campLacks(sim) > 0) to = CAMP_STORE;
-  else return false;
-  const { size } = sim.map;
-  const { sites } = sim.orders;
-  const toCamp = to === CAMP_STORE;
-  const from = toCamp
-    ? nearestCommonStore(sim, (flow.goal % size) + 0.5, Math.floor(flow.goal / size) + 0.5, Wants.Food, true)
-    : nearestCommonStore(sim, siteMidX(sites, home), siteMidY(sites, home), Wants.Food);
+  const from = sourceOf(sim, good, to, px, py);
   if (from < 0) return false;
+  const { size } = sim.map;
   const pickup = storeDoor(sim, from, villagers.x[id]!, villagers.y[id]!);
   if (pickup < 0) return false;
-  const door = toCamp ? flow.goal : nearestDoor(sim, home, (pickup % size) + 0.5, Math.floor(pickup / size) + 0.5);
+  const door = to === CAMP_STORE ? flow.goal : nearestDoor(sim, to, (pickup % size) + 0.5, Math.floor(pickup / size) + 0.5);
   if (door < 0 || !planPath(sim, id, pickup)) return false;
-  stores.outbound[Good.Food - 1]![from]! += 1;
-  stores.inbound[Good.Food - 1]![to]! += 1;
+  stores.outbound[good - 1]![from]! += 1;
+  stores.inbound[good - 1]![to]! += 1;
+  villagers.stockGood[id] = good;
   villagers.fromStore[id] = from;
   villagers.toStore[id] = to;
   villagers.taskTile[id] = pickup;
   villagers.workTile[id] = pickup;
   villagers.destination[id] = door;
   return true;
+}
+
+/**
+ * Sends a villager with empty hands to stock the first store that lacks a
+ * unit it can fetch, most urgent first. Food for its household's home comes
+ * from the common store nearest the home, then firewood for the home from the
+ * woodshed nearest it. A villager without a job then keeps the camp stocked
+ * for the households that sleep there: food from the barn nearest the camp,
+ * then firewood from the woodshed nearest it. The house is the home of the
+ * villager's household, which stays its home while a member lives.
+ */
+function take(sim: Sim, id: number): boolean {
+  const { villagers, stores, households, flow } = sim;
+  if (villagers.carried[id] !== Good.None) return false;
+  const home = homeOf(sim, id);
+  if (home !== NO_HOME) {
+    const { sites } = sim.orders;
+    const hx = siteMidX(sites, home);
+    const hy = siteMidY(sites, home);
+    if (lacks(sim, villagers.household[id]!) > 0 && fetchFor(sim, id, Good.Food, home, hx, hy)) return true;
+    if (firewoodLacks(sim, home) > 0 && fetchFor(sim, id, Good.Firewood, home, hx, hy)) return true;
+  }
+  if (jobOf(sim, id) !== Job.None) return false;
+  const { size } = sim.map;
+  const cx = (flow.goal % size) + 0.5;
+  const cy = Math.floor(flow.goal / size) + 0.5;
+  if (stores.barnCount > 0 && campLacks(sim) > 0 && fetchFor(sim, id, Good.Food, CAMP_STORE, cx, cy)) return true;
+  return households.atCamp > 0 && firewoodLacks(sim, CAMP_STORE) > 0 && fetchFor(sim, id, Good.Firewood, CAMP_STORE, cx, cy);
 }
 
 /**
@@ -84,27 +128,35 @@ function holds(sim: Sim, id: number): boolean {
  * unit with no walk to the door stays in its store.
  */
 function work(sim: Sim, id: number): boolean {
-  const { villagers, stores } = sim;
+  const { villagers, stores, tally } = sim;
   const from = villagers.fromStore[id]!;
   const to = villagers.toStore[id]!;
+  const good = villagers.stockGood[id]! as Unit;
+  const index = good - 1;
   if (villagers.carried[id] === Good.None) {
-    stores.outbound[Good.Food - 1]![from]! -= 1;
+    stores.outbound[index]![from]! -= 1;
     villagers.workTile[id] = villagers.destination[id]!;
     if (planPath(sim, id, villagers.workTile[id]!)) {
-      stores.held[Good.Food - 1]![from]! -= 1;
-      villagers.carried[id] = Good.Food;
+      stores.held[index]![from]! -= 1;
+      villagers.carried[id] = good;
       return false;
     }
-    stores.inbound[Good.Food - 1]![to]! -= 1;
+    stores.inbound[index]![to]! -= 1;
     villagers.toStore[id] = -1;
+    villagers.stockGood[id] = Good.None;
     return true;
   }
-  stores.inbound[Good.Food - 1]![to]! -= 1;
-  stores.held[Good.Food - 1]![to]! += 1;
+  stores.inbound[index]![to]! -= 1;
+  stores.held[index]![to]! += 1;
   villagers.carried[id] = Good.None;
   villagers.toStore[id] = -1;
-  if (to === CAMP_STORE) sim.tally.toCamp += 1;
-  else sim.tally.carriedHome += 1;
+  villagers.stockGood[id] = Good.None;
+  const toCamp = to === CAMP_STORE;
+  if (good === Good.Firewood) {
+    if (toCamp) tally.firewoodToCamp += 1;
+    else tally.firewoodHome += 1;
+  } else if (toCamp) tally.toCamp += 1;
+  else tally.carriedHome += 1;
   return true;
 }
 
@@ -112,17 +164,19 @@ function work(sim: Sim, id: number): boolean {
  * Gives back what the task still holds: the unit and its place in the store
  * it goes to until it is picked up, and the place after. A unit in the
  * villager's hands is put down where it stands, where it lies on open ground
- * until a settler without a job carries it to a store or it is gone.
+ * until a settler without a job carries it to a common store with room. Food
+ * left there is gone at its second dawn.
  */
 function release(sim: Sim, id: number): void {
   const { villagers, stores } = sim;
   const to = villagers.toStore[id]!;
   if (to < 0) return;
-  stores.inbound[Good.Food - 1]![to]! -= 1;
+  const index = villagers.stockGood[id]! - 1;
+  stores.inbound[index]![to]! -= 1;
   villagers.toStore[id] = -1;
+  villagers.stockGood[id] = Good.None;
   if (villagers.carried[id] === Good.None) {
-    const from = villagers.fromStore[id]!;
-    stores.outbound[Good.Food - 1]![from]! -= 1;
+    stores.outbound[index]![villagers.fromStore[id]!]! -= 1;
     return;
   }
   putDownHeld(sim, id);
@@ -130,5 +184,5 @@ function release(sim: Sim, id: number): void {
 
 const nothing = () => {};
 
-/** Carrying one unit of food from a common store to the villager's home, or from a barn to the camp, the most urgent kind of task. */
+/** Carrying one unit of food or firewood into the villager's home, or into the camp, the most urgent kind of task. */
 export const STOCKING: TaskKind = { job: ANYONE, take, holds, work, release, refresh: nothing, reopen: nothing };

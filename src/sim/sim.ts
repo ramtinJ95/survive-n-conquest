@@ -104,6 +104,17 @@ export interface Tally {
   batches: number;
   /** Units of output those batches made, such as firewood. */
   made: number;
+  /** Villagers killed by a third missed meal in a row, and by a third cold night in a row. */
+  starved: number;
+  froze: number;
+  /** Cold nights villagers had. */
+  coldNights: number;
+  /** Fires lit on cold nights, and the firewood they burnt. */
+  fires: number;
+  burnt: number;
+  /** Units of firewood carried from a woodshed into a home, and into the camp. */
+  firewoodHome: number;
+  firewoodToCamp: number;
 }
 
 export interface Sim {
@@ -173,7 +184,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     tally: {
       felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
       foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, hides: 0, spoiled: 0,
-      batches: 0, made: 0,
+      batches: 0, made: 0, starved: 0, froze: 0, coldNights: 0, fires: 0, burnt: 0, firewoodHome: 0, firewoodToCamp: 0,
     },
     tick: 0,
     dawns: 0,
@@ -225,9 +236,9 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
 
 /**
  * Runs the systems in their fixed order. Nothing in a tick allocates. At dawn
- * the food on open ground whose day has come is gone, and tasks set aside as
- * out of reach open again, as they do after a tick in which land gained walks
- * to the camp. Once the settlement has died out, nothing runs.
+ * every fire goes out, the food on open ground whose day has come is gone, and
+ * tasks set aside as out of reach open again, as they do after a tick in
+ * which land gained walks to the camp. Once the settlement has died out, nothing runs.
  */
 export function step(sim: Sim): void {
   if (sim.over) return;
@@ -235,6 +246,7 @@ export function step(sim: Sim): void {
   const dawn = isDawn(sim.tick);
   if (dawn) {
     sim.dawns += 1;
+    sim.stores.burning.fill(0);
     spoilGoods(sim);
     reopenTasks(sim);
   }
