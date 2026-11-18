@@ -27,6 +27,8 @@ const BELT_COLOR = 0x6b4a2b;
 const TROUSER_COLOR = 0x5a4632;
 const HEM_HEIGHT = 0.24;
 const BOOT_COLOR = 0x3b2a1e;
+/** A clothed settler wears a rawhide hood and a mantle over its shoulders, which leave the lower tunic and its yellow in view. */
+const HOOD_COLOR = 0x8a5a3c;
 /**
  * A settler is a little over a meter tall, with a large head, so that it reads as a person from the game's camera and
  * a house on its nine tiles stands over it. Heights are in meters above its feet, and sides in meters from its middle.
@@ -55,6 +57,13 @@ function bodyGeometry(): BufferGeometry {
     colored(new CylinderGeometry(0.2, 0.215, 0.06, 7).translate(0, 0.41, 0), BELT_COLOR),
     colored(new IcosahedronGeometry(0.2, 0).translate(0, 0.9, 0), SKIN_COLOR),
     colored(new IcosahedronGeometry(0.205, 0).rotateY(0.6).translate(0, 0.94, -0.05), HAIR_COLOR),
+  ]);
+}
+
+function hoodGeometry(): BufferGeometry {
+  return mergeGeometries([
+    colored(new IcosahedronGeometry(0.235, 0).rotateY(0.6).translate(0, 0.95, -0.06), HOOD_COLOR),
+    colored(new CylinderGeometry(0.16, 0.235, 0.12, 7).translate(0, 0.68, 0), HOOD_COLOR),
   ]);
 }
 
@@ -92,6 +101,8 @@ export interface UnitFrame {
   readonly monsters: Float32Array;
   readonly carried: Uint8Array;
   readonly states: Uint8Array;
+  /** One `Good` per villager in id order: what each one wears. */
+  readonly worn: Uint8Array;
 }
 
 /**
@@ -111,6 +122,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   const campX = (camp % map.size) + 0.5;
   const campY = Math.floor(camp / map.size) + 0.5;
   const villagers = group('villagers', bodyGeometry(), shapeMaterial(), population.villagers);
+  const hoods = group('villager hoods', hoodGeometry(), shapeMaterial(), population.villagers);
   const arms = group('villager arms', armGeometry(), shapeMaterial(), population.villagers * 2);
   const legs = group('villager legs', legGeometry(), shapeMaterial(), population.villagers * 2);
   const monsters = group(
@@ -125,7 +137,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   const carriedHides = group('carried hides', hideShape(), shapeMaterial(), population.villagers);
   const carriedFirewood = group('carried firewood', firewoodShape(), shapeMaterial(), population.villagers);
   const carriedMeshes = [carriedLogs, carriedStone, carriedFood, carriedHides, carriedFirewood];
-  const posed = [villagers, arms, legs, ...carriedMeshes];
+  const posed = [villagers, hoods, arms, legs, ...carriedMeshes];
   const held: Readonly<Record<Good, InstancedMesh | null>> = {
     [Good.None]: null,
     [Good.Log]: carriedLogs,
@@ -166,10 +178,11 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     mesh.setMatrixAt(instance, pose.matrix);
   };
 
-  const act = ({ tick, villagers: positions, carried, states }: UnitFrame) => {
+  const act = ({ tick, villagers: positions, carried, states, worn }: UnitFrame) => {
     const count = positions.length / 2;
     const stepped = tick !== shown;
     for (const mesh of carriedMeshes) mesh.count = 0;
+    hoods.count = 0;
     let drawn = 0;
     for (let id = 0; id < count; id++) {
       const mapX = positions[id * 2]!;
@@ -198,6 +211,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
       const lean = works ? STROKE.lean * (1 - stroke) : 0;
       const both = load ? HELD_UP : works ? STROKE.middle - STROKE.reach * stroke : null;
       put(villagers, drawn, x, ground, z, lean, turn, size);
+      if (worn[id] === Good.Clothing) put(hoods, hoods.count++, x, ground, z, lean, turn, size);
       const forward = Math.sin(lean) * SHOULDER_HEIGHT * size;
       const shoulder = ground + Math.cos(lean) * SHOULDER_HEIGHT * size;
       const acrossX = Math.cos(turn) * size;
@@ -226,7 +240,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   };
 
   return {
-    meshes: [villagers, arms, legs, monsters, ...carriedMeshes],
+    meshes: [villagers, hoods, arms, legs, monsters, ...carriedMeshes],
     /**
      * Moves every unit to its place in a frame from the simulation. A frame that repeats the last tick comes from a
      * command given while the clock is paused: it keeps each villager's gait and can still change what one carries.
