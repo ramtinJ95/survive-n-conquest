@@ -2214,9 +2214,17 @@ const LOOK_STOPS = {
     { name: 'winter-midnight', when: { day: 11, time: '00:00' } },
   ],
 };
-const LOOK_CLIP = { crop: { x: 200, y: 40, width: 560, height: 420 }, width: 560, colors: 64 };
+const LOOK_CLIP = { crop: { x: 60, y: 40, width: 560, height: 420 }, width: 560, colors: 64 };
 /** Pixels the land is dragged up once the house is placed, so the near view holds the camp below the house. */
 const LOOK_PAN = 40;
+/**
+ * Pixels the land is dragged west in the same drag, so the house and the camp stand west of the winter readiness
+ * panel, which from the first day of autumn covers the page from x 441 to 792 and from y 108 to 235 at 960 by 540.
+ * Before the panel the drag was straight up and the house's box lay under it: at the winter noon it read 140 thatch
+ * pixels against the 1900 needed. In a run with this drag the near view at noon on day 2 moved the house's thatch by
+ * (-150, -24) pixels and the midnight flame by (-187, -22), and the boxes below moved with them.
+ */
+const LOOK_SHIFT = 105;
 /** Wheel pixels from the nearest view of 14 m out to the near view of 22 m, and from there back to the 31 m the house is placed from. */
 const LOOK_NEAR_WHEEL = Math.log(22 / 14) / 0.0015;
 const LOOK_BACK_WHEEL = Math.log(31.1 / 22) / 0.0015;
@@ -2225,10 +2233,10 @@ const LOOK_BACK_WHEEL = Math.log(31.1 / 22) / 0.0015;
  * camp with all the ground that the fire lights, and the land clear of the panels.
  */
 const LOOK_BOXES = {
-  house: { x: 455, y: 150, width: 115, height: 125 },
-  fire: { x: 440, y: 330, width: 50, height: 50 },
-  camp: { x: 390, y: 280, width: 145, height: 153 },
-  land: { x: 150, y: 60, width: 640, height: 420 },
+  house: { x: 305, y: 126, width: 115, height: 125 },
+  fire: { x: 253, y: 308, width: 50, height: 50 },
+  camp: { x: 203, y: 258, width: 145, height: 153 },
+  land: { x: 0, y: 40, width: 640, height: 420 },
 };
 /** The thatch of the house roof in daylight: a dull gold, yellower than timber and soil. Its sunlit slope is as bright as a tunic. */
 const THATCH = ([r, g, b]) => r > 120 && g > 0.6 * r && g < 0.8 * r && b > 0.15 * r && b < 0.4 * r;
@@ -2281,7 +2289,7 @@ SCENARIOS.look = async (session) => {
   await zoom(page, BUILD_CLOSER);
   await session.reach(page, BUILD_STOPS.placed);
   await placeHouse(page, BUILD_SPOTS.closerHouse);
-  await session.drag(page, { x: CLIP.width / 2, y: CLIP.height / 2 + LOOK_PAN / 2 }, { x: CLIP.width / 2, y: CLIP.height / 2 - LOOK_PAN / 2 });
+  await session.drag(page, { x: CLIP.width / 2, y: CLIP.height / 2 + LOOK_PAN / 2 }, { x: CLIP.width / 2 - LOOK_SHIFT, y: CLIP.height / 2 - LOOK_PAN / 2 });
   await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
   await session.still(page);
   await runUntil(page, 'held some but not all of each good', (label) => label && label.logs >= 4 && label.stone >= 1 && label.logs < 12 && label.stone < 6);
