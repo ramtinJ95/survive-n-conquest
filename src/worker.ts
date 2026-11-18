@@ -41,11 +41,14 @@ function host(map: TileMap, population: Population, paused: boolean, everyTick: 
     last = now;
     for (; owed >= 1; owed -= 1) {
       step(sim);
-      if (everyTick) publish(sim);
-      if (sim.tick === pauseAt) {
+      const stop = sim.tick === pauseAt;
+      if (stop) {
         sim.paused = true;
-        owed = 0;
         pauseAt = -1;
+      }
+      if (everyTick) publish(sim);
+      if (stop) {
+        owed = 0;
         break;
       }
     }

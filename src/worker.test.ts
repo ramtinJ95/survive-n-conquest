@@ -43,8 +43,8 @@ describe('the simulation worker', () => {
     expect(frames.every((frame) => frame.tick === 0 && frame.paused)).toBe(true);
   });
 
-  it('pauses at the tick it is given at any speed, and runs on when the clock is started again', () => {
-    send({ kind: 'start', map, population, paused: true, everyTick: false });
+  it.each([false, true])('pauses at the tick it is given at any speed, and runs on when the clock is started again, with every tick posted: %s', (everyTick) => {
+    send({ kind: 'start', map, population, paused: true, everyTick });
     send({ kind: 'pauseAt', tick: 125 });
     send({ kind: 'setSpeed', speed: 8 });
     vi.advanceTimersByTime(5000);
