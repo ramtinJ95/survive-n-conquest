@@ -3,7 +3,15 @@ import type { TileMap } from './sim/map';
 import type { OrderOutcome } from './sim/orders';
 import { type Command, type Population, type Sim, applyCommand, createSim, step, ticksPerSecond } from './sim/sim';
 
-export type ToSim = { readonly kind: 'start'; readonly map: TileMap; readonly population: Population } | Command;
+/**
+ * `paused` starts the clock paused, before the first step. `pauseAt` pauses the clock when it reaches a tick, so the
+ * verification harness can stop the page at an exact game minute; the game itself never sends it.
+ */
+export type ToSim =
+  | { readonly kind: 'start'; readonly map: TileMap; readonly population: Population; readonly paused: boolean }
+  | { readonly kind: 'pauseAt'; readonly tick: number }
+  | Command;
+type Control = Exclude<ToSim, { kind: 'start' }>;
 
 const PUMP_MS = 1000 / 60;
 // After a stall (a throttled tab, a sleeping laptop) the clock slows down instead of leaping ahead.
@@ -14,15 +22,25 @@ function publish(sim: Sim, outcome?: OrderOutcome) {
   self.postMessage(frame, { transfer });
 }
 
-function host(map: TileMap, population: Population): (command: Command) => void {
+function host(map: TileMap, population: Population, paused: boolean): (control: Control) => void {
   const sim = createSim(map, population);
+  sim.paused = paused;
   let owed = 0;
   let last = performance.now();
+  let pauseAt = -1;
   const catchUp = () => {
     const now = performance.now();
     owed = Math.min(owed + ((now - last) / 1000) * ticksPerSecond(sim), MAX_OWED_TICKS);
     last = now;
-    for (; owed >= 1; owed -= 1) step(sim);
+    for (; owed >= 1; owed -= 1) {
+      step(sim);
+      if (sim.tick === pauseAt) {
+        sim.paused = true;
+        owed = 0;
+        pauseAt = -1;
+        break;
+      }
+    }
   };
   setInterval(() => {
     const before = sim.tick;
@@ -30,18 +48,23 @@ function host(map: TileMap, population: Population): (command: Command) => void 
     if (sim.tick !== before) publish(sim);
   }, PUMP_MS);
   publish(sim);
-  return (command) => {
+  return (control) => {
     catchUp();
-    publish(sim, applyCommand(sim, command));
+    if (control.kind === 'pauseAt') {
+      pauseAt = control.tick;
+      publish(sim);
+    } else {
+      publish(sim, applyCommand(sim, control));
+    }
   };
 }
 
-let receive: ((command: Command) => void) | undefined;
+let receive: ((control: Control) => void) | undefined;
 
 self.addEventListener('message', ({ data }: MessageEvent<ToSim>) => {
   if (data.kind === 'start') {
     if (receive) throw new Error('the simulation has already started');
-    receive = host(data.map, data.population);
+    receive = host(data.map, data.population, data.paused);
   } else if (receive) {
     receive(data);
   } else {

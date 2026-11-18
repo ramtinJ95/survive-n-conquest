@@ -108,4 +108,4 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   news.heard(data);
   diedOut.heard(data);
 });
-sim.postMessage({ kind: 'start', map, population } satisfies ToSim);
+sim.postMessage({ kind: 'start', map, population, paused: params.get('clock') === 'paused' } satisfies ToSim);
