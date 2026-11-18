@@ -4806,7 +4806,7 @@ const CLOTHING_LOOK_EVERY = 12;
 const CLOTHING_CLIPS = {
   kill: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true },
   hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 2 },
-  piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 3 },
+  piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 4 },
 };
 const TOOLBAR_TEN = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
 
