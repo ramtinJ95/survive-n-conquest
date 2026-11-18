@@ -348,7 +348,7 @@ export function judgeNight(sim: Sim, id: number, store: number): void {
     return;
   }
   if (store >= 0) lightFire(sim, store);
-  if (warmth(sim, id, store) >= WARM_SOURCES) {
+  if (warmth(sim, id, store, store >= 0 && sim.stores.burning[store] === 1) >= WARM_SOURCES) {
     meetNeed(sim, id, COLD);
     return;
   }
