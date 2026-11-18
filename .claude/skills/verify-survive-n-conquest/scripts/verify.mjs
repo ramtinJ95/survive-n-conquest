@@ -579,15 +579,17 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 
     /**
      * Every page opens with `?clock=paused`, so its clock is paused at tick 0, 08:00 on day 1, before the first step.
-     * `noon` then runs it to 12:00 on day 1, `paused` leaves it at 08:00, and `running` starts it at 1x there.
+     * `noon` then runs it to 12:00 on day 1, `paused` leaves it at 08:00, and `running` starts it at 1x there. `player`
+     * opens the page as a player does, without the setting, with the clock running from the first frames.
      */
     async open(viewport, { record = false, search = '', clock = 'noon' } = {}) {
       const start = {
         noon: (page) => this.reach(page, { day: 1, time: '12:00' }),
         paused: () => {},
         running: (page) => page.keyboard.press('Space'),
+        player: () => {},
       }[clock];
-      if (!start) fail(`open cannot start the clock as "${clock}"; use noon, paused, or running`);
+      if (!start) fail(`open cannot start the clock as "${clock}"; use noon, paused, running, or player`);
       const context = await browser.newContext({
         viewport,
         ...(record && { recordVideo: { dir, size: viewport } }),
@@ -600,13 +602,15 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
       const url = new URL(instance.url + search);
-      url.searchParams.set('clock', 'paused');
+      if (clock !== 'player') url.searchParams.set('clock', 'paused');
       await page.goto(url.href);
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
-      await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
-      const opened = await this.gameMinutes(page);
-      if (opened !== OPENING_MINUTE) fail(`the page opened at ${clockText(opened)}, not paused at ${clockText(OPENING_MINUTE)}`);
+      if (clock !== 'player') {
+        await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
+        const opened = await this.gameMinutes(page);
+        if (opened !== OPENING_MINUTE) fail(`the page opened at ${clockText(opened)}, not paused at ${clockText(OPENING_MINUTE)}`);
+      }
       await start(page);
       return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
@@ -1047,7 +1051,7 @@ const SCENARIOS = {
       session.check(`the clock and the camera controls fit apart at ${viewport.width}x${viewport.height}`, ok, `clock ${JSON.stringify(clock)}, controls ${JSON.stringify(controls)}`);
     };
 
-    const { context, page, errors, since } = await session.open(WIDE, { record: true, clock: 'running' });
+    const { context, page, errors, since } = await session.open(WIDE, { record: true, clock: 'player' });
     const openedAt = await session.gameMinutes(page);
     const latest = OPENS_AT + since() * GAME_MINUTES_PER_SECOND_AT_1X + 1;
     const date = page.getByRole('status', { name: 'Date' });
@@ -1165,7 +1169,7 @@ const SCENARIOS = {
     await session.pause(page);
     await session.finishClip(context, page, 'day-at-8x', { from: fastFrom, width: 640 });
 
-    const paused = await session.open(CLIP, { clock: 'running', search: SWARM });
+    const paused = await session.open(CLIP, { clock: 'paused', search: SWARM });
     const turnsBlue = clockMinutes({ day: 1, time: DUSK }) + BLUE_LAG;
     const turnsBack = clockMinutes({ day: 2, time: DAWN }) - BLUE_LAG;
     const stops = Object.entries({
@@ -1230,7 +1234,7 @@ const SCENARIOS = {
   },
 
   async seasons(session) {
-    const { context, page, errors } = await session.open(WIDE, { clock: 'running', search: '?swarm=off' });
+    const { context, page, errors } = await session.open(WIDE, { clock: 'paused', search: '?swarm=off' });
     const date = page.getByRole('status', { name: 'Date' });
     const evening = {};
     const below = { x: 0, y: Math.floor(BELOW_HORIZON_ROWS[0] * WIDE.height), width: WIDE.width, height: WIDE.height - Math.floor(BELOW_HORIZON_ROWS[0] * WIDE.height) };
