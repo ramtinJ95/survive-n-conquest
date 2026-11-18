@@ -1948,11 +1948,11 @@ const BUILD_BOXES = {
   around: { x: 425, y: 185, width: 150, height: 150 },
 };
 /** The clip keeps the clock, the site with its label, the stockpile, the camp's edge, and the rock face's foot. */
-const BUILD_CLIP = { crop: { x: 230, y: 0, width: 480, height: 440 }, width: 480, colors: 64, decimate: true };
+const BUILD_CLIP = { crop: { x: 230, y: 0, width: 480, height: 440 }, width: 480, colors: 64, decimate: true, speed: 2 };
 /**
  * The marks go down at 08:15 and the house at 11:30, once carriers have stocked logs, so that the site takes some of
- * its units from the stockpile. Both are `reach` stops, so each command lands within 4 ticks of the same tick on every
- * run. On rj-firebat the site held 4 logs and 2 stone at 12:29, 12 and 6 by 16:38, and became a house at 17:53. The
+ * its units from the stockpile. Both are `reach` stops, so each command lands on the same tick on every run. On
+ * rj-firebat the site held 4 logs and 2 stone at 12:29, 12 and 6 by 16:38, and became a house at 17:53. The
  * settlers carry stone past the house after dawn on day 2, and those stops have full daylight, as the evening stops
  * after 17:53 do not.
  */
@@ -1966,8 +1966,8 @@ const BUILD_STOPS = {
 /** Wheel pixels that reach the nearest view of 14 m and the farthest of 243 m from any view. */
 const READ_WHEELS = { near: -3000, far: 3000 };
 /**
- * The thatch of the house roof in the afternoon. The house is finished at 17:23 in one run and at 17:55 in another,
- * because `reach` stops within two game minutes of its time and an order can land a few ticks apart. The sunlit slope
+ * The thatch of the house roof in the afternoon. The house was finished at 17:23 in one run and at 17:55 in another
+ * when `reach` stopped within two game minutes of its time; it now stands at the 17:55 stop on every run. The sunlit slope
  * reads near (174, 114, 42) and then near (174, 102, 30). The slope in shade is olive at 17:23, near (78, 66, 30),
  * and warm at 17:55, near (90, 66, 18). The three clauses are the sunlit slope, the warm shade, and the olive shade.
  * A tunic there reads near (126, 90, 18), yellower than the sunlit slope, and timber has more blue than the shade.
@@ -2595,15 +2595,15 @@ const HUNGER_STOPS = {
 };
 const HUNGER_SEARCH = '?seed=7';
 const HUNGER_NAMES = ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella'];
-/**
- * The clip leaves out the camera controls at the bottom. It drops the frames of each paused stop but one, as
- * `decimate` does, and keeps one of every 3 frames left.
- */
-const HUNGER_CLIP = { crop: { x: 0, y: 0, width: 960, height: 496 }, width: 640, colors: 48, speed: 3, decimate: true };
+/** The clip leaves out the camera controls at the bottom and plays 3 times as fast as it was recorded. */
+const HUNGER_CLIP = { crop: { x: 0, y: 0, width: 960, height: 496 }, width: 640, colors: 48, speed: 3 };
 /** Wheel pixels from the opening view of about 120 m in to about 49 m, so the settlers at the camp show in the clip. */
 const HUNGER_WHEEL = -600;
-/** From the last meal the clock steps 30 game minutes at a time, reading the news and the camp, until the end shows, by day 7 at most. */
-const HUNGER_RUN = { every: 30, until: { day: 7, time: '12:00' } };
+/**
+ * From the last meal the clock steps a game hour at a time, reading the news and the camp, until the end shows, by day
+ * 7 at most. Each stop adds a pause to the clip, and with stops every 30 minutes it took 8.4 MB.
+ */
+const HUNGER_RUN = { every: 60, until: { day: 7, time: '12:00' } };
 
 function hungerDriver(session) {
   const stockpiles = (page) => page.getByRole('status', { name: 'Stockpiles' });

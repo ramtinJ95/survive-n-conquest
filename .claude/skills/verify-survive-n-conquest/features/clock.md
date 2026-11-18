@@ -24,7 +24,7 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run clock`, which runs doctor itself.
 
-- **Open the game.** Load the page at 1280 by 720 with recording on and `clock: 'running'`. The checks `opens on the first day of spring` and `opens at 08:00 in the morning` pass, and `pressed: Speed 1×` shows that 1× is the selected speed. The check `the clock and the camera controls fit apart at 1280x720` compares the two panels' boxes.
+- **Open the game.** Load the page at 1280 by 720 with recording on and `clock: 'player'`, which leaves out `?clock=paused`, so the clock runs from the first frames as it does for a player. The checks `opens on the first day of spring` and `opens at 08:00 in the morning` pass, and `pressed: Speed 1×` shows that 1× is the selected speed. The check `the clock and the camera controls fit apart at 1280x720` compares the two panels' boxes.
 - **Watch 1×.** Wait 4 seconds. The check `1× runs 4.8 game minutes per second` reads the date and the time before and after and passes within 25%. `clock-1x.png` shows the panel.
 - **Choose 2× with the pointer.** Click `Speed 2×`. The checks `pressed: Speed 2×` and `2× by pointer runs 9.6 game minutes per second` pass.
 - **Choose 4× and 8× with keys.** Press 3, then 4. The checks for `4× by the 3 key` and `8× by the 4 key` pass at 19.2 and 38.4 game minutes per second.
@@ -43,6 +43,6 @@ Preconditions:
 - A paused game shows two pressed buttons, `Pause` and the speed it resumes at.
 - The buttons show the state that the worker reports, not the input. Read a pressed state only after it settles. The scenario polls for up to 2 seconds before it records the check or starts a rate measurement.
 - The clip runs about 45 seconds, because the 16 hours from the 08:00 start to the first midnight take 25 seconds even at 8×. The game opens with the 8 settlers. The clip ran at 4 frames per second while it showed the swarm, because the light changes and the swarm moved in every frame. With the settlers `finishClip` may fit a higher frame rate.
-- The first reading is a few game minutes past 08:00, because the clock runs while the page loads. The check `opens at 08:00 in the morning` allows the game minutes that pass at 1× in the seconds since the page was created.
+- The first reading is a few game minutes past 08:00, because the clock runs while the page loads. The check `opens at 08:00 in the morning` allows the game minutes that pass at 1× in the seconds since the page was created. In the pylon the first reading was 08:10, against a limit of 08:15. This is the only scenario that opens a page this way. Every other page opens paused at tick 0.
 - `still(page)` never returns while the clock runs. Use it only while paused.
 - Click the buttons with `page.mouse.click` at the center of their box, not with `locator.click`. A locator click waits for the button to hold still across animation frames, and SwiftShader draws the terrain so slowly that the wait takes tens of seconds and can time out.
