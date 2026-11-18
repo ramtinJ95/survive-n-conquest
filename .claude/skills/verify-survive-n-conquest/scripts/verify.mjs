@@ -27,6 +27,11 @@ const GIF_STEPS = [
 ];
 const GIF_BYTE_LIMIT = 8_000_000;
 const MINUTES_PER_DAY = 1440;
+/** `src/sim/calendar.ts`: tick 0 is 08:00 on day 1, and a day is 3000 ticks. */
+const TICKS_PER_DAY = 3000;
+const OPENING_MINUTE = 8 * 60;
+/** The first tick whose clock reads `minutes`, counted from midnight before day 1, as the clock panel shows it. */
+const tickAt = (minutes) => Math.ceil(((minutes - OPENING_MINUTE) * TICKS_PER_DAY) / MINUTES_PER_DAY);
 const GAME_MINUTES_PER_SECOND_AT_1X = MINUTES_PER_DAY / 300;
 const FASTEST_SPEED = 8;
 const PROBE = { width: 160, height: 90 };
@@ -572,11 +577,15 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
   return {
     check,
 
+    /**
+     * Every page opens with `?clock=paused`, so its clock is paused at tick 0, 08:00 on day 1, before the first step.
+     * `noon` then runs it to 12:00 on day 1, `paused` leaves it at 08:00, and `running` starts it at 1x there.
+     */
     async open(viewport, { record = false, search = '', clock = 'noon' } = {}) {
       const start = {
         noon: (page) => this.reach(page, { day: 1, time: '12:00' }),
-        paused: (page) => this.pause(page),
-        running: () => {},
+        paused: () => {},
+        running: (page) => page.keyboard.press('Space'),
       }[clock];
       if (!start) fail(`open cannot start the clock as "${clock}"; use noon, paused, or running`);
       const context = await browser.newContext({
@@ -590,9 +599,14 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
-      await page.goto(instance.url + search);
+      const url = new URL(instance.url + search);
+      url.searchParams.set('clock', 'paused');
+      await page.goto(url.href);
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
+      await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
+      const opened = await this.gameMinutes(page);
+      if (opened !== OPENING_MINUTE) fail(`the page opened at ${clockText(opened)}, not paused at ${clockText(OPENING_MINUTE)}`);
       await start(page);
       return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
@@ -619,36 +633,39 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
     },
 
+    /** Runs the clock at 4x to the first tick of a game minute and pauses it there, by the worker's `pauseAt`. */
     async reach(page, target) {
       const wanted = clockMinutes(target);
+      const paused = page.getByRole('button', { name: 'Pause', exact: true, pressed: true });
       const from = await this.gameMinutes(page);
+      if (from === wanted && (await paused.isVisible())) return;
+      if (from >= wanted) fail(`the clock reads ${clockText(from)}, so it cannot be run to ${clockText(wanted)}`);
       const fastest = FASTEST_SPEED * GAME_MINUTES_PER_SECOND_AT_1X;
-      const deadline = Date.now() + (2 * Math.max(wanted - from, 0) * 1000) / fastest + 60_000;
-      const inTime = () => {
-        if (Date.now() > deadline) fail(`the clock did not reach ${clockText(wanted)} in time`);
-      };
-      const runUntil = async (minutes) => {
-        while ((await this.gameMinutes(page)) < minutes) {
-          inTime();
-          await page.waitForTimeout(20);
-        }
-      };
+      const deadline = Date.now() + (2 * (wanted - from) * 1000) / fastest + 60_000;
+      const [worker] = page.workers();
+      if (!worker) fail('the page runs no simulation worker');
+      await worker.evaluate((tick) => self.dispatchEvent(new MessageEvent('message', { data: { kind: 'pauseAt', tick } })), tickAt(wanted));
       await page.keyboard.press('4');
-      await runUntil(wanted - 30);
-      await page.keyboard.press('1');
-      await runUntil(wanted - 3);
-      await this.pause(page);
-      let now = await this.gameMinutes(page);
-      while (now < wanted) {
-        inTime();
-        await page.keyboard.press('Space');
-        await page.waitForTimeout(100);
-        await page.keyboard.press('Space');
-        await this.settle(page);
-        await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
-        now = await this.gameMinutes(page);
+      while ((await this.gameMinutes(page)) !== wanted || !(await paused.isVisible())) {
+        if (Date.now() > deadline) fail(`the clock did not stop at ${clockText(wanted)} in time; it reads ${clockText(await this.gameMinutes(page))}`);
+        await page.waitForTimeout(20);
       }
-      if (now > wanted + 2) fail(`the clock stopped at ${clockText(now)}, past ${clockText(wanted)}`);
+      await this.settle(page);
+    },
+
+    /**
+     * Steps the paused clock `every` game minutes and calls `read` at each stop, from the stop it stands at, until
+     * `read` returns a value or the clock reaches `until`. Returns that value, or null at `until`.
+     */
+    async runUntil(page, read, { every, until }) {
+      const last = clockMinutes(until);
+      for (;;) {
+        const value = await read();
+        if (value) return value;
+        const now = await this.gameMinutes(page);
+        if (now >= last) return null;
+        await this.reach(page, clockAt(Math.min(now + every, last)));
+      }
     },
 
     async screenshot(page, label) {
