@@ -54,7 +54,7 @@ const EVENTS: readonly NewsEvent[] = [
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
 export const LINE_MS = 30_000;
 /** At most this many lines show. A later line waits until one of them has shown for `LINE_MS`. */
-export const MOST_LINES = 5;
+export const MOST_LINES = 4;
 /** Events of a kind within this many ticks of a line's first join that line, as the settlers who reach the camp over a dusk. */
 const JOIN_TICKS = TICKS_PER_DAY / 24;
 /** A line names this many settlers at most and counts the rest. */
