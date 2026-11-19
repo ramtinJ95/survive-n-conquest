@@ -322,7 +322,64 @@ No limit was loosened in any pull request of the stage. #34, #36, and #40 say th
 | `cold`, the flame over each house at the dusk of day 10 | House 1 read 0 flame pixels, a fail against 40, and house 2 read 201. Now house 1 reads 157 and house 2 218 | The readiness panel covered the first house. The near view of `cold` and `readiness` now drags west by one drag after its zoom eases in. (#40) |
 | `look`, the house's thatch, the villagers, and the camp's light, at noon and midnight in spring and winter | Thatch 3,968 and 140, a fail against 1,900, then 4,051 and 4,317. Villager pixels 439 and 1,135, then 345 and 874, against 150. The camp's flame 167 and 183, then 209 and 208, against 100. Firelit pixels 2,822 and 3,213, then 2,894 and 3,122, against 1,500 | The readiness panel covered the house's box, so the land is dragged west and the boxes moved with it. (#40) |
 
-#39 also lists every reading that moved when paused pages began to stand at 08:00 instead of 08:11 to 08:18. Of them, four went from pass to fail. `camera`'s held Q key read a mean pixel difference of 22.38 and then 0.00 against more than 2, and its sky check read 6.8% and then 3.5% against at least 5%. #39 traces both to the node's slow frames, as the next section says. The other two are the `selecting` and `storing` readings above, and `storing` read 78 and then 35. (#39) After #40 merged 4.2's and 4.4's later commits, readings of `seasons`, `orders`, `selecting`, `clothing`, `look`, and `wearing` moved by small amounts and every check still passes. #40 could not tell which of the two merges moved each. (#40)
+#39 also lists every reading that moved when paused pages began to stand at 08:00 instead of 08:11 to 08:18. Of them, four went from pass to fail. `camera`'s held Q key read a mean pixel difference of 22.38 and then 0.00 against more than 2, and its sky check read 6.8% and then 3.5% against at least 5%. #39 traces both to the node's slow frames, as the next section says. The other two are the `selecting` and `storing` readings above, and `storing` read 78 and then 35. (#39) After #40 merged 4.2's paused opening and 4.2's and 4.4's later commits, 48 readings of `seasons`, `orders`, `selecting`, `clothing`, `look`, and `wearing` moved. Four checks went from fail to pass, three of `selecting`'s selection mark and one of `clothing`'s news, and one `selecting` check went from pass to fail, the turned-view click that #39 later moved to 09:00. #40 could not tell which of the merges moved each reading. Every check passed in #40's final runs. (#40) The table holds each reading as #40 gives it, before and after. #39's own list of the readings that the paused opening moved stays in #39's body. Its four checks that went from pass to fail are given above. (#39)
+
+<details><summary>The readings that moved when #40 merged 4.2 and 4.4 (#40)</summary>
+
+| Scenario and check | Before | After |
+| --- | --- | --- |
+| `seasons`, midnight in spring is dark, cold, and light enough | 48 against 129 at noon, 1.66 times as much blue as red against 0.78 | 48 against 130, 1.67 against 0.78 |
+| `seasons`, summer looks different from spring | mean pixel difference 12.29 | 12.38 |
+| `seasons`, midnight in summer | 43 against 118, 1.62 against 0.75 | 43 against 119, 1.63 against 0.75 |
+| `seasons`, autumn looks different from summer | 24.36 | 24.53 |
+| `seasons`, midnight in autumn | 43 against 113, 0.91 against 0.47 | 43 against 114, 0.90 against 0.46 |
+| `seasons`, winter looks different from autumn | 50.73 | 51.29 |
+| `seasons`, midnight in winter | 66 against 145, 2.06 against 1.08 | 66 against 146, 2.06 against 1.08 |
+| `seasons`, at 18:30 still day in summer and night in winter | winter evening 1.72 blue for each red, needs more than 1.57 | 1.73. The summer readings, 0.96 and 65% against 52%, did not move |
+| `orders`, marked rock shows its outline | quarry 449 | 462 |
+| `orders`, Cancel leaves the other marks | chop 2024, quarry 426 | chop 2024, quarry 439 |
+| `orders`, every mark reads at a near view, spring noon | quarry 1112 | quarry 1264. Chop 2939, stockpile 1706, site 338, and preview 1227 did not move |
+| `orders`, the same at spring midnight | quarry 1112 | quarry 1264. Chop 2938, stockpile 1704, site 338, and preview 1091 did not move |
+| `orders`, the same at winter noon | chop 1801, quarry 1114 | chop 1885, quarry 1267. Stockpile 1723, site 340, and preview 1217 did not move |
+| `orders`, the same at winter midnight | chop 1800, quarry 1112 | chop 1884, quarry 1264. Stockpile 1721, site 340, and preview 1192 did not move |
+| `orders`, a right-drag turns while a tool is active | 19.40 | 19.60 |
+| `orders`, a drag with no tool moves the camera | 19.78 | 19.93 |
+| `selecting`, at day 1 08:15 a click 10 px beside a settler selects it | tunic at 310,374, the panel reads Nella with a `Clothing: None` row | tunic at 331,372, Nella with no `Clothing` row |
+| `selecting`, the mark shows in both colors by day over grass, fail to pass | 0 accent and 0 edge pixels, needs 40 and 40 | 144 and 164 |
+| `selecting`, the mark rings the selected settler, fail to pass | its center Infinity px from the nearest tunic, needs at most 30 | 8 px |
+| `selecting`, at day 1 11:16 the mark has followed the settler, fail to pass | moved 0 px, needs 15, 27 px from a tunic | moved 248 px, 9 px from a tunic |
+| `selecting`, while paused the panel holds still | Nella's panel with a `Clothing: None` row | the same panel with no `Clothing` row |
+| `selecting`, the settler panel covers no other panel at 960 by 540 | panel 12,259 400x225, Stockpiles 202x225 | panel 12,249 256x235, Stockpiles 190x198 |
+| `selecting`, the settler panel at its longest readings | 9 rows, 400x246 from y 238, Stockpiles ends at y 237 | 8 rows, 256x271 from y 213, Stockpiles ends at y 210 |
+| `selecting`, a House click leaves the selection alone | Nella's panel with a `Clothing: None` row | with no `Clothing` row |
+| `selecting`, the site panel covers no other panel | panel 12,364 400x120 | panel 12,376 256x108 |
+| `selecting`, the mark rings the house | 197 accent pixels centered at 494,296 | 223 at 491,293 |
+| `selecting`, the camp panel covers no other panel | panel 12,385 400x99, Stockpiles 211x225 | panel 12,395 256x89, Stockpiles 199x198 |
+| `selecting`, at spring midnight the mark shows in both colors | 65 accent and 81 edge pixels | 65 and 80 |
+| `selecting`, at winter noon a click beside a settler selects it | Ysa | Ulvar |
+| `selecting`, at winter noon over snow the mark shows in both colors | 125 accent and 127 edge pixels | 100 and 120 |
+| `selecting`, at the farthest zoom a click on the camp selects a settler | Nella, `Cold nights: 1, cold` and `Clothing: None` | Nella, `Cold nights: 1, cold` with no `Clothing` row |
+| `selecting`, at the opening view a click 10 px beside a settler | tunic of 9 px at 462,263, Merek | tunic of 2 px at 476,263, Ulvar |
+| `selecting`, a drag that starts on a settler selects nothing | mean pixel difference 23.99 | 24.32 |
+| `selecting`, at the nearest turned view a click 10 px beside a settler, pass to fail | tunic of 30 px at 753,88, Merek | tunic of 19 px at 754,76, the camp's panel |
+| `clothing`, the tailor's hut is finished on day 1 | label gone at 14:48 | at 14:50 |
+| `clothing`, the news names the tailor, fail to pass | the news reads nothing | "Day 1, 14:45. Merek became a tailor." |
+| `clothing`, at day 1 14:56 the tailor's panel | Merek's panel with a `Clothing: None` row | with no `Clothing` row |
+| `clothing`, Elsi hunts a deer and picks its food up | aiming at 07:10, looking for deer at 07:24 | aiming at 07:07 and 07:19, looking for deer at 07:25 |
+| `clothing`, Jorrin puts the hide on the stockpile | ring 25 px from the stockpile's middle | 28 px |
+| `clothing`, Merek carries hides and makes clothing | the same stops and readings, as far as #40 quotes them | the same |
+| `clothing`, the hut's panel keeps clear of every panel | panel 12,301 400x183 | panel 12,272 256x213 |
+| `clothing`, the hut's panel shows every row | 183 px tall | 213 px tall |
+| `clothing`, the Stockpiles panel keeps clear | Stockpiles 202x225 | 190x198 |
+| `look`, look-house-finished takes few draw calls | 40 calls and 1,347,798 triangles | 40 calls and 1,347,686 triangles |
+| `wearing`, the panel keeps its width through the walk | 8 widths of 256.0 px | 9 widths of 256.0 px |
+| `wearing`, the hut reads a piece made and one fewer when taken | changes at day 3 11:20, 11:28, 19:10, 19:12, day 4 03:42 | changes at day 3 11:21, 11:29, 19:12, 19:20, day 4 03:58, day 5 16:38 |
+| `wearing`, the news of the first winter dusk at the camp | the line read at 18:30 | the last text of the line, still shown at 18:30. Both read "Day 10, 17:36. Ysa, Dorran and Nella had a cold night." |
+| `wearing`, on the morning after, the clothed read no cold night | 7 settlers read | the same 7, and "7 of 8" |
+
+`cold` and `readiness` moved no reading. (#40)
+
+</details>
 
 ### The held keys of `camera` and `clock`
 
