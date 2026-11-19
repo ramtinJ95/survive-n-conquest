@@ -24,6 +24,7 @@ const frame = (tick: number, villagers: number[], rest: Partial<UnitFrame> = {})
   monsters: new Float32Array(0),
   carried: new Uint8Array(villagers.length / 2),
   states: new Uint8Array(villagers.length / 2),
+  worn: new Uint8Array(villagers.length / 2),
   ...rest,
 });
 
@@ -45,6 +46,7 @@ describe('createSwarm', () => {
   it('draws each group as one instanced mesh that shows nothing before the first frame', () => {
     expect(swarm(3, 2).meshes.map((mesh) => [mesh.name, mesh.constructor, mesh.count])).toEqual([
       ['villagers', InstancedMesh, 0],
+      ['villager hoods', InstancedMesh, 0],
       ['villager arms', InstancedMesh, 0],
       ['villager legs', InstancedMesh, 0],
       ['monsters', InstancedMesh, 0],
@@ -122,6 +124,22 @@ describe('createSwarm', () => {
 
     show(frame(1, positions));
     expect([named('carried logs').count, named('carried stone').count]).toEqual([0, 0]);
+  });
+
+  it('draws a hood and a mantle on each villager that wears clothing, posed as its body, above the lower half of the tunic, and none on one that wears nothing', () => {
+    const { named, show } = swarm(3, 0);
+    const states = Uint8Array.of(VillagerState.Working, VillagerState.Idle, VillagerState.Idle);
+    show(frame(3, [10.5, 20.5, 30.5, 30.5, 40.5, 12.5], { states, worn: Uint8Array.of(Good.Clothing, Good.None, Good.Clothing) }));
+    expect(named('villager hoods').count).toBe(2);
+    expect(matrixOf(named('villager hoods'), 0).equals(matrixOf(named('villagers'), 0))).toBe(true);
+    expect(matrixOf(named('villager hoods'), 1).equals(matrixOf(named('villagers'), 2))).toBe(true);
+    named('villager hoods').geometry.computeBoundingBox();
+    named('villagers').geometry.computeBoundingBox();
+    const hood = named('villager hoods').geometry.boundingBox!;
+    expect(hood.max.y).toBeGreaterThan(named('villagers').geometry.boundingBox!.max.y);
+    expect(hood.min.y).toBeGreaterThan(0.6);
+    show(frame(4, [10.5, 20.5, 30.5, 30.5, 40.5, 12.5], { states }));
+    expect(named('villager hoods').count).toBe(0);
   });
 
   it('turns a villager the way it walks, and keeps it turned that way once it stands', () => {

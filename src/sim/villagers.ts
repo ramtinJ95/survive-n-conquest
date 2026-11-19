@@ -79,6 +79,8 @@ export interface Villagers {
   readonly coldNights: Uint8Array;
   /** The `Good` a stocking task carries, or `Good.None`. */
   readonly stockGood: Uint8Array;
+  /** The `Good` each villager wears, `Good.Clothing` or `Good.None`. It wears it from the moment it puts it on until it dies. */
+  readonly worn: Uint8Array;
   /** The site slot of the workplace where each villager holds a place, or -1. Its job is the job of that building's kind. */
   readonly workplace: Int16Array;
   /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
@@ -159,6 +161,7 @@ export function createVillagers(map: TileMap, camp: FlowField, count: number): V
     missedMeals: new Uint8Array(count),
     coldNights: new Uint8Array(count),
     stockGood: new Uint8Array(count),
+    worn: new Uint8Array(count),
     workplace: new Int16Array(count).fill(-1),
     hired: new Uint32Array(count),
   };

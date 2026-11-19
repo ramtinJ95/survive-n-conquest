@@ -57,9 +57,9 @@ export function eat(sim: Sim, id: number, store: number): boolean {
 /** A villager is warm through a cold night with this many of the sources of warmth. */
 export const WARM_SOURCES = 2;
 
-/** Whether the villager wears clothing. No villager does yet. */
-function clothed(_sim: Sim, _id: number): boolean {
-  return false;
+/** Whether the villager wears clothing. */
+export function clothed(sim: Sim, id: number): boolean {
+  return sim.villagers.worn[id] === Good.Clothing;
 }
 
 /**

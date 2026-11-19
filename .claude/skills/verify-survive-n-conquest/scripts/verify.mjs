@@ -3321,7 +3321,7 @@ const SETTLER_LONGEST = {
   Household: 'Household 4, with Haldor',
   Home: 'None, sleeps at the camp',
   'Missed meals': '2, hungry',
-  'Cold nights': '2, cold',
+  'Cold nights': '2, cold, clothed',
 };
 
 SCENARIOS.selecting = async (session) => {
@@ -5394,8 +5394,8 @@ SCENARIOS.clothing = async (session) => {
   }
   const stopped = await reads(page);
   session.check(
-    `at ${await at(page)}, after its first piece, the tailor's hut's panel says its tailor has stopped for lack of hides`,
-    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) >= 1,
+    `at ${await at(page)}, after its first piece, which the tailor puts on before it looks for hides again, the tailor's hut's panel says its tailor has stopped for lack of hides and holds no clothing`,
+    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) === 0,
     `the panel reads "${text(stopped)}"`,
   );
   await session.screenshot(page, 'clothing-hut-stopped');
@@ -5752,6 +5752,386 @@ SCENARIOS.cold = async (session) => {
   );
 
   await session.finishClips(play.context, page, [{ label: 'cold-winter-dusk', from: clipFrom, to: clipTo, ...COLD_CLIP }]);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
+};
+
+/**
+ * The wearing scenario. On seed 7, fed by `FED`, the player gives the orders of the cold scenario at 08:15 on day 1
+ * from `COLD_ORDER_VIEW`, with a tailor's hut on (121, 122) and a hunter's lodge on (121, 127) where that scenario
+ * places its two houses, and no house: the Chop drag, the Quarry drag, the stockpile, and the woodshed. That is 70 logs
+ * for the shed's 6, the hut's 8, the lodge's 8, and the camp's firewood, and 16 stone for the lodge's 4. In `src/sim`
+ * runs of this layout with the orders at 08:13 to 08:19, the tailor put the first piece on at its own door on day 3,
+ * a settler walked from the camp for the second on day 3 to 5, 4 or 5 settlers wore clothing at the dusk of day 10,
+ * the camp held 12 firewood at each winter dusk, and the settlers without clothing had a cold night there while those
+ * with clothing were warm by the camp's fire. The near view is the cold scenario's, which keeps the hut, the camp, and
+ * its fire in view. The hut's pixels come from `scripts/aim.ts` with the near view of `COLD_SPOTS`:
+ * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-1000,"turn":{"x":0,"y":0},"target":[123.99,125.04]}' '[[121,122],[122,122],[122,123]]'`.
+ */
+const WEAR_SEARCH = COLD_SEARCH;
+const WEAR_ORDERS = { ...COLD_ORDERS, tailor: COLD_ORDERS.houses[0], lodge: COLD_ORDERS.houses[1] };
+const WEAR_SPOTS = { hut: [{ x: 470, y: 238 }, { x: 463, y: 217 }, { x: 482, y: 228 }], camp: COLD_SPOTS.camp };
+const WEAR_STOPS = {
+  orders: { day: 1, time: '08:15' },
+  watch: { day: 2, time: '12:00' },
+  lastWatch: { day: 7, time: '12:00' },
+  noon: { day: 10, time: '12:00' },
+  before: { day: 10, time: '17:00' },
+  after: { day: 10, time: '18:30' },
+  morning: [{ day: 11, time: '07:00' }, { day: 11, time: '07:30' }, { day: 11, time: '08:00' }, { day: 11, time: '09:00' }],
+};
+/** Game minutes between two reads of a settler whose walk the dusk cut short, while it rests at the camp. */
+const WEAR_NIGHT_STEP = 30;
+const WEAR_NIGHT = /^(Walking to the camp|Resting at the camp)$/;
+/** Game minutes between two reads of a settler that walks to the hut, so a walk from the camp shows at several stops. */
+const WEAR_STEP = 2;
+/** The longest a walk from the camp to the hut and the piece put on there may take, in game minutes. */
+const WEAR_WALK_MINUTES = 90;
+/** Wall seconds of the recording kept before the walk is found and after the piece is put on. */
+const WEAR_MARGIN = 2;
+const WEAR_WALK = "Walking to the tailor's hut for clothing";
+/** A settler's `Cold nights` row ends in these words while it wears clothing. */
+const WEAR_WORN = ', clothed';
+/** The clips keep the clock, the Stockpiles panel, the hut, the camp, the selection panel, and the news. */
+const WEAR_CLIPS = {
+  fetch: { crop: { x: 0, y: 0, width: 960, height: 490 }, width: 560, colors: 32, decimate: true },
+  dusk: { crop: { x: 0, y: 0, width: 960, height: 490 }, width: 640, colors: 48, decimate: true },
+};
+
+SCENARIOS.wearing = async (session) => {
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, skipOf, tunicPixels, click } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const play = await session.open(CLIP, { record: true, search: WEAR_SEARCH, clock: 'paused' });
+  const { page } = play;
+  const away = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const wears = (read) => (read?.rows?.['Cold nights'] ?? '').endsWith(WEAR_WORN);
+  const nightsOf = (read) => (read?.rows?.['Cold nights'] ?? '').replace(WEAR_WORN, '');
+  const clothingOf = (read) => Number(/^(\d+) of 8$/.exec(read?.rows?.Clothing ?? '')?.[1] ?? NaN);
+  const firewoodOf = (read) => Number(/^(\d+) of 12$/.exec(read?.rows?.Firewood ?? '')?.[1] ?? NaN);
+  const namesIn = (list) => list.split(/, | and /).map((name) => name.replace(/ \(died\)$/, ''));
+  const selectOne = async (spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) return read;
+    }
+    return read;
+  };
+  const deselect = async () => {
+    await page.keyboard.press('Escape');
+    await away();
+    await session.still(page);
+  };
+  /** Settlers who stand together make one patch of tunic, so the clicks aim at the fullest cells of 12 pixels, and each settler found keeps the point that selected it. */
+  const settlersIn = async (shot, wanted = () => false, most = 16) => {
+    const png = await session.screenshot(page, shot);
+    const boxes = skipOf(await uiBoxes(page));
+    const cells = new Map();
+    for (const { x, y } of await tunicPixels(page, png)) {
+      if (boxes.some((box) => x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height)) continue;
+      const key = `${Math.floor(x / 12)},${Math.floor(y / 12)}`;
+      const cell = cells.get(key) ?? { count: 0, x: 0, y: 0 };
+      cells.set(key, { count: cell.count + 1, x: cell.x + x, y: cell.y + y });
+    }
+    const found = new Map();
+    for (const cell of [...cells.values()].sort((a, b) => b.count - a.count).slice(0, most)) {
+      const spot = { x: Math.round(cell.x / cell.count), y: Math.round(cell.y / cell.count) };
+      const read = await click(page, spot);
+      if (!settlerPanel(read) || found.has(read.title)) continue;
+      found.set(read.title, { read, spot });
+      if (wanted(read)) break;
+    }
+    return { png, found };
+  };
+
+  await takeForageView(session, page, COLD_ORDER_VIEW);
+  await session.reach(page, WEAR_STOPS.orders);
+  const orderedAt = await at(page);
+  const given = [];
+  for (const [key, tool, pattern, spots] of [
+    ['KeyC', 'Chop', /^35 trees marked for felling/, WEAR_ORDERS.chop],
+    ['KeyM', 'Quarry', /^2 rock tiles marked for quarrying/, WEAR_ORDERS.quarry],
+    ['KeyP', 'Stockpile', /^9 tiles join the stockpile zone/, WEAR_ORDERS.stockpile],
+  ]) {
+    await page.keyboard.press(key);
+    await session.drag(page, ...spots);
+    given.push({ tool, pattern, line: await said(page, pattern) });
+    await page.keyboard.press('Escape');
+  }
+  for (const [key, tool, pattern, spot] of [
+    ['KeyK', 'Woodshed', /^Woodshed site placed/, WEAR_ORDERS.shed],
+    ['KeyT', "Tailor's hut", /^Tailor's hut site placed/, WEAR_ORDERS.tailor],
+    ['KeyL', "Hunter's lodge", /^Hunter's lodge site placed/, WEAR_ORDERS.lodge],
+  ]) {
+    await page.keyboard.press(key);
+    await page.mouse.move(spot.x, spot.y, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.up();
+    given.push({ tool, pattern, line: await said(page, pattern) });
+    await page.keyboard.press('Escape');
+    await away();
+  }
+  const labels = async (name) => page.getByRole('status', { name }).count();
+  const sites = { shed: await labels('Woodshed site'), hut: await labels("Tailor's hut site"), lodge: await labels("Hunter's lodge site") };
+  session.check(
+    `at ${orderedAt} the orders mark 35 trees, 2 rock tiles, and 9 stockpile tiles, and place a woodshed site, a tailor's hut site, and a hunter's lodge site, and no house`,
+    given.every(({ pattern, line }) => pattern.test(line)) && sites.shed === 1 && sites.hut === 1 && sites.lodge === 1 && (await labels('House site')) === 0 && (await at(page)) === orderedAt,
+    `${given.map(({ tool, line }) => `${tool}: "${line}"`).join(', ')}; site labels ${JSON.stringify(sites)} at ${await at(page)}`,
+  );
+  await session.screenshot(page, 'wearing-orders');
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, COLD_CLOSER);
+  await away();
+  await session.still(page);
+
+  await session.reach(page, WEAR_STOPS.watch);
+  const hut = await selectOne(WEAR_SPOTS.hut, "Tailor's hut");
+  session.check(
+    `at ${await at(page)} the tailor's hut stands, names its tailor, and holds no clothing`,
+    hut?.title === "Tailor's hut" && hut.rows.Tailor !== 'Nobody' && clothingOf(hut) === 0,
+    `the panel reads "${text(hut)}"`,
+  );
+  const tailor = hut?.rows?.Tailor ?? null;
+
+  // The hut's panel stays open at 4×, and each change of its clothing pauses the clock.
+  const counts = [];
+  let piece = null;
+  let taken = null;
+  let now = await session.gameMinutes(page);
+  const watchHut = async () => {
+    const start = clothingOf(await reads(page));
+    await page.keyboard.press('4');
+    for (;;) {
+      const read = await reads(page);
+      const minutes = await session.gameMinutes(page);
+      if (read?.title !== "Tailor's hut" || clothingOf(read) !== start || minutes >= clockMinutes(WEAR_STOPS.lastWatch)) break;
+      await page.waitForTimeout(80);
+    }
+    await session.pause(page);
+    await session.still(page);
+    const read = await reads(page);
+    now = await session.gameMinutes(page);
+    counts.push(`${clockText(now)} ${read?.rows?.Clothing}`);
+    return { read, from: start, to: clothingOf(read) };
+  };
+  /** Clicks settlers until one walks to the hut, up to 4 times 2 game minutes apart, as a settler that takes a piece sets out on its next look for work. Returns to the hut's panel when none does. */
+  const findWalker = async (pieces) => {
+    for (let tries = 0; tries < 4; tries++) {
+      const { found } = await settlersIn(`wearing-search-${String(now).padStart(5, '0')}-${tries}`, (read) => read.rows.Doing === WEAR_WALK);
+      for (const [name, { read, spot }] of found) if (read.rows.Doing === WEAR_WALK) return { name, read, spot, at: now, from: play.since(), pieces };
+      await session.reach(page, clockAt(now + WEAR_STEP));
+      now = await session.gameMinutes(page);
+    }
+    await deselect();
+    const read = await selectOne(WEAR_SPOTS.hut, "Tailor's hut");
+    now = await session.gameMinutes(page);
+    counts.push(`${clockText(now)} ${read?.rows?.Clothing}`);
+    if (!taken && clothingOf(read) < pieces) {
+      taken = { at: now, from: pieces, to: clothingOf(read), read };
+      await session.screenshot(page, 'wearing-hut-taken');
+    }
+    return null;
+  };
+  const panel = page.getByRole('region', { name: 'Selection' });
+  const overlap = (a, b) => a && b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const dusks = [];
+  let walker = null;
+  let fetched = null;
+  let layout = null;
+  while (!fetched && now < clockMinutes(WEAR_STOPS.lastWatch)) {
+    if (!walker) {
+      const change = await watchHut();
+      if (change.read?.title !== "Tailor's hut") break;
+      if (change.to > change.from) {
+        if (!piece) {
+          piece = { at: now, read: change.read };
+          await session.screenshot(page, 'wearing-hut-piece');
+        }
+        walker = await findWalker(change.to);
+      } else if (change.to < change.from && !taken) {
+        taken = { at: now, from: change.from, to: change.to, read: change.read };
+        await session.screenshot(page, 'wearing-hut-taken');
+      }
+      continue;
+    }
+    // A walker is selected: its panel stays open while it walks, at stops 2 game minutes apart.
+    if (!layout) {
+      const boxes = await uiBoxes(page);
+      layout = { boxes, fits: Boolean(boxes.selection && boxes.stockpiles) && !overlap(boxes.selection, boxes.stockpiles) && (await panel.evaluate((node) => node.scrollHeight <= node.clientHeight)) };
+    }
+    await session.screenshot(page, 'wearing-walking');
+    const stops = [];
+    const widths = [(await panel.boundingBox())?.width ?? 0];
+    let after = null;
+    let last = walker.read;
+    let night = null;
+    while (now < walker.at + WEAR_WALK_MINUTES) {
+      await session.reach(page, clockAt(now + WEAR_STEP));
+      now = await session.gameMinutes(page);
+      const read = await reads(page);
+      stops.push(`${clockText(now)} ${read?.rows?.Doing} / ${read?.rows?.['Cold nights']}`);
+      if (read?.title !== walker.name) break;
+      if (wears(read)) {
+        after = { read, at: now };
+        break;
+      }
+      if (WEAR_NIGHT.test(read.rows.Doing)) {
+        night = { read, at: now };
+        break;
+      }
+      last = read;
+      widths.push((await panel.boundingBox())?.width ?? 0);
+    }
+    if (after) {
+      widths.push((await panel.boundingBox())?.width ?? 0);
+      await session.screenshot(page, 'wearing-worn');
+      fetched = { walker, after, last, stops, widths, to: play.since() + WEAR_MARGIN };
+      break;
+    }
+    if (!night) break;
+    // The dusk ends the walk and frees the piece, which nobody takes by night. The night passes in long steps with the hut's panel open, until its tailor is out again.
+    await session.screenshot(page, 'wearing-dusk-walk');
+    await deselect();
+    const hutRead = await selectOne(WEAR_SPOTS.hut, "Tailor's hut");
+    const nightAt = await session.gameMinutes(page);
+    counts.push(`${clockText(nightAt)} ${hutRead?.rows?.Clothing}`);
+    let dawn = hutRead;
+    while (WEAR_NIGHT.test(dawn?.rows?.Doing ?? '')) {
+      await session.reach(page, clockAt(now + WEAR_NIGHT_STEP));
+      now = await session.gameMinutes(page);
+      dawn = await reads(page);
+    }
+    now = await session.gameMinutes(page);
+    counts.push(`${clockText(now)} ${dawn?.rows?.Clothing}`);
+    dusks.push({ walker, night, hut: hutRead, at: nightAt, stops });
+    walker = clothingOf(dawn) > 0 ? await findWalker(clothingOf(dawn)) : null;
+    dusks.at(-1).next = walker?.name ?? null;
+  }
+  for (const dusk of dusks) {
+    session.check(
+      `the dusk falls on ${dusk.walker.name}'s walk to the hut: it gives the walk up for the camp, and the piece waits in the hut through the night`,
+      !wears(dusk.night.read) && clothingOf(dusk.hut) >= 1,
+      `at ${clockText(dusk.night.at)} the panel reads "${text(dusk.night.read)}"; at ${clockText(dusk.at)}, in the night, the hut reads "${dusk.hut?.rows?.Clothing}", and the first settler found on its way for it the next morning is ${dusk.next ?? 'none'}`,
+    );
+  }
+  if (!fetched) fail(`no settler put a piece on by ${clockText(now)}: ${counts.join('; ')}`);
+  const { after, last, stops, widths } = fetched;
+  walker = fetched.walker;
+  const before = walker.read;
+  session.check(
+    `at ${clockText(walker.at)} ${walker.name}, selected by a click, walks to the tailor's hut for a piece, carries nothing, and wears no clothing`,
+    before.rows.Doing === WEAR_WALK && before.rows.Carries === 'Nothing' && !wears(before),
+    `the panel reads "${text(before)}"`,
+  );
+  const { boxes } = layout;
+  session.check(
+    `at ${CLIP.width}x${CLIP.height} the settler's panel, with its clothing beside its cold nights, keeps clear of the Stockpiles panel and shows every row`,
+    layout.fits,
+    `the settler's panel is ${boxes.selection?.width.toFixed(0)}x${boxes.selection?.height.toFixed(0)} from y ${boxes.selection?.y.toFixed(0)}, the Stockpiles panel ${boxes.stockpiles?.width.toFixed(0)}x${boxes.stockpiles?.height.toFixed(0)} from y ${boxes.stockpiles?.y.toFixed(0)}, ending at y ${boxes.stockpiles ? (boxes.stockpiles.y + boxes.stockpiles.height).toFixed(0) : 'missing'}`,
+  );
+  session.check(
+    `${walker.name} walks to the hut's door, puts the piece on there, and its panel reads that it wears clothing and carries nothing`,
+    last.rows.Doing === WEAR_WALK && after.read.rows.Carries === 'Nothing' && after.read.rows.Doing !== WEAR_WALK,
+    `at ${clockText(after.at)} the panel reads "${text(after.read)}"; the stops: ${stops.join('; ')}`,
+  );
+  session.check('the panel keeps its width through the walk', widths.every((value) => Math.abs(value - widths[0]) < 1), `widths ${widths.map((value) => value.toFixed(1)).join(', ')} px`);
+  const fetchFrom = walker.from;
+  const fetchTo = fetched.to;
+  await deselect();
+  const hutAfter = await selectOne(WEAR_SPOTS.hut, "Tailor's hut");
+  session.check(
+    `at ${await at(page)} the tailor's hut's panel reads one piece fewer than when ${walker.name} set out for it`,
+    clothingOf(hutAfter) === walker.pieces - 1,
+    `${walker.pieces} of 8 at ${clockText(walker.at)}, then "${text(hutAfter)}"`,
+  );
+  if (!taken && clothingOf(hutAfter) === walker.pieces - 1) taken = { at: await session.gameMinutes(page), from: walker.pieces, to: clothingOf(hutAfter), read: hutAfter };
+  session.check(
+    "with the tailor's hut's panel open, the hut reads a piece as the tailor makes it, and one fewer when a settler takes it",
+    piece !== null && taken !== null && taken.to === taken.from - 1 && taken.at > piece.at,
+    `the hut's clothing at each change: ${counts.join('; ')}${tailor ? `; its tailor is ${tailor}` : ''}`,
+  );
+  await deselect();
+
+  await session.reach(page, WEAR_STOPS.noon);
+  await session.still(page);
+  const noon = await settlersIn('wearing-pair', () => false, 24);
+  const clothed = new Set([...noon.found].filter(([, { read }]) => wears(read)).map(([name]) => name));
+  const bare = [...noon.found].filter(([, { read }]) => !wears(read));
+  const dressed = [...noon.found].filter(([name]) => clothed.has(name));
+  session.check(
+    `at ${await at(page)} a click finds a settler who wears clothing and one who wears none in the same paused frame, at the near view`,
+    dressed.length > 0 && bare.length > 0,
+    [...noon.found].map(([name, { read, spot }]) => `${name} at (${spot.x}, ${spot.y}): ${read.rows['Cold nights']}`).join('; ') || 'no settler found',
+  );
+  await deselect();
+
+  await session.reach(page, WEAR_STOPS.before);
+  const duskFrom = play.since();
+  const campBefore = await selectOne(WEAR_SPOTS.camp, 'Camp');
+  await session.screenshot(page, 'wearing-before-dusk');
+  await deselect();
+  const heard = new Set();
+  const listen = async () => {
+    for (const line of await lines(page)) heard.add(line);
+  };
+  await page.keyboard.press('1');
+  while ((await session.gameMinutes(page)) < clockMinutes(WEAR_STOPS.after) - COLD_WATCH_UNTIL) {
+    await listen();
+    await page.waitForTimeout(250);
+  }
+  await session.reach(page, WEAR_STOPS.after);
+  await listen();
+  await session.screenshot(page, 'wearing-news');
+  const shown = await lines(page);
+  const duskTo = play.since() + WEAR_MARGIN;
+  const campAfter = await selectOne(WEAR_SPOTS.camp, 'Camp');
+  await deselect();
+  session.check(
+    `at ${await at(page)} the camp's fire has burnt 4 firewood on the first winter night`,
+    firewoodOf(campBefore) >= 4 && firewoodOf(campAfter) === firewoodOf(campBefore) - 4,
+    `the camp's panel read "${text(campBefore)}" at 17:00 and "${text(campAfter)}" at 18:30`,
+  );
+  const cold = [
+    ...new Set(
+      [...heard].flatMap((line) => {
+        const read = /^Day 10, \d\d:\d\d\. (.+) had a cold night\.$/.exec(line);
+        return read ? namesIn(read[1]) : [];
+      }),
+    ),
+  ];
+  // A line shows for 30 s of wall time, so the check reads every text the line took while the scenario listened, and the stop at 18:30 only says whether it still shows.
+  const told = [...heard].filter((line) => /^Day 10, \d\d:\d\d\. .+ had a cold night\.$/.test(line)).at(-1) ?? null;
+  const stillShown = shown.includes(told);
+
+  const morning = new Map();
+  for (const stop of WEAR_STOPS.morning) {
+    await session.reach(page, stop);
+    await session.still(page);
+    const { found } = await settlersIn(`wearing-morning-${stop.time.replace(':', '')}`, () => false, 24);
+    for (const [name, value] of found) if (!morning.has(name)) morning.set(name, value.read);
+    await deselect();
+    if (morning.size >= 8) break;
+  }
+  // Clothing never comes off, so a settler that wore it at noon wore it at the dusk, and one without it on the morning after had none at the dusk.
+  const unclothed = [...morning].filter(([, read]) => !wears(read)).map(([name]) => name);
+  const bareAt = new Set([...bare.map(([name]) => name), ...unclothed]);
+  session.check(
+    'the news of the first winter dusk at the camp names the settlers without clothing as having had a cold night, and none of those who wear clothing',
+    told !== null && cold.length > 0 && cold.every((name) => !clothed.has(name) && bareAt.has(name)) && unclothed.every((name) => cold.includes(name)),
+    `the last text of the day 10 line: "${told ?? 'none'}", ${stillShown ? 'still' : 'no longer'} shown at ${clockText(clockMinutes(WEAR_STOPS.after))}; cold ${cold.join(', ') || 'nobody'}; wore clothing at noon of day 10 ${[...clothed].join(', ') || 'nobody'}; without clothing at noon of day 10 or on the morning after ${[...bareAt].join(', ') || 'nobody'}`,
+  );
+  const known = [...morning].filter(([name, read]) => clothed.has(name) || !wears(read));
+  session.check(
+    'on the morning after, each settler that wore clothing at the dusk reads no cold night, and each without reads 1 cold night',
+    known.some(([name]) => clothed.has(name)) && known.some(([name]) => !clothed.has(name)) && known.every(([name, read]) => nightsOf(read) === (clothed.has(name) ? 'None' : '1, cold')),
+    `${[...morning].map(([name, read]) => `${name}: Cold nights ${read.rows['Cold nights']}${clothed.has(name) ? ' (wore it at noon)' : ''}`).join('; ') || 'no settler found'}; ${morning.size} of 8 settlers found`,
+  );
+
+  await session.finishClips(play.context, page, [
+    { label: 'wearing-fetch', from: Math.max(fetchFrom - WEAR_MARGIN, 0), to: fetchTo, ...WEAR_CLIPS.fetch },
+    { label: 'wearing-dusk', from: duskFrom, to: duskTo, ...WEAR_CLIPS.dusk },
+  ]);
   session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
