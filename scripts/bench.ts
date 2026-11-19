@@ -16,6 +16,7 @@ import { TileKind, type TileMap, tileAt, walkable } from '../src/sim/map';
 import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { Claim, MAX_SITES, SiteState } from '../src/sim/orders';
+import { type Readiness, readinessOf } from '../src/sim/readiness';
 import { BENCHMARK_POPULATION, type Population, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
@@ -281,6 +282,22 @@ interface Trips {
   length: number;
 }
 
+const READING_CALLS = 1000;
+
+/** What one read of the readiness reading costs, as a frame takes it, or null while it reads nothing. */
+function readingCost(sim: Sim): { median: number; max: number; of: Readiness } | null {
+  const of = readinessOf(sim);
+  if (!of) return null;
+  const times = new Float64Array(READING_CALLS);
+  for (let call = 0; call < READING_CALLS; call++) {
+    const start = performance.now();
+    readinessOf(sim);
+    times[call] = (performance.now() - start) * 1000;
+  }
+  times.sort();
+  return { median: quantile(times, 0.5), max: times[READING_CALLS - 1]!, of };
+}
+
 function measure(size: number, run: string): boolean {
   const winter = run === 'winter';
   const population = winter ? { ...BENCHMARK_POPULATION, campFood: WINTER.campFood } : BENCHMARK_POPULATION;
@@ -341,6 +358,7 @@ function measure(size: number, run: string): boolean {
   const turnCount = { dusk: 0, dawn: 0 };
   let turn: 'dusk' | 'dawn' | undefined;
   let turnLeft = 0;
+  const reading = readingCost(sim);
   const heapBefore = fullGC();
   for (let tick = 0; tick < MEASURED_TICKS; tick++) {
     if (isDawn(sim.tick) || (isNight(sim.tick) && !isNight(sim.tick - 1))) {
@@ -437,6 +455,12 @@ function measure(size: number, run: string): boolean {
   for (const name of ['dusk', 'dawn'] as const) {
     const largest = Array.from(turns[name].subarray(0, turnCount[name]), ms).join(', ');
     console.log(`  largest tick in the ${TURN_TICKS} ticks from each ${winter && name === 'dusk' ? 'winter dusk' : name}: ${largest || 'no ' + name + ' in the measured ticks'}`);
+  }
+  if (reading) {
+    console.log(
+      `  the readiness reading, read once a published frame and never in a tick, at the first midnight of winter: median ${reading.median.toFixed(1)} µs, max ${reading.max.toFixed(1)} µs over ${READING_CALLS} reads; ` +
+        `${reading.of.settlers} settlers, ${reading.of.houses} houses, ${reading.of.cold} cold tonight`,
+    );
   }
   console.log(`  heap growth across the measured ticks, after a full collection at each end: ${heapGrowth} bytes`);
   console.log(`  p99 against the ${LIMIT_MS} ms limit: ${p99 < LIMIT_MS ? 'PASS' : 'FAIL'}, ${((p99 / BUDGET_AT_8X_MS) * 100).toFixed(1)}% of the ${BUDGET_AT_8X_MS} ms tick at 8x`);

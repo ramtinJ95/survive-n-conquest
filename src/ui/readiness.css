@@ -1,0 +1,39 @@
+/* The Stockpiles panel's style. Below the order status line and left of the toolbar, clear of the clock, the selection panel, the news, and the camera hint at 960 by 540 and larger. */
+.readiness {
+  position: fixed;
+  top: 108px;
+  right: calc(2 * var(--edge-gap) + 144px);
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  color: var(--ink);
+  font: 13px/1.4 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.readiness[hidden] {
+  display: none;
+}
+
+.readiness-title {
+  margin: 0 0 2px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.readiness dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 16px;
+  margin: 0;
+}
+
+.readiness dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
