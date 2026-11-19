@@ -1,7 +1,7 @@
-/* Bottom right, above the height of the camera-controls hint, clear of the clock, the stockpiles, and the selection panel. */
+/* Bottom right, left of the toolbar as the winter readiness reading is, and above the height of the camera-controls hint, clear of the toolbar, the reading, the clock, the stockpiles, and the selection panel. */
 .news {
   position: fixed;
-  right: var(--edge-gap);
+  right: calc(2 * var(--edge-gap) + 144px);
   bottom: calc(var(--edge-gap) + 44px);
   width: max-content;
   max-width: min(300px, calc(100% - 2 * var(--edge-gap)));

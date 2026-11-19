@@ -54,7 +54,7 @@ const EVENTS: readonly NewsEvent[] = [
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
 export const LINE_MS = 30_000;
 /** At most this many lines show. A later line waits until one of them has shown for `LINE_MS`. */
-export const MOST_LINES = 5;
+export const MOST_LINES = 4;
 /** Events of a kind within this many ticks of a line's first join that line, as the settlers who reach the camp over a dusk. */
 const JOIN_TICKS = TICKS_PER_DAY / 24;
 /** A line names this many settlers at most and counts the rest. */
@@ -80,11 +80,18 @@ export function listNames(names: readonly string[]): string {
   return `${shown.join(', ')} and ${last}`;
 }
 
-function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
-  const { day, minuteOfDay } = dateAt(line.tick);
-  const names = line.ids.map((id) => nameOf(frame.sexes[id] as Sex, frame.names[id]!));
-  const { verb } = EVENTS.find(({ kind }) => kind === line.kind)!;
+/** Every kind of line the news can show. */
+export const NEWS_KINDS: readonly string[] = EVENTS.map(({ kind }) => kind);
+
+/** The words of a line of `kind` whose first event came at `tick`, naming the settlers in `names`. */
+export function lineWords(kind: string, tick: number, names: readonly string[]): string {
+  const { day, minuteOfDay } = dateAt(tick);
+  const { verb } = EVENTS.find((event) => event.kind === kind)!;
   return `Day ${day}, ${formatTime(minuteOfDay)}. ${listNames(names)} ${verb(names.length)}.`;
+}
+
+function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
+  return lineWords(line.kind, line.tick, line.ids.map((id) => nameOf(frame.sexes[id] as Sex, frame.names[id]!)));
 }
 
 /**

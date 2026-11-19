@@ -83,6 +83,8 @@ Drive the game through the page, as a player does: viewport changes, pointer, an
 
 A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` takes a seed, a view in the pixels of a wheel, a right drag, and a pan, and the tiles, and prints the pixel of each tile's center at that view on a 960 by 540 page and the tile the game's picker takes there. It runs the game's camera rig and picker under `bun`, outside the page, to find where to click. The scenario still clicks through the page.
 
+`scripts/newsLines.ts` prints the names a settler can have and the most lines the news log shows, and, given the widest names and a day, one line of every kind the news writes, from the game's own news module under `bun`. `readiness` measures those lines in a copy of the log and fills the log with the longest.
+
 ## Evidence
 
 Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git ignores. The folder holds the screenshots, the GIF clips, and `result.json` with the scenario, the URL, the build revision, the browser version, every check with its detail, and the captured files.
