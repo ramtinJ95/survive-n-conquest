@@ -3811,6 +3811,7 @@ SCENARIOS.foraging = async (session) => {
   const fewerJobs = await jobs(page);
   const freed = hired.find((name) => !named(fewer?.rows?.Foragers).includes(name));
   const fewerNews = await lines(page);
+  await session.screenshot(page, 'foraging-news');
   session.check(
     'Fewer places frees the forager that came last and leaves one place filled',
     fewer?.rows?.Places === '1 of 2' && named(fewer.rows.Foragers).length === 1 && named(fewer.rows.Foragers)[0] === hired[0] && fewerJobs.withJob === 1 && fewerJobs.withoutJob === 7,
@@ -6269,6 +6270,12 @@ const HIDES_YEAR_TAILOR = ['KeyT', { x: 517, y: 253 }];
 
 /** The longest line the news can show, all 8 settlers named in one, as 5 lines of it fill the log. */
 const READY_LONGEST_NEWS = 'Day 12, 17:56. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella had a cold night.';
+/** The news log as one short line, as 5 of them, and as its 5 longest lines, its smallest, its narrow fullest, and its largest box. */
+const READY_NEWS_FILLS = [
+  { name: '1 short line', line: 'Day 10, 17:28. Nella had a cold night.', count: 1 },
+  { name: '5 short lines', line: 'Day 10, 17:28. Nella had a cold night.', count: 5 },
+  { name: '5 longest lines', line: READY_LONGEST_NEWS, count: 5 },
+];
 /**
  * The second house's anchor, (121, 127), in the near view after `COLD_NEAR_PAN`, placed from there so the camera
  * does not move: a drag back to the order view does not land on the same pixel, and its click once hit the woodshed.
@@ -6460,6 +6467,20 @@ SCENARIOS.readiness = async (session) => {
     `the panel reads "${text(morning)}"`,
   );
 
+  // The news lines last 30 s of wall time, so a full log is a copy of the log that holds the lines of a fill. It stays on the page until the next copy, or `null`, replaces it.
+  const newsCopy = (fill) =>
+    page.getByRole('log', { name: 'Settlement news', includeHidden: true }).evaluate((node, fill) => {
+      document.querySelector('[data-news-copy]')?.remove();
+      if (!fill) return null;
+      const copy = node.cloneNode(false);
+      copy.removeAttribute('aria-label');
+      copy.dataset.newsCopy = '';
+      copy.hidden = false;
+      for (let count = 0; count < fill.count; count++) copy.append(Object.assign(document.createElement('p'), { textContent: fill.line }));
+      node.after(copy);
+      const { x, y, width, height } = copy.getBoundingClientRect();
+      return { x, y, width, height };
+    }, fill);
   const layouts = [];
   for (const size of READY_SIZES) {
     await page.setViewportSize(size);
@@ -6476,29 +6497,36 @@ SCENARIOS.readiness = async (session) => {
     await said(page, /Drag over open ground/);
     boxes.status = await page.getByRole('status', { name: 'Order' }).boundingBox();
     await page.keyboard.press('Escape');
-    // The news lines last 30 s of wall time, so the fullest log is a copy that holds its most lines at their longest.
-    boxes.news = await page.getByRole('log', { name: 'Settlement news', includeHidden: true }).evaluate((node, line) => {
-      const copy = node.cloneNode(false);
-      copy.removeAttribute('aria-label');
-      copy.hidden = false;
-      for (let count = 0; count < 5; count++) copy.append(Object.assign(document.createElement('p'), { textContent: line }));
-      node.after(copy);
-      const { x, y, width, height } = copy.getBoundingClientRect();
-      copy.remove();
-      return { x, y, width, height };
-    }, READY_LONGEST_NEWS);
+    const liveNews = boxes.news;
+    boxes.news = await newsCopy(READY_NEWS_FILLS.at(-1));
     const { readiness, selection, ...rest } = boxes;
     const others = { ...rest, tallestSelection: tallest, selection };
     const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
-    const inside = readiness && readiness.x >= 0 && readiness.y >= 0 && readiness.x + readiness.width <= size.width && readiness.y + readiness.height <= size.height;
+    const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height;
     const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
-    const ok = Boolean(inside) && Object.values(others).every((box) => !box || disjoint(readiness, box));
+    const ok = Boolean(inside(readiness)) && Object.values(others).every((box) => !box || disjoint(readiness, box));
     const detail = [`readiness ${describe(readiness)}`, ...Object.entries(others).map(([name, box]) => `${name} ${describe(box)}`)].join('; ');
     layouts.push(detail);
     session.check(
       `at ${size.width}x${size.height} the reading, with its camp fire row, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the house's panel, the news log with its 5 longest lines, and the tallest selection panel the page allows`,
       ok,
       detail,
+    );
+
+    const { news: _fullest, ...panels } = boxes;
+    const fills = [];
+    for (const fill of READY_NEWS_FILLS) fills.push({ ...fill, box: await newsCopy(fill) });
+    await session.screenshot(page, `readiness-news-${size.width}x${size.height}`);
+    await newsCopy(null);
+    const covered = (box) => Object.entries({ ...panels, tallestSelection: tallest }).filter(([, other]) => other && !disjoint(box, other)).map(([name]) => name);
+    session.check(
+      `at ${size.width}x${size.height} the news, with 1 short line, with 5, and with its 5 longest lines, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the reading, the house's panel, and the tallest selection panel the page allows`,
+      fills.every(({ box }) => inside(box) && covered(box).length === 0),
+      [
+        ...fills.map(({ name, box }) => `news with ${name} ${describe(box)}${inside(box) ? '' : ', outside the page'}${covered(box).length ? `, covers ${covered(box).join(', ')}` : ''}`),
+        `live news ${describe(liveNews)}`,
+        ...Object.entries({ ...panels, tallestSelection: tallest }).map(([name, box]) => `${name} ${describe(box)}`),
+      ].join('; '),
     );
   }
   await page.setViewportSize(CLIP);
