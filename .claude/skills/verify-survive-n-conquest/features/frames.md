@@ -20,7 +20,7 @@ Preconditions:
 - The machine has a GPU that Chromium can draw on. `launchGpuBrowser` tries headless Chromium first and a window second, and fails when both draw on the CPU, as in a pylon.
 - The browser runs with no cap on its frame rate, and without the frame pacer of the other scenarios.
 
-- **Time the settlement.** The page opens on seed 7 at 960 by 540, makes the marks and places the house of the `building` scenario, and runs at 8× until the site holds some but not all of each good. It then runs at 1× and takes `FRAME_SAMPLES.count` samples of `FRAME_SAMPLES.ms` each.
+- **Time the settlement.** The page opens on seed 7 at 960 by 540, makes the marks and places the house of the `building` scenario, and steps the paused clock 5 game minutes at a time, as `building` does, until the site holds some but not all of each good. It then runs at 1× and takes `FRAME_SAMPLES.count` samples of `FRAME_SAMPLES.ms` each.
   - `the settlement at work: frames are drawn and timed` prints the median and the range of the work of a frame in milliseconds and of the frames a second, and the draw calls and the triangles of a frame.
 - **Time the swarm.** A second page opens with `?swarm=on`, takes `BUILD_VIEW`, and is sampled the same way.
   - `the swarm: frames are drawn and timed` prints the same numbers.
