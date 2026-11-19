@@ -6113,7 +6113,7 @@ const READY_STOPS = {
  * stands: with the orders at 08:32 the lodge is not finished by 12:00 on day 3. In `src/sim` runs with the orders at
  * 08:27 to 08:34, the reading at 07:30 on day 7 is 0 of 4 households in a house, 0 of 0 houses, 8 cold tonight, and
  * the camp's fire out with 0 of 4 firewood in each, and 0 of 8 settlers in clothing in four runs and 1 of 8 in the
- * run at 08:30, whose tailor made its first piece before dawn. The check takes either. Every pixel comes from `scripts/aim.ts`:
+ * run at 08:30, whose tailor made its first piece before dawn. With the orders at tick 0 the page reads 0 of 8. Every pixel comes from `scripts/aim.ts`:
  * `bun .claude/skills/verify-survive-n-conquest/scripts/aim.ts 7 '{"wheel":-450,"turn":{"x":0,"y":0},"target":[125,128]}' '<the year's tiles>'`,
  * and each picks its own tile.
  */
@@ -6470,9 +6470,9 @@ SCENARIOS.readiness = async (session) => {
   });
   await session.screenshot(yearPage, 'readiness-wood-and-hides-autumn');
   session.check(
-    `at ${clockText(await session.gameMinutes(yearPage))} on the first day of autumn in the year "wood and hides", the reading shows no household housed, no house, at most the tailor's first piece worn, all 8 cold, and the camp's fire out`,
+    `at ${clockText(await session.gameMinutes(yearPage))} on the first day of autumn in the year "wood and hides", the reading shows no household housed, no house, nobody in clothing, all 8 cold, and the camp's fire out`,
     yearRead.shown && yearRead.rows['Households in a house'] === '0 of 4' && yearRead.rows['Houses with firewood'] === '0 of 0' &&
-      /^[01] of 8$/.test(yearRead.rows['Settlers in clothing'] ?? '') && yearRead.rows['Cold tonight'] === '8' && yearRead.rows['Camp fire'] === 'Out, 0 of 4 firewood',
+      yearRead.rows['Settlers in clothing'] === '0 of 8' && yearRead.rows['Cold tonight'] === '8' && yearRead.rows['Camp fire'] === 'Out, 0 of 4 firewood',
     readingText(yearRead),
   );
   await year.context.close();
