@@ -1,4 +1,5 @@
 import { Good } from './sim/goods';
+import { type Readiness, readinessOf } from './sim/readiness';
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import type { Sim, Speed } from './sim/sim';
 import { takeTileChanges } from './sim/tileChanges';
@@ -63,6 +64,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly storeClothing: Uint16Array;
   /** 1 for each store whose fire burns tonight, by store id. */
   readonly fires: Uint8Array;
+  /** 1 for each store whose fire burned in the night that ended at the last dawn, by store id. */
+  readonly firesLastNight: Uint8Array;
+  /** How ready the settlement is for the cold nights still to come, or null while none is. */
+  readonly readiness: Readiness | null;
   /** One `Stop` per site slot: what the worker of the workshop there does, or why it stopped, as its last look for work found. */
   readonly workshopStops: Uint8Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
@@ -120,6 +125,8 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     storeFirewood: sim.stores.held[Good.Firewood - 1]!.slice(),
     storeClothing: sim.stores.held[Good.Clothing - 1]!.slice(),
     fires: sim.stores.burning.slice(),
+    firesLastNight: sim.stores.burnedLastNight.slice(),
+    readiness: readinessOf(sim),
     workshopStops: sim.workshops.stopped.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
@@ -151,6 +158,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.storeFirewood,
     frame.storeClothing,
     frame.fires,
+    frame.firesLastNight,
     frame.workshopStops,
     frame.tiles,
     frame.orders.claims,

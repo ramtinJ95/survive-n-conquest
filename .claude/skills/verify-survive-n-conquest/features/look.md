@@ -29,7 +29,7 @@ Preconditions:
 - `$V doctor` passes, or you use `$V run look`, which runs doctor itself. Doctor fails without `game-assets/public/models.glb`.
 - The page opens on seed 7 at 960 by 540 with the settlers and `clock: 'paused'`, and records video.
 
-- **Build the settlement.** The page makes the marks and places the house of the `building` scenario, from the same views and at the same stops. It then drags the land up by `LOOK_PAN`, so that the near view holds the camp below the house.
+- **Build the settlement.** The page makes the marks and places the house of the `building` scenario, from the same views and at the same stops. It then drags the land up by `LOOK_PAN` and west by `LOOK_SHIFT`, so that the near view holds the camp below the house and both stand west of the winter readiness panel, which shows from the first day of autumn.
   - `the game draws the models, not stand-in shapes` needs no `.models-notice` on the page.
 - **Watch the site.** It steps the paused clock 5 game minutes at a time, as `building` does, and takes `look-site-supplied.png` at the first stop where the label shows some but not all of each good. It scrolls in to the nearest view and out by `LOOK_NEAR_WHEEL` to the near view of 22 meters for `look-site-supplied-near.png`, and scrolls back by `LOOK_BACK_WHEEL`. It takes `look-site-half-built.png` at the first stop where the bar reads 50% or more, and `look-house-finished.png` at the first stop without the label.
 - **Watch the dusk.** It reaches 18:45, then `reach(page, { day: 1, time: '19:40' }, { speed: '1' })` runs the clock at 1× to 19:40 and pauses it there. `look-dusk.gif` is that stretch, cropped to `LOOK_CLIP`.

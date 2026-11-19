@@ -65,12 +65,18 @@ export function clothed(sim: Sim, id: number): boolean {
 /**
  * The sources of warmth the villager has tonight: it sleeps in a house, a fire
  * burns where it sleeps, and it wears clothing. `store` is where it sleeps,
- * its house or the camp, or -1 for one that never got home.
+ * its house or the camp, or -1 for one that never got home. `fire` says
+ * whether that store's fire burns.
  */
-export function warmth(sim: Sim, id: number, store: number): number {
+export function warmth(sim: Sim, id: number, store: number, fire: boolean): number {
   const house = store >= 0 && store !== CAMP_STORE;
-  const fire = store >= 0 && sim.stores.burning[store] === 1;
-  return Number(house) + Number(fire) + Number(clothed(sim, id));
+  return Number(house) + Number(store >= 0 && fire) + Number(clothed(sim, id));
+}
+
+/** Whether the store's fire would light now: it has a fire, and holds the firewood that fire burns. */
+export function fireLights(sim: Sim, store: number): boolean {
+  const burns = fireOf(sim.orders, store);
+  return burns > 0 && free(sim.stores, store, Good.Firewood) >= burns;
 }
 
 /**
@@ -80,8 +86,8 @@ export function warmth(sim: Sim, id: number, store: number): number {
  */
 export function lightFire(sim: Sim, store: number): void {
   const { stores } = sim;
+  if (stores.burning[store] === 1 || !fireLights(sim, store)) return;
   const burns = fireOf(sim.orders, store);
-  if (burns === 0 || stores.burning[store] === 1 || free(stores, store, Good.Firewood) < burns) return;
   stores.held[Good.Firewood - 1]![store]! -= burns;
   stores.burning[store] = 1;
   sim.tally.fires += 1;

@@ -15,6 +15,7 @@ import { showControlsHint } from './ui/controlsHint';
 import { mountDiedOut } from './ui/diedOut';
 import { mountNews } from './ui/news';
 import { mountOrders } from './ui/orders';
+import { mountReadiness } from './ui/readiness';
 import { mountSelection } from './ui/selection';
 import { mountSiteLabels } from './ui/sites';
 import { mountStockpiles } from './ui/stockpiles';
@@ -89,6 +90,7 @@ const selection = mountSelection(document.body, {
   send: (command) => sim.postMessage(command satisfies ToSim),
 });
 const stockpiles = mountStockpiles(document.body, map, orders);
+const readiness = mountReadiness(document.body);
 const siteLabels = mountSiteLabels(document.body, map, orders, camera);
 const news = mountNews(document.body, orders);
 const diedOut = mountDiedOut(document.body);
@@ -103,6 +105,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   toolbar.heard(data);
   selection.heard(data);
   stockpiles.heard(data);
+  readiness.heard(data);
   siteLabels.heard(data);
   swarm.show(data);
   herds.show(data);
