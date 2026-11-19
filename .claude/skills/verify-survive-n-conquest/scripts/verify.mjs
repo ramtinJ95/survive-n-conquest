@@ -6268,14 +6268,12 @@ const HIDES_YEAR_ORDERS = [
 ];
 const HIDES_YEAR_TAILOR = ['KeyT', { x: 517, y: 253 }];
 
-/** The longest line the news can show, all 8 settlers named in one, as 5 lines of it fill the log. */
-const READY_LONGEST_NEWS = 'Day 12, 17:56. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella had a cold night.';
-/** The news log as one short line, as 5 of them, and as its 5 longest lines, its smallest, its narrow fullest, and its largest box. */
-const READY_NEWS_FILLS = [
-  { name: '1 short line', line: 'Day 10, 17:28. Nella had a cold night.', count: 1 },
-  { name: '5 short lines', line: 'Day 10, 17:28. Nella had a cold night.', count: 5 },
-  { name: '5 longest lines', line: READY_LONGEST_NEWS, count: 5 },
-];
+/** The news script, which writes every kind of line with the game's own words and names. */
+const NEWS_LINES = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/newsLines.ts');
+/** The day the longest line is dated, in the 84th year. Dated day 99999 it is a few pixels wider and takes as many rows. */
+const NEWS_LAST_DAY = 999;
+/** A short line, as the news of one settler's cold night gives. */
+const READY_SHORT_NEWS = 'Day 10, 17:28. Nella had a cold night.';
 /**
  * The second house's anchor, (121, 127), in the near view after `COLD_NEAR_PAN`, placed from there so the camera
  * does not move: a drag back to the order view does not land on the same pixel, and its click once hit the woodshed.
@@ -6467,6 +6465,42 @@ SCENARIOS.readiness = async (session) => {
     `the panel reads "${text(morning)}"`,
   );
 
+  // The longest line is the tallest, then the widest, of every kind of line naming the 8 widest names, measured in the log's own style.
+  const newsScript = (...args) => {
+    const run = spawnSync('bun', [NEWS_LINES, ...args], { cwd: ROOT, encoding: 'utf8' });
+    if (run.status !== 0) fail(`newsLines.ts failed: ${run.stderr}`);
+    return JSON.parse(run.stdout);
+  };
+  const { names, mostLines } = newsScript();
+  const measureInLog = (texts) =>
+    page.getByRole('log', { name: 'Settlement news', includeHidden: true }).evaluate((node, texts) => {
+      const copy = node.cloneNode(false);
+      copy.removeAttribute('aria-label');
+      copy.hidden = false;
+      node.after(copy);
+      const sizes = texts.map((text) => {
+        const line = Object.assign(document.createElement('p'), { textContent: text });
+        copy.replaceChildren(line);
+        const height = line.getBoundingClientRect().height;
+        line.style.whiteSpace = 'nowrap';
+        const width = line.scrollWidth;
+        return { text, height, width };
+      });
+      copy.remove();
+      return sizes;
+    }, texts);
+  const widest = (await measureInLog(names)).sort((a, b) => b.width - a.width).slice(0, 8).map(({ text }) => text);
+  const longest = (await measureInLog(newsScript(JSON.stringify(widest), String(NEWS_LAST_DAY)))).sort((a, b) => b.height - a.height || b.width - a.width)[0];
+  const newsFills = [
+    { name: '1 short line', line: READY_SHORT_NEWS, count: 1 },
+    { name: `${mostLines} short lines`, line: READY_SHORT_NEWS, count: mostLines },
+    { name: `${mostLines} longest lines`, line: longest.text, count: mostLines },
+  ];
+  session.check(
+    `the longest line the news can write is found among every kind of line, naming the 8 widest names on day ${NEWS_LAST_DAY}`,
+    widest.length === 8 && longest.height > 0,
+    `"${longest.text}", ${longest.height} px tall, ${longest.width} px wide on one row; the widest names ${widest.join(', ')}; the log shows ${mostLines} lines`,
+  );
   // The news lines last 30 s of wall time, so a full log is a copy of the log that holds the lines of a fill. It stays on the page until the next copy, or `null`, replaces it.
   const newsCopy = (fill) =>
     page.getByRole('log', { name: 'Settlement news', includeHidden: true }).evaluate((node, fill) => {
@@ -6498,7 +6532,7 @@ SCENARIOS.readiness = async (session) => {
     boxes.status = await page.getByRole('status', { name: 'Order' }).boundingBox();
     await page.keyboard.press('Escape');
     const liveNews = boxes.news;
-    boxes.news = await newsCopy(READY_NEWS_FILLS.at(-1));
+    boxes.news = await newsCopy(newsFills.at(-1));
     const { readiness, selection, ...rest } = boxes;
     const others = { ...rest, tallestSelection: tallest, selection };
     const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
@@ -6508,19 +6542,19 @@ SCENARIOS.readiness = async (session) => {
     const detail = [`readiness ${describe(readiness)}`, ...Object.entries(others).map(([name, box]) => `${name} ${describe(box)}`)].join('; ');
     layouts.push(detail);
     session.check(
-      `at ${size.width}x${size.height} the reading, with its camp fire row, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the house's panel, the news log with its 5 longest lines, and the tallest selection panel the page allows`,
+      `at ${size.width}x${size.height} the reading, with its camp fire row, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the house's panel, the news log with its ${mostLines} longest lines, and the tallest selection panel the page allows`,
       ok,
       detail,
     );
 
     const { news: _fullest, ...panels } = boxes;
     const fills = [];
-    for (const fill of READY_NEWS_FILLS) fills.push({ ...fill, box: await newsCopy(fill) });
+    for (const fill of newsFills) fills.push({ ...fill, box: await newsCopy(fill) });
     await session.screenshot(page, `readiness-news-${size.width}x${size.height}`);
     await newsCopy(null);
     const covered = (box) => Object.entries({ ...panels, tallestSelection: tallest }).filter(([, other]) => other && !disjoint(box, other)).map(([name]) => name);
     session.check(
-      `at ${size.width}x${size.height} the news, with 1 short line, with 5, and with its 5 longest lines, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the reading, the house's panel, and the tallest selection panel the page allows`,
+      `at ${size.width}x${size.height} the news, with 1 short line, with ${mostLines}, and with its ${mostLines} longest lines, keeps clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the reading, the house's panel, and the tallest selection panel the page allows`,
       fills.every(({ box }) => inside(box) && covered(box).length === 0),
       [
         ...fills.map(({ name, box }) => `news with ${name} ${describe(box)}${inside(box) ? '' : ', outside the page'}${covered(box).length ? `, covers ${covered(box).join(', ')}` : ''}`),

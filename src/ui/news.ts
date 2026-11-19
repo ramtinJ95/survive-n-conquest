@@ -80,11 +80,18 @@ export function listNames(names: readonly string[]): string {
   return `${shown.join(', ')} and ${last}`;
 }
 
-function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
-  const { day, minuteOfDay } = dateAt(line.tick);
-  const names = line.ids.map((id) => nameOf(frame.sexes[id] as Sex, frame.names[id]!));
-  const { verb } = EVENTS.find(({ kind }) => kind === line.kind)!;
+/** Every kind of line the news can show. */
+export const NEWS_KINDS: readonly string[] = EVENTS.map(({ kind }) => kind);
+
+/** The words of a line of `kind` whose first event came at `tick`, naming the settlers in `names`. */
+export function lineWords(kind: string, tick: number, names: readonly string[]): string {
+  const { day, minuteOfDay } = dateAt(tick);
+  const { verb } = EVENTS.find((event) => event.kind === kind)!;
   return `Day ${day}, ${formatTime(minuteOfDay)}. ${listNames(names)} ${verb(names.length)}.`;
+}
+
+function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
+  return lineWords(line.kind, line.tick, line.ids.map((id) => nameOf(frame.sexes[id] as Sex, frame.names[id]!)));
 }
 
 /**
