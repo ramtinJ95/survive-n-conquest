@@ -49,6 +49,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly coldNights: Uint8Array;
   /** The `Good` each villager's stocking task carries in id order, or `Good.None`. */
   readonly stockGoods: Uint8Array;
+  /** The `Good` each villager wears in id order, `Good.Clothing` or `Good.None`. */
+  readonly worn: Uint8Array;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -111,6 +113,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     missedMeals: villagers.missedMeals.slice(),
     coldNights: villagers.coldNights.slice(),
     stockGoods: villagers.stockGood.slice(),
+    worn: villagers.worn.slice(),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
@@ -142,6 +145,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.missedMeals,
     frame.coldNights,
     frame.stockGoods,
+    frame.worn,
     frame.storeFood,
     frame.storeInbound,
     frame.storeFirewood,

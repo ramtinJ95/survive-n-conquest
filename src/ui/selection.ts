@@ -35,6 +35,7 @@ import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { VillagerState } from '../sim/villagerState';
 import { Stop, WORKSHOP } from '../sim/workshops';
+import { WEARING } from '../sim/wearing';
 import type { SimFrame } from '../frame';
 import { BUILDING_WORDS, JOB_WORDS, capital, neededGoods } from './buildings';
 import { listNames } from './news';
@@ -66,6 +67,7 @@ export interface Facts {
     | 'missedMeals'
     | 'coldNights'
     | 'stockGoods'
+    | 'worn'
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
@@ -140,6 +142,7 @@ const FORAGE = task(FORAGING);
 const FETCH_KILL = task(FETCHING_KILL);
 const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
+const WEAR = task(WEARING);
 const WINTER = SEASONS.indexOf('Winter');
 
 const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
@@ -219,6 +222,7 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     if (frame.carried[id] === Good.None) return `Walking to ${from} for ${GOOD_NAMES[good]}`;
     return `Carrying ${GOOD_NAMES[good]} ${frame.destinations[id] === camp ? 'to the camp' : 'home'}`;
   },
+  [WEAR]: (_facts, _id, working) => (working ? 'Putting on clothing' : "Walking to the tailor's hut for clothing"),
   [FORAGE]: (facts, id, working) => {
     if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
     return working ? 'Foraging' : 'Walking to a tree to forage';
@@ -319,10 +323,12 @@ function missedMeals({ frame }: Facts, id: number): string {
   return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
 }
 
+/** A settler's cold nights, and beside them whether it wears clothing, which a dead settler's is gone with. */
 function coldNights({ frame }: Facts, id: number): string {
   const nights = frame.coldNights[id]!;
-  if (nights === 0) return 'None';
-  return frame.states[id] === VillagerState.Dead ? String(nights) : `${nights}, cold`;
+  if (frame.states[id] === VillagerState.Dead) return nights === 0 ? 'None' : String(nights);
+  const cold = nights === 0 ? 'None' : `${nights}, cold`;
+  return frame.worn[id] === Good.Clothing ? `${cold}, clothed` : cold;
 }
 
 const CARRIED_WORDS: Readonly<Record<Good, string>> = {
