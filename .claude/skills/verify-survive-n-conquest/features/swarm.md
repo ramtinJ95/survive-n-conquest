@@ -23,7 +23,7 @@ Preconditions:
 
 - `$V doctor` passes, or you use `$V run swarm`, which runs doctor itself.
 
-- **Watch the swarm at 8×.** Open the game with `?swarm=on` at 960 by 540 with recording on and `clock: 'running'`, press 4, wait 5 seconds, hold `X` for 1.2 seconds to zoom out, and wait 5 seconds more. `swarm-8x.gif` shows the units moving close up and then from farther away. The check `swarm-8x.gif stays under 8 MB` passes.
+- **Watch the swarm at 8×.** Open the game with `?swarm=on` at 960 by 540 with recording on and `clock: 'running'`, which starts the clock at 1× from 08:00, press 4, wait 5 seconds, hold `X` for 1.2 seconds to zoom out, and wait 5 seconds more. `swarm-8x.gif` shows the units moving close up and then from farther away. The check `swarm-8x.gif stays under 8 MB` passes.
 - **See both groups.** Open a fresh page with `?swarm=on` at 1280 by 720, which pauses the clock at noon, and wait with `still(page)`. `swarm-paused.png` shows the units. The check `villagers and monsters both show` counts the pixels of each unit color with `unitPixels` and needs 500 of each.
 - **Hold while paused.** Wait 2 seconds. The check `the swarm holds still while the clock is paused` compares `swarm-paused.png` with `swarm-paused-later.png`.
 - **Run for a day and pause again.** Run `reach(page, { day: 2, time: '12:00' })` and wait with `still(page)`. The check `the swarm moves while the clock runs` compares `swarm-paused.png` with `swarm-a-day-later.png` from the same camera. Both are at noon in spring, so the light is the same and only the units differ.
@@ -38,7 +38,7 @@ Preconditions:
 
 - `unitPixels` matches the saturated yellow of villagers and the deep red of monsters in `src/render/swarm.ts`. Update `UNIT_COLORS` in `verify.mjs` when those colors or the lighting change on purpose, and say so in the pull request.
 - The villagers start at the camp near the map center and spread out to the nearest marks, so most of the yellow is in the middle of the first view at noon on day 1. The monsters walk to the same camp.
-- Two page loads pause at different ticks, so their units stand in different places. Compare screenshots across page loads only with `swarm=off&deer=off`. Deer wander on a page with `swarm=off`, so a bare map with deer read a mean difference of 0.044 a day later at noon, against the limit of 0.02. Within one paused page the units hold still and `still(page)` returns.
+- Two page loads stopped at the same minute stand on the same tick, so their units stand in the same places. Units still move between two times of one page, so compare the light of two times only with `swarm=off&deer=off`. Deer wander on a page with `swarm=off`, so a bare map with deer read a mean difference of 0.044 a day later at noon, against the limit of 0.02. Within one paused page the units hold still and `still(page)` returns.
 - The frame rate in headless Chromium says nothing about the game with 4500 units. SwiftShader draws on the CPU. The tick time comes from `bun run bench`, and the frame rate comes from a real browser on the owner's machine.
 - The 8× clip runs about 12 seconds.
 - The light follows the clock, so two screenshots taken at different times of day differ even when no unit moved. Compare for movement only between two screenshots at the same time of day in the same season.
