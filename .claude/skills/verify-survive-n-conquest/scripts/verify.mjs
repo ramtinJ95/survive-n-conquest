@@ -4338,8 +4338,8 @@ const HUNT_BUILT = { every: 5, until: HUNT_FINISHED.before };
 const HUNT_WATCH_STEP = 2;
 const HUNT_UNTIL = { day: 2, time: '19:05' };
 const HUNTER_DOING = /^(Stalking a deer|Aiming at a deer|Walking to a kill to pick up food|Carrying food to (a barn|the camp)|Looking for deer|Idle, no deer within 40 tiles of the lodge|Idle, waiting for room in a store)$/;
-/** The view the follow keeps the hunter near, inside the clip's crop. */
-const HUNT_AIM_AT = { x: 500, y: 270 };
+/** The view the follow keeps the hunter near, inside the clip's crop and as far right of the 300 px selection panel as it was of the 256 px one. */
+const HUNT_AIM_AT = { x: 544, y: 270 };
 const HUNT_RECENTRE = 150;
 const HUNT_AT_BARN = 160;
 /** Game minutes the follow runs before it pauses to look where the hunter went. A hunter walks about 1.5 tiles a second. */
