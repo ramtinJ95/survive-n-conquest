@@ -10,6 +10,7 @@ import {
   DAYS_KEPT_AT_HOME,
   MEALS_PER_DAY,
   Wants,
+  free,
   limitOf,
   nearestCommonStore,
   nearestWorkshopWith,
@@ -52,11 +53,21 @@ const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.house
 /**
  * The store a unit of `good` for store `to` comes from, nearest the point
  * (`px`, `py`): a common store for food, which for the camp is a barn, and a
- * workshop for firewood. Returns -1 when none has a unit no carrier spoke for.
+ * workshop for firewood. A home also takes firewood from the camp while no
+ * household sleeps there, as nothing else would burn it: the nearer of the camp
+ * and the workshop, measured to the camp center and the workshop's middle, and
+ * the workshop when they are equally near. Returns -1 when none has a unit no carrier spoke for.
  */
 function sourceOf(sim: Sim, good: Unit, to: number, px: number, py: number): number {
-  if (good === Good.Firewood) return nearestWorkshopWith(sim, px, py, Good.Firewood);
-  return nearestCommonStore(sim, px, py, Wants.Unit, Good.Food, to === CAMP_STORE);
+  if (good !== Good.Firewood) return nearestCommonStore(sim, px, py, Wants.Unit, Good.Food, to === CAMP_STORE);
+  const workshop = nearestWorkshopWith(sim, px, py, Good.Firewood);
+  if (to === CAMP_STORE || sim.households.atCamp > 0 || free(sim.stores, CAMP_STORE, Good.Firewood) <= 0) return workshop;
+  if (workshop < 0) return CAMP_STORE;
+  const { size } = sim.map;
+  const camp = sim.flow.goal;
+  const toCamp = ((camp % size) + 0.5 - px) ** 2 + (Math.floor(camp / size) + 0.5 - py) ** 2;
+  const toWorkshop = (siteMidX(sim.orders.sites, workshop) - px) ** 2 + (siteMidY(sim.orders.sites, workshop) - py) ** 2;
+  return toCamp < toWorkshop ? CAMP_STORE : workshop;
 }
 
 /**
@@ -89,7 +100,7 @@ function fetchFor(sim: Sim, id: number, good: Unit, to: number, px: number, py: 
  * Sends a villager with empty hands to stock the first store that lacks a
  * unit it can fetch, most urgent first. Food for its household's home comes
  * from the common store nearest the home, then firewood for the home from the
- * woodshed nearest it. A villager without a job then keeps the camp stocked
+ * woodshed nearest it, or from the camp while nobody sleeps there and it is nearer. A villager without a job then keeps the camp stocked
  * for the households that sleep there: food from the barn nearest the camp,
  * then firewood from the woodshed nearest it. The house is the home of the
  * villager's household, which stays its home while a member lives.

@@ -234,7 +234,7 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   [STOCK]: (facts, id) => {
     const { frame, camp } = facts;
     const good = frame.stockGoods[id] as Good;
-    const from = good === Good.Firewood ? 'a woodshed' : storeAt(facts, frame.taskTiles[id]!);
+    const from = good === Good.Firewood && frame.taskTiles[id] !== camp ? 'a woodshed' : storeAt(facts, frame.taskTiles[id]!);
     if (frame.carried[id] === Good.None) return `Walking to ${from} for ${GOOD_NAMES[good]}`;
     return `Carrying ${GOOD_NAMES[good]} ${frame.destinations[id] === camp ? 'to the camp' : 'home'}`;
   },
