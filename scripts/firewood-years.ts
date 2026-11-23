@@ -61,12 +61,11 @@ export const at = (day: number, time: string): When => {
   return { label: clock(tick), ready: (sim) => sim.tick >= tick };
 };
 export const whenBuilt = (name: string, x: number, y: number): When => ({ label: `when the ${name} on (${x}, ${y}) stands`, ready: (sim) => isBuilt(sim, x, y) });
-/** Firewood split since the start, as the woodsheds' batches give it. */
-export function firewoodSplit(sim: Sim): number {
-  let firewood = 0;
-  for (let store = 0; store <= CAMP_STORE; store++) firewood += sim.stores.held[Good.Firewood - 1]![store]!;
-  for (let id = 0; id < sim.villagers.state.length; id++) if (sim.villagers.carried[id] === Good.Firewood) firewood += 1;
-  return firewood + sim.tally.burnt;
+/** Firewood split since the start, from the batches workshops finished: each batch is a split or a piece of clothing. */
+export function firewoodSplit({ tally }: Sim): number {
+  const split = BUILDINGS[Building.Woodshed].recipe!;
+  const sew = BUILDINGS[Building.Tailor].recipe!;
+  return ((tally.made - sew.outputs * tally.batches) / (split.outputs - sew.outputs)) * split.outputs;
 }
 export const whenSplit = (firewood: number): When => ({ label: `when ${firewood} firewood is split`, ready: (sim) => firewoodSplit(sim) >= firewood });
 /** Every site that needs logs holds all of them, which a player reads in each site's panel. */
