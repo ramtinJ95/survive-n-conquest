@@ -1,4 +1,4 @@
-import { BUILDINGS, Building } from '../sim/buildings';
+import { BUILDINGS, Building, needOf } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { type Sex, nameOf } from '../sim/names';
@@ -31,10 +31,19 @@ const WORKPLACES = (Object.values(Building) as Building[]).filter((building) => 
 /** The kinds of workshop, each with its own line at dusk for a worker that did none of its work that day for lack of its input. */
 const WORKSHOPS = (Object.values(Building) as Building[]).filter((building) => BUILDINGS[building].recipe !== null);
 
-/** What a workshop's worker made none of, and why, for each reason a lack of input stops it. */
+/**
+ * What a workshop's worker made none of, and why, for each reason a lack of input stops it, kept short enough that
+ * a line naming eight settlers and counting 1,493 more takes no more rows than the longest line before them.
+ */
 const IDLE_DAY_WORDS: Readonly<Partial<Record<Building, { readonly none: string; readonly [Stop.NoInput]: string; readonly [Stop.ForSites]: string }>>> = {
-  [Building.Woodshed]: { none: 'split no firewood today', [Stop.NoInput]: 'no stockpile in reach held a log', [Stop.ForSites]: 'the building sites needed the logs' },
-  [Building.Tailor]: { none: 'made no clothing today', [Stop.NoInput]: 'no stockpile in reach held a hide', [Stop.ForSites]: 'the building sites needed the hides' },
+  [Building.Woodshed]: { none: 'split no firewood', [Stop.NoInput]: 'no log in reach', [Stop.ForSites]: 'sites need the logs' },
+  [Building.Tailor]: { none: 'made no clothing', [Stop.NoInput]: 'no hide in reach', [Stop.ForSites]: 'sites need the hides' },
+};
+
+/** The reasons a lack of input can stop a workshop's worker: the sites only for an input some kind of building needs. */
+const idleReasons = (building: Building): readonly (typeof Stop.ForSites | typeof Stop.NoInput)[] => {
+  const input = BUILDINGS[building].recipe!.input;
+  return Object.values(BUILDINGS).some((kind) => needOf(kind, input) > 0) ? [Stop.ForSites, Stop.NoInput] : [Stop.NoInput];
 };
 
 /** Whether the night began between the two frames, so the day's work is over. */
@@ -64,7 +73,7 @@ const EVENTS: readonly NewsEvent[] = [
     ];
   }),
   ...WORKSHOPS.flatMap((building) =>
-    ([Stop.ForSites, Stop.NoInput] as const).map((stop): NewsEvent => {
+    idleReasons(building).map((stop): NewsEvent => {
       const words = IDLE_DAY_WORDS[building]!;
       return {
         kind: `no work at ${BUILDING_WORDS[building].noun}, ${words[stop]}`,

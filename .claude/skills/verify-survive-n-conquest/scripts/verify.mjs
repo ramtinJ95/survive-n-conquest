@@ -6788,7 +6788,7 @@ const WOOD_YEAR_ORDERS = [
 const WOOD_YEAR_SAID = { ...FIREWOOD_YEAR_SAID };
 const WOOD_YEAR_SHED = [{ x: 518, y: 236 }, { x: 522, y: 246 }, { x: 521, y: 262 }, { x: 512, y: 257 }];
 const WOOD_YEAR_STOPS = { dusk: { day: 2, time: '19:00' }, duskUntil: { day: 2, time: '20:00' }, panel: { day: 3, time: '12:00' } };
-const IDLE_DAY_LINE = /^Day 2, 19:\d\d\. Ulvar split no firewood today: the building sites needed the logs\.$/;
+const IDLE_DAY_LINE = /^Day 2, 19:\d\d\. Ulvar split no firewood: sites need the logs\.$/;
 
 SCENARIOS['firewood-reason'] = async (session) => {
   const { said } = siteDriver(session);
@@ -6829,7 +6829,7 @@ SCENARIOS['firewood-reason'] = async (session) => {
   await session.still(page);
   await session.screenshot(page, 'firewood-reason-news');
   session.check(
-    'at the dusk of day 2 the news says that Ulvar split no firewood that day because the building sites needed the logs',
+    'at the dusk of day 2 the news says that Ulvar split no firewood that day because the sites need the logs',
     heard !== null,
     heard ? `"${heard.line}" by ${heard.at}` : `no such line by ${await at()}; the news reads ${JSON.stringify(await lines(page))}`,
   );

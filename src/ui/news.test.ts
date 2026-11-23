@@ -95,13 +95,13 @@ describe('the settlement news', () => {
     const name = nameOf(idle.villagers.sex[0] as Sex, idle.villagers.name[0]!);
     const idleDays = listen(idle, TICKS_PER_DAY * 2).said;
     expect(idleDays).toHaveLength(2);
-    expect(idleDays[0]).toMatch(new RegExp(`^Day 1, 19:1\\d\\. ${name} split no firewood today: the building sites needed the logs\\.$`));
-    expect(idleDays[1]).toMatch(new RegExp(`^Day 2, 19:1\\d\\. ${name} split no firewood today: the building sites needed the logs\\.$`));
+    expect(idleDays[0]).toMatch(new RegExp(`^Day 1, 19:1\\d\\. ${name} split no firewood: sites need the logs\\.$`));
+    expect(idleDays[1]).toMatch(new RegExp(`^Day 2, 19:1\\d\\. ${name} split no firewood: sites need the logs\\.$`));
 
     const alone = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
     expect(applyCommand(alone, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
     finishBuilding(alone, alone.orders.siteOf[at(alone.map, 30, 30)]!);
-    expect(listen(alone, TICKS_PER_DAY).said).toEqual([expect.stringMatching(/split no firewood today: no stockpile in reach held a log\.$/)]);
+    expect(listen(alone, TICKS_PER_DAY).said).toEqual([expect.stringMatching(/split no firewood: no log in reach\.$/)]);
 
     const working = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
     expect(applyCommand(working, { kind: 'markArea', order: 'stockpile', area: { x0: 26, y0: 30, x1: 26, y1: 30 } })).toMatchObject({ ok: true });
@@ -109,7 +109,7 @@ describe('the settlement news', () => {
     expect(applyCommand(working, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
     finishBuilding(working, working.orders.siteOf[at(working.map, 30, 30)]!);
     const workedDays = listen(working, TICKS_PER_DAY * 2).said;
-    expect(workedDays).toEqual([expect.stringMatching(/^Day 2, 19:1\d\. .+ split no firewood today: no stockpile in reach held a log\.$/)]);
+    expect(workedDays).toEqual([expect.stringMatching(/^Day 2, 19:1\d\. .+ split no firewood: no log in reach\.$/)]);
   });
 
   it('reads the day of work from the frame that crosses dusk, so work taken in the ticks between two frames counts', () => {

@@ -4,7 +4,7 @@ While building sites still lack logs, carriers take every felled log to a site b
 
 ## Sub-features
 
-- `firewood-reason-news` reads the line `Day 2, 19:11. Ulvar split no firewood today: the building sites needed the logs.` in the news at the dusk of day 2, the day the woodshed stands.
+- `firewood-reason-news` reads the line `Day 2, 19:11. Ulvar split no firewood: sites need the logs.` in the news at the dusk of day 2, the day the woodshed stands.
 - `firewood-reason-woodshed-panel` reads the woodshed's panel at 12:00 on day 3: `Firewood 0 of 40` and `Doing Idle, the building sites need the logs`.
 
 ## How to get to it (user POV)
