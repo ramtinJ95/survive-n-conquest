@@ -4,7 +4,7 @@ import { finishBuilding } from '../sim/building';
 import { Building } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
-import { Good } from '../sim/goods';
+import { Good, putDown } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
 import { HUNGER } from '../sim/needs';
@@ -71,6 +71,8 @@ describe('the settlement news', () => {
       names: Uint16Array.from(missedMeals, (_, id) => id),
       sexes: new Uint8Array(missedMeals.length),
       workplaces: new Int16Array(missedMeals.length).fill(-1),
+      workshopStops: new Uint8Array(0),
+      workshopWorked: new Uint8Array(0),
     });
     news.hear(frame(0, [0, 0, 0, 0, 0]), 0);
     for (let id = 0; id < 5; id++) news.hear(frame(1000 * (id + 1), [0, 1, 2, 3, 4].map((other) => (other <= id ? 1 : 0))), id * 1000);
@@ -83,6 +85,31 @@ describe('the settlement news', () => {
     expect(news.prune(2 * LINE_MS + 400)).toBe(false);
     expect(news.prune(2 * LINE_MS + 600)).toBe(true);
     expect(news.lines()).toHaveLength(0);
+  });
+
+  it('says at each dusk that the woodcutter split no firewood that day and why, once a day, and nothing on a day it split a log', () => {
+    const idle = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
+    expect(applyCommand(idle, { kind: 'place', building: Building.House, x: 10, y: 10 })).toMatchObject({ ok: true });
+    expect(applyCommand(idle, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
+    finishBuilding(idle, idle.orders.siteOf[at(idle.map, 30, 30)]!);
+    const name = nameOf(idle.villagers.sex[0] as Sex, idle.villagers.name[0]!);
+    const idleDays = listen(idle, TICKS_PER_DAY * 2).said;
+    expect(idleDays).toHaveLength(2);
+    expect(idleDays[0]).toMatch(new RegExp(`^Day 1, 19:1\\d\\. ${name} split no firewood today: the building sites needed the logs\\.$`));
+    expect(idleDays[1]).toMatch(new RegExp(`^Day 2, 19:1\\d\\. ${name} split no firewood today: the building sites needed the logs\\.$`));
+
+    const alone = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
+    expect(applyCommand(alone, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
+    finishBuilding(alone, alone.orders.siteOf[at(alone.map, 30, 30)]!);
+    expect(listen(alone, TICKS_PER_DAY).said).toEqual([expect.stringMatching(/split no firewood today: no stockpile in reach held a log\.$/)]);
+
+    const working = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
+    expect(applyCommand(working, { kind: 'markArea', order: 'stockpile', area: { x0: 26, y0: 30, x1: 26, y1: 30 } })).toMatchObject({ ok: true });
+    expect(putDown(working, at(working.map, 26, 30), Good.Log, 1)).toBe(true);
+    expect(applyCommand(working, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
+    finishBuilding(working, working.orders.siteOf[at(working.map, 30, 30)]!);
+    const workedDays = listen(working, TICKS_PER_DAY * 2).said;
+    expect(workedDays).toEqual([expect.stringMatching(/^Day 2, 19:1\d\. .+ split no firewood today: no stockpile in reach held a log\.$/)]);
   });
 
   it("says who became foragers at a finished hut, who left it when its places were lowered, and who took a dead forager's place", () => {

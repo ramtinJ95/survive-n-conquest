@@ -70,6 +70,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly readiness: Readiness | null;
   /** One `Stop` per site slot: what the worker of the workshop there does, or why it stopped, as its last look for work found. */
   readonly workshopStops: Uint8Array;
+  /** 1 per site slot for a workshop whose worker has taken any of its work since the last dawn. */
+  readonly workshopWorked: Uint8Array;
   /** The tiles changed since the last frame, as `takeTileChanges` groups them. */
   readonly tiles: Int32Array;
   /** The claims and sites changed since the last frame. */
@@ -128,6 +130,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     firesLastNight: sim.stores.burnedLastNight.slice(),
     readiness: readinessOf(sim),
     workshopStops: sim.workshops.stopped.slice(),
+    workshopWorked: sim.workshops.worked.slice(),
     tiles: takeTileChanges(sim),
     orders: takeOrderChanges(sim.orders),
     outcome,
@@ -160,6 +163,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.fires,
     frame.firesLastNight,
     frame.workshopStops,
+    frame.workshopWorked,
     frame.tiles,
     frame.orders.claims,
     frame.orders.sites,
