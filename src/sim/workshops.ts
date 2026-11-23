@@ -1,5 +1,5 @@
-import { lacking, siteAnchor } from './building';
-import { ANYONE, kindOf, nearestDoor, siteMidX, siteMidY, withinReach } from './buildings';
+import { arrived, lacking, siteAnchor } from './building';
+import { ANYONE, kindOf, nearestDoor, needOf, siteMidX, siteMidY, withinReach } from './buildings';
 import { Claim } from './claims';
 import { Good, type Unit, pickUp, putDownHeld, refreshStack, setAsideGoods } from './goods';
 import { MAX_SITES, SiteState } from './orders';
@@ -36,6 +36,8 @@ export interface Workshops {
   /** The villager working the batch, or -1. */
   readonly worker: Int16Array;
   readonly stopped: Uint8Array;
+  /** 1 for a workshop whose worker has taken any of its work since the last dawn. */
+  readonly worked: Uint8Array;
 }
 
 export function createWorkshops(): Workshops {
@@ -45,6 +47,7 @@ export function createWorkshops(): Workshops {
     progress: new Uint16Array(MAX_SITES),
     worker: new Int16Array(MAX_SITES).fill(-1),
     stopped: new Uint8Array(MAX_SITES),
+    worked: new Uint8Array(MAX_SITES),
   };
 }
 
@@ -73,6 +76,16 @@ function lackingAtSites(sim: Sim, good: Unit): number {
   return units;
 }
 
+/** Whether a building site a walk reaches has not yet received every unit of a good it needs, counting none on their way. */
+function sitesShort(sim: Sim, good: Unit): boolean {
+  const { sites } = sim.orders;
+  for (let slot = 0; slot < sites.used; slot++) {
+    if (sites.state[slot] !== SiteState.Site || sim.flow.next[siteAnchor(sim.orders, slot)] === -1) continue;
+    if (arrived(sim.map, sim.orders, slot, good) < needOf(kindOf(sites, slot), good)) return true;
+  }
+  return false;
+}
+
 /**
  * Sends the villager to the workshop's door nearest a point, along a route
  * planned to `walkTo`, the door itself or a unit to pick up on the way.
@@ -97,6 +110,9 @@ function sendTo(sim: Sim, id: number, slot: number, walkTo: number, px: number, 
  * reserves it. A unit off a stockpile is never taken. A villager that still
  * holds a unit of input brings it in. Each look that gives work, or finds the
  * store full, no input in reach, or the input kept for the sites, says so in `stopped`.
+ * With no input in reach while a site a walk reaches has not received all of the
+ * input it needs, the sites are the reason: carriers take every unit to a site
+ * before it reaches a stockpile.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, workshops, goods, map, orders } = sim;
@@ -110,6 +126,7 @@ function take(sim: Sim, id: number): boolean {
     if (!sendTo(sim, id, slot, -1, px, py)) return false;
     workshops.worker[slot] = id;
     workshops.stopped[slot] = Stop.Working;
+    workshops.worked[slot] = 1;
     return true;
   }
   if (held !== Good.None && held !== recipe.input) return false;
@@ -121,6 +138,7 @@ function take(sim: Sim, id: number): boolean {
     if (!sendTo(sim, id, slot, -1, px, py)) return false;
     workshops.inbound[slot]! += 1;
     workshops.stopped[slot] = Stop.Working;
+    workshops.worked[slot] = 1;
     return true;
   }
   const { size } = map;
@@ -133,7 +151,7 @@ function take(sim: Sim, id: number): boolean {
     const sx = (source % size) + 0.5;
     const sy = (source - (source % size)) / size + 0.5;
     if (source < 0 || !withinReach(orders.sites, slot, sx, sy)) {
-      workshops.stopped[slot] = Stop.NoInput;
+      workshops.stopped[slot] = sitesShort(sim, recipe.input) ? Stop.ForSites : Stop.NoInput;
       return false;
     }
     if (goods.stockedUnits[index]! <= lackingAtSites(sim, recipe.input)) {
@@ -149,6 +167,7 @@ function take(sim: Sim, id: number): boolean {
     workshops.inbound[slot]! += 1;
     villagers.taskTile[id] = source;
     workshops.stopped[slot] = Stop.Working;
+    workshops.worked[slot] = 1;
     return true;
   }
 }
