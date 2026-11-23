@@ -85,6 +85,8 @@ A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` take
 
 `scripts/newsLines.ts` prints the names a settler can have and the most lines the news log shows, and, given the widest names and a day, one line of every kind the news writes, from the game's own news module under `bun`. `readiness` measures those lines in a copy of the log and fills the log with the longest.
 
+`scripts/panelRows.ts` prints every kind of selection panel in the game's `PANELS`, with its rows and their buttons and what a site needs of each good, and the names a woman and a man can have. `readiness` and `selecting` fill a copy of the panel with the longest reading of each row and measure it.
+
 ## Evidence
 
 Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git ignores. The folder holds the screenshots, the GIF clips, and `result.json` with the scenario, the URL, the build revision, the browser version, every check with its detail, and the captured files.
