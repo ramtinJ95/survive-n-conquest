@@ -471,7 +471,7 @@ function workplacePanel(building: Building, note: string, rows: readonly Row<Bui
 }
 
 /** Every panel. A row or a control added here shows in the panel of its kind. */
-const PANELS: Panels = {
+export const PANELS: Panels = {
   villager: {
     title: (facts, { id }) => nameOfSettler(facts, id),
     rows: [

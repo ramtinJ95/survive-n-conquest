@@ -3301,22 +3301,152 @@ function selectionDriver(session) {
 const settlerPanel = (read) =>
   Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
 
-/**
- * The longest reading of each settler row, by its label: the tailor's idle words, the longest `Doing`, under the
- * longest of the settlers' names, in a household of two. A row missing from here keeps the reading it has, so a new
- * row adds its height to the measured copy. A household member who died adds ` (died)` and a third line to
- * `Household`, and with these readings that panel reaches above the Stockpiles panel's bottom.
- */
-const SETTLER_LONGEST = {
-  Doing: "Idle, no hide in a stockpile within 30 tiles of the tailor's hut",
-  Carries: '1 firewood',
-  Job: 'Woodcutter',
-  Sex: 'Woman',
-  Household: 'Household 4, with Haldor',
-  Home: 'None, sleeps at the camp',
-  'Missed meals': '2, hungry',
-  'Cold nights': '2, cold, clothed',
+const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
+
+/** The longest words of the worker at each kind of workshop, at its own work and idle there. */
+const WORKSHOP_DOING = {
+  woodshed: ['Idle, no log in a stockpile within 30 tiles of the woodshed', 'Idle, the building sites need the logs', 'Walking to the woodshed to split a log', 'Carrying a log to the woodshed'],
+  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", 'Idle, the building sites need the hides', "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
 };
+/** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home, and fetching clothing. */
+const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp to eat'];
+/** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
+const DOING_LONGEST = [
+  ...WORKSHOP_DOING.tailor,
+  ...WORKSHOP_DOING.woodshed,
+  ...ANYONE_DOING,
+  'Idle, no deer within 40 tiles of the lodge',
+  'Idle, waiting for room in a store',
+  "Walking to fetch stone for a hunter's lodge site",
+  "Walking to fetch a log for a hunter's lodge site",
+  "Carrying stone to a hunter's lodge site",
+];
+
+/**
+ * The longest reading of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as
+ * candidates of which the page keeps the tallest, and the first of those as tall. `name`, `woman`, and `man` are the widest names of
+ * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
+ * repeat, so two workers can share a name. A household is a man and a woman, named in that order, and a house names
+ * at most one member who died, because it goes to another household when the last dies. A site's goods read what it
+ * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
+ */
+const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
+  const settlers = [String(mostSettlers)];
+  const household = `Household ${Math.ceil(mostSettlers / 2)}`;
+  const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
+  const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
+  return {
+    villager: {
+      title: [name],
+      rows: {
+        Doing: DOING_LONGEST,
+        Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
+        Job: ['Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
+        Sex: ['Woman', 'Man'],
+        Household: [`${household}, with ${woman} (died)`, `${household}, with ${man} (died)`],
+        Home: ['None, sleeps at the camp', 'A house'],
+        'Missed meals': ['2, hungry'],
+        'Cold nights': ['2, cold, clothed'],
+      },
+    },
+    house: { rows: { Household: [`${household}: ${man} (died) and ${woman}`, `${household}: ${man} and ${woman} (died)`], Food: ['16 of 16'], Firewood: ['6 of 6'], 'Fire last night': ['No winter night yet', 'Did not burn', 'Burned'] } },
+    hut: workplace('Foragers', 2),
+    lodge: workplace('Hunters', 2),
+    woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
+    tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
+    barn: { rows: { Food: ['120 of 120'] } },
+    camp: { rows: { 'Settlers here': settlers, Food: ['65535 of 65535'], Firewood: ['12 of 12'] } },
+    site,
+  };
+};
+
+/**
+ * Fills a copy of the open selection panel with the longest readings of each panel kind in `kinds`, or of every kind,
+ * and measures each copy where the panel stands. A kind or a row without readings in `panelReadings` fails the run.
+ * With `keep`, the copies stay on the page in place of the panel, for a screenshot, until `dropPanelCopies`.
+ */
+async function measurePanels(page, kinds = null, keep = false) {
+  const run = spawnSync('bun', [PANEL_ROWS], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`panelRows.ts failed: ${run.stderr}`);
+  const listed = JSON.parse(run.stdout);
+  const node = page.getByRole('region', { name: 'Selection', includeHidden: true });
+  const widest = await node.evaluate((node, names) => {
+    const copy = node.cloneNode(false);
+    copy.removeAttribute('aria-label');
+    copy.hidden = false;
+    const value = copy.appendChild(document.createElement('dl')).appendChild(document.createElement('dd'));
+    const span = value.appendChild(Object.assign(document.createElement('span'), { style: 'white-space: nowrap' }));
+    node.after(copy);
+    const widths = names.map((name) => {
+      span.textContent = name;
+      return { name, width: span.getBoundingClientRect().width };
+    });
+    copy.remove();
+    return widths.sort((x, y) => y.width - x.width).map(({ name }) => name);
+  }, [...listed.women, ...listed.men]);
+  const readings = panelReadings({ name: widest[0], woman: widest.find((name) => listed.women.includes(name)), man: widest.find((name) => listed.men.includes(name)), mostSettlers: listed.mostSettlers, mostBuilders: listed.mostBuilders });
+  const panels = listed.kinds
+    .filter(({ kind }) => !kinds || kinds.includes(kind))
+    .map(({ kind, title, note, rows, needs }) => {
+      const table = needs ? { rows: { ...Object.fromEntries(Object.entries(needs).map(([good, count]) => [good, [`${count}/${count}`]])), ...readings.site } } : readings[kind];
+      const titles = title === null ? table?.title : [title];
+      if (!titles) fail(`panelReadings has no longest title for the ${kind} panel`);
+      const missing = rows.filter(({ label }) => !table.rows[label]).map(({ label }) => label);
+      if (missing.length > 0) fail(`panelReadings has no longest reading for the ${kind} panel's rows ${missing.join(', ')}`);
+      return { kind, titles, note, rows: rows.map(({ label, buttons }) => ({ label, buttons, readings: table.rows[label] })) };
+    });
+  return node.evaluate((node, { panels, keep }) => {
+    const keepLongest = (element, measured, texts) => {
+      let best = null;
+      for (const text of texts) {
+        element.textContent = text;
+        const { height } = measured.getBoundingClientRect();
+        if (!best || height > best.height) best = { text, height };
+      }
+      element.textContent = best.text;
+      return best.text;
+    };
+    return panels.map(({ kind, titles, note, rows }) => {
+      const copy = node.cloneNode(true);
+      copy.removeAttribute('aria-label');
+      copy.removeAttribute('role');
+      copy.hidden = false;
+      copy.dataset.panelCopy = '';
+      const title = copy.querySelector('h2');
+      const noteLine = copy.querySelector('p');
+      const list = copy.querySelector('dl');
+      noteLine.textContent = note ?? '';
+      noteLine.hidden = note === null;
+      list.hidden = rows.length === 0;
+      const values = rows.map(() => document.createElement('span'));
+      list.replaceChildren(
+        ...rows.flatMap(({ label, buttons }, row) => {
+          const name = Object.assign(document.createElement('dt'), { textContent: label });
+          const value = document.createElement('dd');
+          value.append(values[row], ...buttons.map(({ text, name }) => Object.assign(document.createElement('button'), { type: 'button', textContent: text, ariaLabel: name })));
+          return [name, value];
+        }),
+      );
+      node.after(copy);
+      const chosen = { title: keepLongest(title, title, titles) };
+      rows.forEach(({ label, readings }, row) => (chosen[label] = keepLongest(values[row], values[row].parentElement, readings)));
+      const { x, y, width, height } = copy.getBoundingClientRect();
+      const fit = { kind, box: { x, y, width, height }, shown: copy.clientHeight, holds: copy.scrollHeight, wide: copy.clientWidth, needs: copy.scrollWidth, rows: rows.length, chosen };
+      if (keep) node.style.visibility = 'hidden';
+      else copy.remove();
+      return fit;
+    });
+  }, { panels, keep });
+}
+
+const dropPanelCopies = (page) =>
+  page.getByRole('region', { name: 'Selection', includeHidden: true }).evaluate((node) => {
+    for (const copy of document.querySelectorAll('[data-panel-copy]')) copy.remove();
+    node.style.visibility = '';
+  });
+
+/** Whether a measured copy of a panel shows every row: its content fits its height and its width. */
+const showsEveryRow = (fit) => fit.holds <= fit.shown && fit.needs <= fit.wide;
 
 SCENARIOS.selecting = async (session) => {
   const seen = [];
@@ -3409,23 +3539,11 @@ SCENARIOS.selecting = async (session) => {
   const pausedRead = await reads(page);
   session.check('while paused the settler panel holds still', text(pausedRead) === text(followRead), `"${text(followRead)}" then "${text(pausedRead)}"`);
   await fitsApart(page, 'settler');
-  const longest = await page.getByRole('region', { name: 'Selection' }).evaluate((node, readings) => {
-    const copy = node.cloneNode(true);
-    copy.removeAttribute('aria-label');
-    for (const name of copy.querySelectorAll('dt')) {
-      const value = name.nextElementSibling?.firstChild;
-      if (value && readings[name.textContent.trim()] !== undefined) value.textContent = readings[name.textContent.trim()];
-    }
-    node.after(copy);
-    const { x, y, width, height } = copy.getBoundingClientRect();
-    const fit = { box: { x, y, width, height }, shown: copy.clientHeight, holds: copy.scrollHeight, rows: copy.querySelectorAll('dt').length };
-    copy.remove();
-    return fit;
-  }, SETTLER_LONGEST);
+  const [longest] = await measurePanels(page, ['villager']);
   const stockpilesBox = (await uiBoxes(page)).stockpiles;
   session.check(
     'at 960x540 the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row',
-    Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && longest.holds <= longest.shown,
+    Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && showsEveryRow(longest),
     `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
   );
 
@@ -6467,6 +6585,26 @@ SCENARIOS.readiness = async (session) => {
       detail,
     );
 
+    const kinds = await measurePanels(page);
+    const against = { clock: boxes.clock, toolbar: boxes.toolbar, stockpiles: boxes.stockpiles, hints: boxes.hints, status: boxes.status, readiness, news: boxes.news };
+    const clash = (box) => [...(inside(box) ? [] : ['outside the page']), ...Object.entries(against).filter(([, other]) => other && !disjoint(box, other)).map(([name]) => `covers ${name}`)];
+    const fault = (fit) => [...clash(fit.box), ...(showsEveryRow(fit) ? [] : [`rows take ${fit.holds} of ${fit.shown} px tall and ${fit.needs} of ${fit.wide} px wide`])];
+    const most = (side) => kinds.reduce((best, fit) => (fit.box[side] > best.box[side] ? fit : best));
+    session.check(
+      `at ${size.width}x${size.height} every kind of selection panel, ${kinds.length} from the game's own list, with the longest reading of each row, shows every row, and every kind and the tallest panel the page allows keep clear of the clock, the toolbar, the Stockpiles panel, the camera hint, the status line, the reading, and the news with its ${mostLines} longest lines`,
+      kinds.length > 0 && Object.values(against).every(Boolean) && kinds.every((fit) => fault(fit).length === 0) && clash(tallest).length === 0,
+      [
+        `tallest ${most('height').kind} ${describe(most('height').box)}`,
+        `widest ${most('width').kind} ${describe(most('width').box)}`,
+        `tallest the page allows ${describe(tallest)}${clash(tallest).length ? `, ${clash(tallest).join(', ')}` : ''}`,
+        ...kinds.map((fit) => `${fit.kind} ${describe(fit.box)}, ${fit.rows} rows in ${fit.holds} of ${fit.shown} px${fault(fit).length ? `, ${fault(fit).join(', ')}` : ''}`),
+        ...Object.entries(against).map(([name, box]) => `${name} ${describe(box)}`),
+      ].join('; '),
+    );
+
+    await measurePanels(page, ['villager'], true);
+    await session.screenshot(page, `readiness-settler-${size.width}x${size.height}`);
+    await dropPanelCopies(page);
     const { news: _fullest, ...panels } = boxes;
     const fills = [];
     for (const fill of newsFills) fills.push({ ...fill, box: await newsCopy(fill) });
