@@ -1,10 +1,10 @@
-/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel. Its 13 px rows and 12 px note keep a settler's panel with a 4-line Doing clear of the stockpiles panel at 960 by 540. */
+/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel, which ends at 210 px. At 300 px wide every kind of panel at its longest readings fits that height at 960 by 540. */
 .selection {
   position: fixed;
   left: var(--edge-gap);
   bottom: calc(var(--edge-gap) + 44px);
-  width: 256px;
-  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 184px);
+  width: 300px;
+  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 210px);
   overflow: hidden;
   box-sizing: border-box;
   margin: 0;
