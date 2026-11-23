@@ -112,6 +112,23 @@ describe('the settlement news', () => {
     expect(workedDays).toEqual([expect.stringMatching(/^Day 2, 19:1\d\. .+ split no firewood today: no stockpile in reach held a log\.$/)]);
   });
 
+  it('reads the day of work from the frame that crosses dusk, so work taken in the ticks between two frames counts', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
+    expect(applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 26, y0: 30, x1: 26, y1: 30 } })).toMatchObject({ ok: true });
+    expect(applyCommand(sim, { kind: 'place', building: Building.Woodshed, x: 30, y: 30 })).toMatchObject({ ok: true });
+    const shed = sim.orders.siteOf[at(sim.map, 30, 30)]!;
+    finishBuilding(sim, shed);
+    const news = createNews(sim.orders);
+    while (!isNight(sim.tick + 40)) step(sim);
+    expect(sim.workshops.worked[shed]).toBe(0);
+    news.hear(frameOf(sim).frame, 0);
+    expect(putDown(sim, at(sim.map, 26, 30), Good.Log, 1)).toBe(true);
+    while (!isNight(sim.tick)) step(sim);
+    expect(sim.workshops.worked[shed]).toBe(1);
+    news.hear(frameOf(sim).frame, 1000);
+    expect(news.lines()).toEqual([]);
+  });
+
   it("says who became foragers at a finished hut, who left it when its places were lowered, and who took a dead forager's place", () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 4, monsters: 0 });
     const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);

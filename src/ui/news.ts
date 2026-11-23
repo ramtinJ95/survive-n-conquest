@@ -69,8 +69,8 @@ const EVENTS: readonly NewsEvent[] = [
       return {
         kind: `no work at ${BUILDING_WORDS[building].noun}, ${words[stop]}`,
         befell: (before, after, id, orders) => {
-          const slot = before.workplaces[id]!;
-          return duskFell(before, after) && alive(after, id) && slot >= 0 && orders.sites.kind[slot] === building && before.workshopWorked[slot] === 0 && before.workshopStops[slot] === stop;
+          const slot = after.workplaces[id]!;
+          return duskFell(before, after) && alive(after, id) && slot >= 0 && orders.sites.kind[slot] === building && after.workshopWorked[slot] === 0 && after.workshopStops[slot] === stop;
         },
         verb: () => `${words.none}: ${words[stop]}`,
       };
