@@ -3303,13 +3303,16 @@ const settlerPanel = (read) =>
 
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
-/** The longest words of the worker at each kind of workshop, at its own work and idle there. */
+/**
+ * The longest words of the worker at each kind of workshop, at its own work and idle there. The tailor never reads
+ * `Idle, the building sites need the hides`, because no kind of building needs hides.
+ */
 const WORKSHOP_DOING = {
   woodshed: ['Idle, no log in a stockpile within 30 tiles of the woodshed', 'Idle, the building sites need the logs', 'Walking to the woodshed to split a log', 'Carrying a log to the woodshed'],
-  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", 'Idle, the building sites need the hides', "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
+  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
 };
-/** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home, and fetching clothing. */
-const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp to eat'];
+/** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
+const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
 /** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
 const DOING_LONGEST = [
   ...WORKSHOP_DOING.tailor,
