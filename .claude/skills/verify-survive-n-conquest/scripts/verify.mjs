@@ -6707,6 +6707,149 @@ SCENARIOS['firewood-year'] = async (session) => {
   );
 };
 
+/**
+ * #40's year "wood" of `bun scripts/winter-year.ts wood`, in which the carriers take every felled log to a building
+ * site, given through the toolbar from `HIDES_YEAR_VIEW` at 08:00 on day 1, the script's tick 0, in the script's
+ * order. Every pixel comes from `scripts/aim.ts` at that view with the year's tiles, and each picks its own tile. In
+ * `src/sim` with these commands the woodshed stands at 15:37 on day 2, Ulvar becomes its woodcutter, and he splits no
+ * log until the 4th house's site has its logs, which it never has. The woodshed's middle is under `WOOD_YEAR_SHED`.
+ */
+const WOOD_YEAR_ORDERS = [
+  ['KeyG', {x:595,y:311}],
+  ['KeyC', {x:597,y:327}, {x:597,y:327}],
+  ['KeyC', {x:604,y:338}, {x:604,y:338}],
+  ['KeyC', {x:554,y:330}, {x:554,y:330}],
+  ['KeyC', {x:548,y:359}, {x:548,y:359}],
+  ['KeyB', {x:629,y:320}],
+  ['KeyC', {x:594,y:352}, {x:594,y:352}],
+  ['KeyC', {x:637,y:307}, {x:637,y:307}],
+  ['KeyC', {x:641,y:301}, {x:641,y:301}],
+  ['KeyC', {x:615,y:341}, {x:615,y:341}],
+  ['KeyC', {x:648,y:310}, {x:648,y:310}],
+  ['KeyC', {x:632,y:336}, {x:632,y:336}],
+  ['KeyC', {x:578,y:378}, {x:578,y:378}],
+  ['KeyC', {x:655,y:284}, {x:655,y:284}],
+  ['KeyM', {x:521,y:194}, {x:521,y:194}],
+  ['KeyL', {x:467,y:276}],
+  ['KeyC', {x:618,y:359}, {x:618,y:359}],
+  ['KeyC', {x:660,y:313}, {x:660,y:313}],
+  ['KeyC', {x:652,y:271}, {x:652,y:271}],
+  ['KeyC', {x:639,y:346}, {x:639,y:346}],
+  ['KeyM', {x:517,y:184}, {x:517,y:184}],
+  ['KeyH', {x:479,y:226}],
+  ['KeyH', {x:451,y:248}],
+  ['KeyH', {x:420,y:270}],
+  ['KeyH', {x:434,y:216}],
+  ['KeyP', {x:539,y:286}, {x:549,y:305}],
+  ['KeyK', {x:517,y:253}],
+  ['KeyC', {x:630,y:362}, {x:630,y:362}],
+  ['KeyC', {x:668,y:323}, {x:668,y:323}],
+  ['KeyC', {x:579,y:401}, {x:579,y:401}],
+  ['KeyC', {x:677,y:288}, {x:677,y:288}],
+  ['KeyC', {x:637,y:376}, {x:637,y:376}],
+  ['KeyC', {x:681,y:349}, {x:681,y:349}],
+  ['KeyC', {x:668,y:374}, {x:668,y:374}],
+  ['KeyC', {x:708,y:300}, {x:708,y:300}],
+  ['KeyC', {x:704,y:333}, {x:704,y:333}],
+  ['KeyC', {x:697,y:347}, {x:697,y:347}],
+  ['KeyC', {x:658,y:396}, {x:658,y:396}],
+  ['KeyC', {x:686,y:369}, {x:686,y:369}],
+  ['KeyC', {x:593,y:430}, {x:593,y:430}],
+  ['KeyC', {x:682,y:378}, {x:682,y:378}],
+  ['KeyC', {x:630,y:422}, {x:630,y:422}],
+  ['KeyC', {x:720,y:302}, {x:720,y:302}],
+  ['KeyC', {x:713,y:344}, {x:713,y:344}],
+  ['KeyC', {x:711,y:272}, {x:711,y:272}],
+  ['KeyC', {x:699,y:373}, {x:699,y:373}],
+  ['KeyC', {x:726,y:290}, {x:726,y:290}],
+  ['KeyC', {x:619,y:440}, {x:619,y:440}],
+  ['KeyC', {x:733,y:334}, {x:733,y:334}],
+  ['KeyC', {x:716,y:370}, {x:716,y:370}],
+  ['KeyC', {x:722,y:275}, {x:722,y:275}],
+  ['KeyC', {x:717,y:263}, {x:717,y:263}],
+  ['KeyC', {x:709,y:385}, {x:709,y:385}],
+  ['KeyC', {x:744,y:308}, {x:744,y:308}],
+  ['KeyC', {x:747,y:302}, {x:747,y:302}],
+  ['KeyC', {x:568,y:472}, {x:568,y:472}],
+  ['KeyC', {x:751,y:325}, {x:751,y:325}],
+  ['KeyC', {x:736,y:272}, {x:736,y:272}],
+  ['KeyC', {x:582,y:478}, {x:582,y:478}],
+  ['KeyC', {x:730,y:259}, {x:730,y:259}],
+  ['KeyC', {x:755,y:349}, {x:755,y:349}],
+  ['KeyC', {x:747,y:370}, {x:747,y:370}],
+  ['KeyC', {x:739,y:267}, {x:739,y:267}],
+  ['KeyC', {x:642,y:461}, {x:642,y:461}],
+  ['KeyC', {x:711,y:419}, {x:711,y:419}],
+  ['KeyC', {x:661,y:456}, {x:661,y:456}],
+  ['KeyM', {x:537,y:198}, {x:537,y:198}],
+  ['KeyM', {x:530,y:187}, {x:530,y:187}],
+  ['KeyM', {x:522,y:179}, {x:522,y:179}],
+];
+const WOOD_YEAR_SAID = { ...FIREWOOD_YEAR_SAID };
+const WOOD_YEAR_SHED = [{ x: 518, y: 236 }, { x: 522, y: 246 }, { x: 521, y: 262 }, { x: 512, y: 257 }];
+const WOOD_YEAR_STOPS = { dusk: { day: 2, time: '19:00' }, duskUntil: { day: 2, time: '20:00' }, panel: { day: 3, time: '12:00' } };
+const IDLE_DAY_LINE = /^Day 2, 19:\d\d\. Ulvar split no firewood today: the building sites needed the logs\.$/;
+
+SCENARIOS['firewood-reason'] = async (session) => {
+  const { said } = siteDriver(session);
+  const { lines } = hungerDriver(session);
+  const { click, text } = selectionDriver(session);
+  const { page } = await session.open(CLIP, { search: '?seed=7', clock: 'paused' });
+  const at = async () => clockText(await session.gameMinutes(page));
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const startAt = await at();
+  const wrong = [];
+  for (const [key, from, to] of WOOD_YEAR_ORDERS) {
+    await page.keyboard.press(key);
+    if (to) await session.drag(page, from, to);
+    else {
+      await page.mouse.move(from.x, from.y, { steps: 3 });
+      await page.mouse.down();
+      await page.mouse.up();
+    }
+    const line = await said(page, WOOD_YEAR_SAID[key]);
+    if (!WOOD_YEAR_SAID[key].test(line)) wrong.push(`${key} at ${from.x},${from.y}: "${line}"`);
+    await page.keyboard.press('Escape');
+  }
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  session.check(
+    `at ${startAt} the ${WOOD_YEAR_ORDERS.length} orders of the year "wood" are given, each as its status line says, with the clock paused`,
+    wrong.length === 0 && (await at()) === startAt,
+    wrong.length === 0 ? `${WOOD_YEAR_ORDERS.length} orders at ${await at()}` : wrong.join(' | '),
+  );
+  await session.reach(page, WOOD_YEAR_STOPS.dusk);
+  const heard = await session.runUntil(
+    page,
+    async () => {
+      const found = (await lines(page)).find((line) => IDLE_DAY_LINE.test(line));
+      return found ? { line: found, at: await at() } : null;
+    },
+    { every: 1, until: WOOD_YEAR_STOPS.duskUntil },
+  );
+  await session.still(page);
+  await session.screenshot(page, 'firewood-reason-news');
+  session.check(
+    'at the dusk of day 2 the news says that Ulvar split no firewood that day because the building sites needed the logs',
+    heard !== null,
+    heard ? `"${heard.line}" by ${heard.at}` : `no such line by ${await at()}; the news reads ${JSON.stringify(await lines(page))}`,
+  );
+  await session.reach(page, WOOD_YEAR_STOPS.panel);
+  await session.still(page);
+  let read = null;
+  for (const spot of WOOD_YEAR_SHED) {
+    read = await click(page, spot);
+    if (read?.title === 'Woodshed') break;
+  }
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await session.screenshot(page, 'firewood-reason-woodshed-panel');
+  session.check(
+    `at ${await at()} the woodshed's panel says its woodcutter is idle because the building sites need the logs`,
+    read?.title === 'Woodshed' && read.rows.Doing === 'Idle, the building sites need the logs' && read.rows.Firewood === '0 of 40',
+    text(read),
+  );
+};
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
   if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);
