@@ -53,5 +53,5 @@ Preconditions:
 - The hides of two kills can lie out at once, so the carrier the search finds may carry the other hunter's hide.
 - The tailor takes a hide as soon as one lies on a stockpile, so the Hides row reads 1 only until the tailor picks it up. The follow pauses when the carrier's `Doing` changes, while the hide still lies there.
 - The second hide lies on the stockpile at 16:30 on day 2, and the tailor works the batch from 16:58 until the dusk at 19:12 and from 05:03 on day 3. The work done before the dusk stays in the hut, so the panel reads the piece at the stop at 07:33 on day 3.
-- The tailor's hut's panel is the tallest of the panels, 267 pixels with its note on four lines, and at 960 by 540 it starts at y 217, 1 pixel below the Stockpiles panel's bottom edge at 216. One more row at the top left would make them overlap.
+- At its longest readings the tailor's hut's panel is 300x194 from y 290 at 960 by 540. The settler's is the tallest panel, 253 pixels. `readiness` measures every kind of panel against the Stockpiles panel and the other boxes.
 - In a pylon a run of the scenario took about 19 minutes.
