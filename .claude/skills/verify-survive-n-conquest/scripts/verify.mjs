@@ -6542,6 +6542,171 @@ SCENARIOS.readiness = async (session) => {
 };
 
 
+/**
+ * The year "near houses, late woodshed" of `bun scripts/firewood-years.ts near-houses-at-minutes`, the first year on
+ * seed 7 found in which all 8 settlers live through the winter. Its commands at 08:00 on day 1 are #30's hut, barn,
+ * and lodge with their trees and rocks, 4.2's stockpile, and four houses on the places nearest the camp, each with the
+ * 6 nearest trees and a rock tile, in the script's order. Its woodshed and 9 trees follow at 06:17 on day 5, the first
+ * minute after no site lacks a log. Every pixel comes from `scripts/aim.ts` at `HIDES_YEAR_VIEW`, with the tiles that
+ * `scripts/firewood-years.ts` gives, and each picks its own tile.
+ */
+const FIREWOOD_YEAR_SAID = {
+  KeyC: /^1 tree marked for felling/,
+  KeyM: /^1 rock tile marked for quarrying/,
+  KeyP: /^9 tiles join the stockpile zone/,
+  KeyG: /^Forager's hut site placed/,
+  KeyB: /^Barn site placed/,
+  KeyL: /^Hunter's lodge site placed/,
+  KeyH: /^House site placed/,
+  KeyK: /^Woodshed site placed/,
+};
+const FIREWOOD_YEAR_START = [
+  ['KeyG', {x:595,y:311}],
+  ['KeyC', {x:597,y:327}, {x:597,y:327}],
+  ['KeyC', {x:604,y:338}, {x:604,y:338}],
+  ['KeyC', {x:554,y:330}, {x:554,y:330}],
+  ['KeyC', {x:548,y:359}, {x:548,y:359}],
+  ['KeyB', {x:629,y:320}],
+  ['KeyC', {x:594,y:352}, {x:594,y:352}],
+  ['KeyC', {x:637,y:307}, {x:637,y:307}],
+  ['KeyC', {x:641,y:301}, {x:641,y:301}],
+  ['KeyC', {x:615,y:341}, {x:615,y:341}],
+  ['KeyC', {x:648,y:310}, {x:648,y:310}],
+  ['KeyC', {x:632,y:336}, {x:632,y:336}],
+  ['KeyC', {x:578,y:378}, {x:578,y:378}],
+  ['KeyC', {x:655,y:284}, {x:655,y:284}],
+  ['KeyM', {x:521,y:194}, {x:521,y:194}],
+  ['KeyL', {x:467,y:276}],
+  ['KeyC', {x:618,y:359}, {x:618,y:359}],
+  ['KeyC', {x:660,y:313}, {x:660,y:313}],
+  ['KeyC', {x:652,y:271}, {x:652,y:271}],
+  ['KeyC', {x:639,y:346}, {x:639,y:346}],
+  ['KeyM', {x:517,y:184}, {x:517,y:184}],
+  ['KeyP', {x:539,y:286}, {x:549,y:305}],
+  ['KeyH', {x:526,y:258}],
+  ['KeyC', {x:630,y:362}, {x:630,y:362}],
+  ['KeyC', {x:668,y:323}, {x:668,y:323}],
+  ['KeyC', {x:579,y:401}, {x:579,y:401}],
+  ['KeyC', {x:677,y:288}, {x:677,y:288}],
+  ['KeyC', {x:637,y:376}, {x:637,y:376}],
+  ['KeyC', {x:681,y:349}, {x:681,y:349}],
+  ['KeyM', {x:537,y:198}, {x:537,y:198}],
+  ['KeyH', {x:475,y:254}],
+  ['KeyC', {x:668,y:374}, {x:668,y:374}],
+  ['KeyC', {x:708,y:300}, {x:708,y:300}],
+  ['KeyC', {x:704,y:333}, {x:704,y:333}],
+  ['KeyC', {x:697,y:347}, {x:697,y:347}],
+  ['KeyC', {x:658,y:396}, {x:658,y:396}],
+  ['KeyC', {x:686,y:369}, {x:686,y:369}],
+  ['KeyM', {x:530,y:187}, {x:530,y:187}],
+  ['KeyH', {x:493,y:308}],
+  ['KeyC', {x:593,y:430}, {x:593,y:430}],
+  ['KeyC', {x:682,y:378}, {x:682,y:378}],
+  ['KeyC', {x:630,y:422}, {x:630,y:422}],
+  ['KeyC', {x:720,y:302}, {x:720,y:302}],
+  ['KeyC', {x:713,y:344}, {x:713,y:344}],
+  ['KeyC', {x:711,y:272}, {x:711,y:272}],
+  ['KeyM', {x:522,y:179}, {x:522,y:179}],
+  ['KeyH', {x:563,y:277}],
+  ['KeyC', {x:699,y:373}, {x:699,y:373}],
+  ['KeyC', {x:726,y:290}, {x:726,y:290}],
+  ['KeyC', {x:619,y:440}, {x:619,y:440}],
+  ['KeyC', {x:733,y:334}, {x:733,y:334}],
+  ['KeyC', {x:716,y:370}, {x:716,y:370}],
+  ['KeyC', {x:722,y:275}, {x:722,y:275}],
+];
+const FIREWOOD_YEAR_SHED = [
+  ['KeyK', {x:496,y:235}],
+  ['KeyC', {x:717,y:263}, {x:717,y:263}],
+  ['KeyC', {x:709,y:385}, {x:709,y:385}],
+  ['KeyC', {x:744,y:308}, {x:744,y:308}],
+  ['KeyC', {x:747,y:302}, {x:747,y:302}],
+  ['KeyC', {x:568,y:472}, {x:568,y:472}],
+  ['KeyC', {x:751,y:325}, {x:751,y:325}],
+  ['KeyC', {x:736,y:272}, {x:736,y:272}],
+  ['KeyC', {x:582,y:478}, {x:582,y:478}],
+  ['KeyC', {x:730,y:259}, {x:730,y:259}],
+];
+/**
+ * In `src/sim` with the same commands at the same ticks, at 12:00 on day 10 the reading is 4 of 4 households in a
+ * house, 2 of 4 houses with 6 firewood, 0 of 8 in clothing, and 0 cold tonight, with no camp fire row; at 17:00 on
+ * day 10, 4 of 4 houses with firewood; and at 05:00 on day 13, after the last winter night, 8 settlers live, 5 with a
+ * job and 3 with none, with 33 food in the barn and at the camp and 16 in homes.
+ */
+const FIREWOOD_YEAR_STOPS = { shed: { day: 5, time: '06:17' }, noon: { day: 10, time: '12:00' }, dusk: { day: 10, time: '17:00' }, end: { day: 13, time: '05:00' } };
+
+SCENARIOS['firewood-year'] = async (session) => {
+  const { said } = siteDriver(session);
+  const { stockpiles } = hungerDriver(session);
+  const { page } = await session.open(CLIP, { search: '?seed=7', clock: 'paused' });
+  const at = async () => clockText(await session.gameMinutes(page));
+  const rowsOf = (locator) =>
+    locator.evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { shown: !node.hidden, title: node.querySelector('p')?.textContent.trim() ?? '', rows };
+    });
+  const reading = () => rowsOf(page.getByRole('status', { name: 'Winter readiness', includeHidden: true }));
+  const text = (read) => [read.title, ...Object.entries(read.rows).map(([name, value]) => `${name}: ${value}`)].join('; ');
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const give = async (orders) => {
+    const wrong = [];
+    for (const [key, from, to] of orders) {
+      await page.keyboard.press(key);
+      if (to) await session.drag(page, from, to);
+      else {
+        await page.mouse.move(from.x, from.y, { steps: 3 });
+        await page.mouse.down();
+        await page.mouse.up();
+      }
+      const line = await said(page, FIREWOOD_YEAR_SAID[key]);
+      if (!FIREWOOD_YEAR_SAID[key].test(line)) wrong.push(`${key} at ${from.x},${from.y}: "${line}"`);
+      await page.keyboard.press('Escape');
+    }
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    return wrong;
+  };
+  const startAt = await at();
+  const wrongStart = await give(FIREWOOD_YEAR_START);
+  session.check(
+    `at ${startAt} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says, with the clock paused`,
+    wrongStart.length === 0 && (await at()) === startAt,
+    wrongStart.length === 0 ? `${FIREWOOD_YEAR_START.length} orders at ${await at()}` : wrongStart.join(' | '),
+  );
+  await session.reach(page, FIREWOOD_YEAR_STOPS.shed);
+  const shedAt = await at();
+  const wrongShed = await give(FIREWOOD_YEAR_SHED);
+  session.check(
+    `at ${shedAt} the woodshed and its 9 trees are given, each as its status line says`,
+    wrongShed.length === 0,
+    wrongShed.length === 0 ? `${FIREWOOD_YEAR_SHED.length} orders at ${await at()}` : wrongShed.join(' | '),
+  );
+  await session.reach(page, FIREWOOD_YEAR_STOPS.noon);
+  await session.still(page);
+  const noon = await reading();
+  await session.screenshot(page, 'firewood-year-day-10');
+  session.check(
+    `at ${await at()} the reading shows 4 of 4 households housed, 2 of 4 houses with firewood, 0 of 8 in clothing, 0 cold tonight, and no camp fire row`,
+    noon.shown && noon.rows['Households in a house'] === '4 of 4' && noon.rows['Houses with firewood'] === '2 of 4' &&
+      noon.rows['Settlers in clothing'] === '0 of 8' && noon.rows['Cold tonight'] === '0' && !('Camp fire' in noon.rows),
+    text(noon),
+  );
+  await session.reach(page, FIREWOOD_YEAR_STOPS.dusk);
+  const dusk = await reading();
+  session.check(`at ${await at()} the reading shows 4 of 4 houses with firewood and 0 cold tonight`, dusk.rows['Houses with firewood'] === '4 of 4' && dusk.rows['Cold tonight'] === '0', text(dusk));
+  await session.reach(page, FIREWOOD_YEAR_STOPS.end);
+  await session.still(page);
+  const end = await rowsOf(stockpiles(page));
+  const gone = await reading();
+  await session.screenshot(page, 'firewood-year-end');
+  const living = Number(end.rows['Settlers with a job']) + Number(end.rows['Settlers with no job']);
+  session.check(
+    `at ${await at()}, after the last winter night, 8 settlers live, 5 with a job and 3 with none, with 33 food in the barn and at the camp and 16 in homes, and the reading is gone`,
+    living === 8 && end.rows['Settlers with a job'] === '5' && end.rows['Barn and camp food'] === '33' && end.rows['Food in homes'] === '16' && !gone.shown,
+    `${Object.entries(end.rows).map(([name, value]) => `${name}: ${value}`).join('; ')}; reading ${gone.shown ? 'shown' : 'hidden'}`,
+  );
+};
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
   if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);
