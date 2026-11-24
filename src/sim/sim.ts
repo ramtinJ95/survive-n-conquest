@@ -1,4 +1,4 @@
-import { bornAt, lifeSpan, startingAge } from './aging';
+import { WORK_AGE, bornAt, lifeSpan, startingAge } from './aging';
 import { type Animals, createAnimals, moveAnimals } from './animals';
 import { type SiteTasks, createSiteTasks, resetSite } from './building';
 import { TICKS_PER_SECOND } from './calendar';
@@ -194,6 +194,8 @@ export interface Tally {
   dressed: number;
   /** Children born. */
   births: number;
+  /** Children who started to work. */
+  startedWork: number;
 }
 
 export interface Sim {
@@ -235,9 +237,6 @@ export interface Sim {
   speed: Speed;
   paused: boolean;
 }
-
-/** A villager starts to work at this age. A child is younger. */
-export const WORK_AGE = 10;
 
 /**
  * The households a map starts with, as stated or, by default, by the seed:
@@ -316,6 +315,7 @@ export function createSim(source: TileMap, population: Population): Sim {
       felled: 0, quarried: 0, stocked: 0, delivered: 0, built: 0, meals: 0, missed: 0, carriedHome: 0, died: 0,
       foraged: 0, foragedIn: 0, fromGround: 0, toCamp: 0, shots: 0, kills: 0, hunted: 0, huntedIn: 0, hides: 0, spoiled: 0,
       batches: 0, made: 0, starved: 0, froze: 0, oldAge: 0, coldNights: 0, fires: 0, burnt: 0, firewoodHome: 0, firewoodToCamp: 0, dressed: 0, births: 0,
+      startedWork: 0,
     },
     tick: 0,
     dawns: 0,

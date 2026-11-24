@@ -1,4 +1,6 @@
 import { TICKS_PER_YEAR_OF_AGE } from './calendar';
+import { startWorking } from './households';
+import { fillPlaces } from './jobs';
 import { hashUnit } from './noise';
 import type { Sim } from './sim';
 import { Cause, VillagerState } from './villagerState';
@@ -6,6 +8,10 @@ import { type Villagers, die } from './villagers';
 
 /** A starting settler's age is a whole number of years in this range, every age as likely as another. */
 export const STARTING_AGES = [18, 30] as const;
+/** A villager starts to work at the first dawn at which it is this old. A child is younger. */
+export const WORK_AGE = 10;
+/** A settler is grown at this age. */
+export const GROWN_AGE = 16;
 /** A villager's life span is a whole number of years in this range, every number as likely as another. */
 export const LIFE_SPANS = [60, 80] as const;
 
@@ -49,4 +55,21 @@ export function dieOfOldAge(sim: Sim): void {
     sim.tally.oldAge += 1;
     die(sim, id, Cause.OldAge);
   }
+}
+
+/**
+ * Every living child of `WORK_AGE` or older starts to work, step 3 of a dawn.
+ * Its household counts it among its workers, and the open places at the
+ * workplaces are filled by the nearest rule, now that it can take one.
+ */
+export function startWork(sim: Sim): void {
+  const { villagers } = sim;
+  const started = sim.tally.startedWork;
+  for (let id = 0; id < villagers.count; id++) {
+    if (villagers.child[id] === 0 || villagers.state[id] === VillagerState.Dead) continue;
+    if (sim.tick - villagers.born[id]! < WORK_AGE * TICKS_PER_YEAR_OF_AGE) continue;
+    startWorking(sim.households, villagers, id);
+    sim.tally.startedWork += 1;
+  }
+  if (sim.tally.startedWork !== started) fillPlaces(sim);
 }
