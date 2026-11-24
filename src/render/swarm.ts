@@ -15,7 +15,7 @@ import { Good } from '../sim/goods';
 import { heightAt, type TileMap } from '../sim/map';
 import { hashUnit } from '../sim/noise';
 import type { Population } from '../sim/sim';
-import { VillagerState } from '../sim/villagerState';
+import { VILLAGER_ROWS, VillagerState } from '../sim/villagerState';
 import { type Shapes, colored, firewoodShape, foodShape, hideShape, shapeMaterial } from './shapes';
 
 /** Villagers wear a saturated yellow and monsters a deep red, so neither reads as grass, sand, rock, or water from afar. */
@@ -121,21 +121,21 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
   const half = map.size / 2;
   const campX = (camp % map.size) + 0.5;
   const campY = Math.floor(camp / map.size) + 0.5;
-  const villagers = group('villagers', bodyGeometry(), shapeMaterial(), population.villagers);
-  const hoods = group('villager hoods', hoodGeometry(), shapeMaterial(), population.villagers);
-  const arms = group('villager arms', armGeometry(), shapeMaterial(), population.villagers * 2);
-  const legs = group('villager legs', legGeometry(), shapeMaterial(), population.villagers * 2);
+  const villagers = group('villagers', bodyGeometry(), shapeMaterial(), VILLAGER_ROWS);
+  const hoods = group('villager hoods', hoodGeometry(), shapeMaterial(), VILLAGER_ROWS);
+  const arms = group('villager arms', armGeometry(), shapeMaterial(), VILLAGER_ROWS * 2);
+  const legs = group('villager legs', legGeometry(), shapeMaterial(), VILLAGER_ROWS * 2);
   const monsters = group(
     'monsters',
     new ConeGeometry(0.55, 1.5, 5).translate(0, 0.75, 0),
     new MeshLambertMaterial({ color: MONSTER_COLOR, flatShading: true }),
     population.monsters,
   );
-  const carriedLogs = group('carried logs', shapes.log, shapeMaterial(), population.villagers);
-  const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), population.villagers);
-  const carriedFood = group('carried food', foodShape(), shapeMaterial(), population.villagers);
-  const carriedHides = group('carried hides', hideShape(), shapeMaterial(), population.villagers);
-  const carriedFirewood = group('carried firewood', firewoodShape(), shapeMaterial(), population.villagers);
+  const carriedLogs = group('carried logs', shapes.log, shapeMaterial(), VILLAGER_ROWS);
+  const carriedStone = group('carried stone', shapes.stone, shapeMaterial(), VILLAGER_ROWS);
+  const carriedFood = group('carried food', foodShape(), shapeMaterial(), VILLAGER_ROWS);
+  const carriedHides = group('carried hides', hideShape(), shapeMaterial(), VILLAGER_ROWS);
+  const carriedFirewood = group('carried firewood', firewoodShape(), shapeMaterial(), VILLAGER_ROWS);
   const carriedMeshes = [carriedLogs, carriedStone, carriedFood, carriedHides, carriedFirewood];
   const posed = [villagers, hoods, arms, legs, ...carriedMeshes];
   const held: Readonly<Record<Good, InstancedMesh | null>> = {
@@ -148,10 +148,10 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     [Good.Clothing]: null,
   };
 
-  const sizes = Float32Array.from({ length: population.villagers }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));
-  const facing = new Float32Array(population.villagers);
-  const last = new Float32Array(population.villagers * 2);
-  const walking = new Uint8Array(population.villagers);
+  const sizes = Float32Array.from({ length: VILLAGER_ROWS }, (_, id) => 1 + SIZE_SPREAD * (2 * hashUnit(0x5e77, id, 0) - 1));
+  const facing = new Float32Array(VILLAGER_ROWS);
+  const last = new Float32Array(VILLAGER_ROWS * 2);
+  const walking = new Uint8Array(VILLAGER_ROWS);
   let shown = -1;
   const pose = new Object3D();
   pose.rotation.order = 'YXZ';

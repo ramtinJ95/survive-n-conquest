@@ -17,14 +17,15 @@ import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { Claim, MAX_SITES, SiteState } from '../src/sim/orders';
 import { type Readiness, readinessOf } from '../src/sim/readiness';
-import { BENCHMARK_POPULATION, type Population, type Sim, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
+import { BENCHMARK_POPULATION, type Population, type Sim, type StartingHousehold, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
 import { STOCKING } from '../src/sim/stocking';
-import { COLD } from '../src/sim/needs';
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
+import { Sex } from '../src/sim/names';
+import { die } from '../src/sim/villagers';
 import { WEARING } from '../src/sim/wearing';
 import { Stop, WORKSHOP } from '../src/sim/workshops';
 
@@ -102,6 +103,44 @@ const TAILOR_BESIDE_LODGE = 3;
  */
 const WINTER = { warmupTicks: 9 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: 20_000 };
 const RUNS = process.argv.includes('--no-winter') ? ['spring'] : ['spring', 'winter'];
+/** The youngest and the oldest age of the settlement in its later years, every age between as likely as another. */
+const AGES = { youngest: 16, oldest: 75 };
+/**
+ * Of the settlers of 60 or older, one in `NEAR_END.every` has a span one year above its age, so it reaches the span at
+ * tick 7,200 and dies at the dawn of day 4, in the spring run's measured ticks. Another one in as many has a span four
+ * years above, reached at tick 28,800, and dies at the dawn of day 11, in the winter run's.
+ */
+const NEAR_END = { every: 8, springYears: 1, winterYears: 4, fromAge: 60 };
+/** Every other settler lives at least this many years past its age, so it dies of nothing but hunger and cold here. */
+const LEAST_YEARS_LEFT = 5;
+/** `--dead-rows` adds this many settlers after the living ones and kills them before the first tick. */
+const DEAD_ROWS = process.argv.includes('--dead-rows') ? 1_500 : 0;
+
+/** `count` settlers in couples, ids from `first`, of every age from `AGES.youngest` to `AGES.oldest`, with stated spans. */
+function laterYears(count: number, first: number): StartingHousehold[] {
+  const span = (id: number, age: number) => {
+    if (age >= NEAR_END.fromAge && id % NEAR_END.every === 0) return age + NEAR_END.springYears;
+    if (age >= NEAR_END.fromAge && id % NEAR_END.every === NEAR_END.every / 2) return age + NEAR_END.winterYears;
+    return Math.max(age + LEAST_YEARS_LEFT, 60 + ((id * 13) % 21));
+  };
+  const range = AGES.oldest - AGES.youngest + 1;
+  return Array.from({ length: count / 2 }, (_, h) => {
+    const id = first + 2 * h;
+    const man = AGES.youngest + ((id * 29) % range);
+    const woman = Math.min(Math.max(man - 2 + (h % 5), AGES.youngest), AGES.oldest);
+    return [
+      { sex: Sex.Man, age: man, span: span(id, man) },
+      { sex: Sex.Woman, age: woman, span: span(id + 1, woman) },
+    ];
+  });
+}
+
+/** The settlement in its later years: the benchmark's living settlers, then `DEAD_ROWS` more who die before the first tick. */
+const LATER_YEARS: Population = {
+  ...BENCHMARK_POPULATION,
+  villagers: BENCHMARK_POPULATION.villagers + DEAD_ROWS,
+  settlers: [...laterYears(BENCHMARK_POPULATION.villagers, 0), ...laterYears(DEAD_ROWS, BENCHMARK_POPULATION.villagers)],
+};
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const EAT = TASK_KINDS.indexOf(EATING) + 1;
@@ -133,9 +172,9 @@ function quantile(sorted: Float64Array, q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)]!;
 }
 
-function offLand(map: TileMap, x: Float32Array, y: Float32Array): number {
+function offLand(map: TileMap, x: Float32Array, y: Float32Array, rows = x.length): number {
   let count = 0;
-  for (let id = 0; id < x.length; id++) {
+  for (let id = 0; id < rows; id++) {
     const inside = x[id]! >= 0 && y[id]! >= 0 && x[id]! < map.size && y[id]! < map.size;
     if (!inside || !walkable(map, tileAt(map, x[id]!, y[id]!))) count++;
   }
@@ -187,7 +226,7 @@ function tailorClothing(sim: Sim): number {
 /** The living villagers that wear clothing. */
 function clothed(sim: Sim): number {
   let count = 0;
-  for (let id = 0; id < sim.villagers.state.length; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) count++;
+  for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) count++;
   return count;
 }
 
@@ -202,7 +241,7 @@ function stockedHides(sim: Sim): number {
 /** Living villagers who hold a job. */
 function holding(sim: Sim, job: Job): number {
   let count = 0;
-  for (let id = 0; id < sim.villagers.state.length; id++) if (sim.villagers.state[id] !== VillagerState.Dead && jobOf(sim, id) === job) count++;
+  for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && jobOf(sim, id) === job) count++;
   return count;
 }
 
@@ -213,15 +252,16 @@ function inside(sim: Sim): number {
 function hungry(sim: Sim): number {
   const { missedMeals, state } = sim.villagers;
   let count = 0;
-  for (let id = 0; id < state.length; id++) if (missedMeals[id]! > 0 && state[id] !== VillagerState.Dead) count++;
+  for (let id = 0; id < sim.villagers.count; id++) if (missedMeals[id]! > 0 && state[id] !== VillagerState.Dead) count++;
   return count;
 }
 
+/** Living villagers on their spot at the camp. */
 function atCamp(sim: Sim): number {
   let count = 0;
-  for (let id = 0; id < sim.villagers.x.length; id++) {
-    const { x, y, spotX, spotY } = sim.villagers;
-    if (x[id] === spotX[id] && y[id] === spotY[id]) count++;
+  for (let id = 0; id < sim.villagers.count; id++) {
+    const { x, y, spotX, spotY, state } = sim.villagers;
+    if (state[id] !== VillagerState.Dead && x[id] === spotX[id] && y[id] === spotY[id]) count++;
   }
   return count;
 }
@@ -300,9 +340,10 @@ function readingCost(sim: Sim): { median: number; max: number; of: Readiness } |
 
 function measure(size: number, run: string): boolean {
   const winter = run === 'winter';
-  const population = winter ? { ...BENCHMARK_POPULATION, campFood: WINTER.campFood } : BENCHMARK_POPULATION;
+  const population = winter ? { ...LATER_YEARS, campFood: WINTER.campFood } : LATER_YEARS;
   const setupStart = performance.now();
   const { sim, sites, huts, barns, lodges, woodsheds, tailors } = setUp(size, population);
+  for (let id = BENCHMARK_POPULATION.villagers; id < sim.villagers.count; id++) die(sim, id, Cause.OldAge);
   const setupMs = performance.now() - setupStart;
 
   const warmup = winter ? WINTER.warmupTicks : WARMUP_TICKS;
@@ -332,15 +373,18 @@ function measure(size: number, run: string): boolean {
   const deerBefore = sim.animals.living[AnimalKind.Deer]!;
   const samples = new Float64Array(MEASURED_TICKS);
   const { task, taskTile, destination } = sim.villagers;
-  const heldTask = new Uint8Array(task.length);
-  const lastTask = Uint8Array.from(task);
+  const rows = sim.villagers.count;
+  const heldTask = new Uint8Array(rows);
+  const lastTask = task.slice(0, rows);
   const { state, workplace, x: villagerX, y: villagerY } = sim.villagers;
-  const lastWorkplace = Int16Array.from(workplace);
-  const lastState = Uint8Array.from(state);
+  const lastWorkplace = workplace.slice(0, rows);
+  const lastState = state.slice(0, rows);
   const campX = (sim.flow.goal % size) + 0.5;
   const campY = Math.floor(sim.flow.goal / size) + 0.5;
-  const deaths = { away: 0, atStore: 0, starvedAway: 0, starvedHome: 0, frozeAway: 0, frozeHome: 0, foragers: 0, hunters: 0, farthest: 0 };
-  const lastMissed = Uint8Array.from(sim.villagers.missedMeals);
+  const deaths = { away: 0, atStore: 0, starvedAway: 0, starvedHome: 0, frozeAway: 0, frozeHome: 0, oldAge: 0, foragers: 0, hunters: 0, farthest: 0 };
+  const livingBefore = sim.living;
+  let mostLiving = sim.living;
+  const lastMissed = sim.villagers.missedMeals.slice(0, rows);
   let mealsByDay = 0;
   const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
   const toStockpile: Trips = { count: 0, length: 0 };
@@ -373,13 +417,16 @@ function measure(size: number, run: string): boolean {
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
-    for (let id = 0; id < state.length; id++) {
+    for (let id = 0; id < rows; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
-        const froze = sim.villagers.coldNights[id]! >= COLD.diesAt;
-        if (dawnTick) deaths.away++;
-        else deaths.atStore++;
-        if (froze) deaths[dawnTick ? 'frozeAway' : 'frozeHome']++;
-        else deaths[dawnTick ? 'starvedAway' : 'starvedHome']++;
+        const cause = sim.villagers.cause[id];
+        if (cause === Cause.OldAge) deaths.oldAge++;
+        else {
+          if (dawnTick) deaths.away++;
+          else deaths.atStore++;
+          if (cause === Cause.Cold) deaths[dawnTick ? 'frozeAway' : 'frozeHome']++;
+          else deaths[dawnTick ? 'starvedAway' : 'starvedHome']++;
+        }
         const job = lastWorkplace[id]! < 0 ? Job.None : BUILDINGS[sim.orders.sites.kind[lastWorkplace[id]!] as Building].job;
         if (job === Job.Forager) deaths.foragers++;
         if (job === Job.Hunter) deaths.hunters++;
@@ -390,6 +437,7 @@ function measure(size: number, run: string): boolean {
       lastState[id] = state[id]!;
       lastWorkplace[id] = workplace[id]!;
     }
+    mostLiving = Math.max(mostLiving, sim.living);
     if (turn && turnLeft-- > 0) turns[turn][turnCount[turn] - 1] = Math.max(turns[turn][turnCount[turn] - 1]!, samples[tick]!);
     for (let slot = 0; slot < sim.orders.sites.used; slot++) {
       if (sim.orders.sites.state[slot] !== SiteState.Built) continue;
@@ -410,7 +458,7 @@ function measure(size: number, run: string): boolean {
       midnights[nights++] = atCamp(sim);
     }
     const day = !isNight(sim.tick - 1);
-    for (let id = 0; id < task.length; id++) {
+    for (let id = 0; id < rows; id++) {
       const taken = task[id] !== lastTask[id] && taskTile[id]! >= 0;
       if (taken && task[id] === EAT && turn === 'dawn' && turnLeft >= 0) {
         dawnMeals.walks++;
@@ -429,7 +477,7 @@ function measure(size: number, run: string): boolean {
       if (day) dayKindTicks[task[id]!]++;
     }
     if (!day) continue;
-    dayVillagerTicks += task.length;
+    dayVillagerTicks += rows - DEAD_ROWS;
     fewestOpen = Math.min(fewestOpen, sim.gathering.count);
     for (let good = 0; good < GOOD_NAMES.length; good++) fewestRoom[good] = Math.min(fewestRoom[good]!, sim.goods.room[good]!.count);
   }
@@ -440,7 +488,7 @@ function measure(size: number, run: string): boolean {
   const hunt = Object.fromEntries(HUNTED.map((name) => [name, sim.tally[name] - tallyBefore[name]])) as Record<(typeof HUNTED)[number], number>;
   const count = (flags: Uint8Array) => flags.reduce((total, flag) => total + flag, 0);
   const allWork = TALLIED.every((name) => work[name] > 0);
-  const villagers = task.length;
+  const villagers = rows - DEAD_ROWS;
   const percent = (part: number, whole: number) => `${((part / whole) * 100).toFixed(1)}%`;
 
   samples.sort();
@@ -448,7 +496,8 @@ function measure(size: number, run: string): boolean {
   const p99 = quantile(samples, 0.99);
   const busy = dayTaskTicks / dayVillagerTicks;
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
-  const pass = p99 < LIMIT_MS && (winter || (workHeld && allWork));
+  const livingLimit = population.mostLiving!;
+  const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (workHeld && allWork));
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
@@ -488,9 +537,14 @@ function measure(size: number, run: string): boolean {
       `a straight line of ${(dawnMeals.length / Math.max(dawnMeals.walks, 1)).toFixed(1)} tiles on average to the store`,
   );
   console.log(
-    `  deaths in the measured ticks: ${deaths.away} at a dawn, away from home, and ${deaths.atStore} at a dusk, as they came home; ` +
+    `  deaths in the measured ticks: ${deaths.oldAge} of old age at a dawn; of hunger and cold ${deaths.away} at a dawn, away from home, and ${deaths.atStore} at a dusk, as they came home; ` +
       `starved ${deaths.starvedAway} at a dawn and ${deaths.starvedHome} at a dusk, froze ${deaths.frozeAway} at a dawn and ${deaths.frozeHome} at a dusk; ` +
       `${deaths.foragers} of them foragers and ${deaths.hunters} hunters; the farthest ${deaths.farthest.toFixed(0)} tiles from the camp center`,
+  );
+  const tableBytes = Object.values(sim.villagers).reduce((bytes, column) => bytes + (ArrayBuffer.isView(column) ? column.byteLength : 0), 0);
+  console.log(
+    `  the living: ${livingBefore} at the start of the measured ticks, at most ${mostLiving}, and ${sim.living} at the end, against the limit of ${livingLimit.toLocaleString('en-US')}: ${mostLiving <= livingLimit ? 'PASS' : 'FAIL'}; ` +
+      `${sim.villagers.count} of the table's ${sim.villagers.x.length} rows in use, ${DEAD_ROWS} of them dead before the first tick; the villagers table takes ${(tableBytes / 2 ** 20).toFixed(2)} MiB`,
   );
   console.log(
     `  warmth in the measured ticks: ${warmed.coldNights} cold nights, ${warmed.froze} froze and ${warmed.starved} starved, ${warmed.fires} fires lit burning ${warmed.burnt} firewood, ` +
@@ -575,7 +629,7 @@ function measure(size: number, run: string): boolean {
       `households with a home at the end: ${sim.households.home.reduce((count, home) => count + (home === NO_HOME ? 0 : 1), 0)} of ${sim.households.count}`,
   );
   console.log(
-    `  units off land at the end: ${offLand(sim.map, sim.villagers.x, sim.villagers.y) + offLand(sim.map, sim.monsters.x, sim.monsters.y)}; ` +
+    `  units off land at the end: ${offLand(sim.map, sim.villagers.x, sim.villagers.y, rows) + offLand(sim.map, sim.monsters.x, sim.monsters.y)}; ` +
       `camp ${Math.hypot(goalX, goalY).toFixed(1)} tiles from the center; setup ${ms(setupMs)}`,
   );
   return pass;
@@ -588,7 +642,8 @@ console.log(
     `${platform()} ${arch()}, bun ${Bun.version}, load average ${loadavg().map((load) => load.toFixed(2)).join(' ')}`,
 );
 console.log(
-  `load: ${BENCHMARK_POPULATION.villagers} villagers and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
+  `load: ${BENCHMARK_POPULATION.villagers} villagers in couples of every age from ${AGES.youngest} to ${AGES.oldest}, one in ${NEAR_END.every} of those of ${NEAR_END.fromAge} or older ${NEAR_END.springYears} year from its span and another ${NEAR_END.winterYears}, ` +
+    `${DEAD_ROWS ? `${DEAD_ROWS} dead rows after them, ` : ''}and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
     `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, and ${TAILOR_GRID * TAILOR_GRID} tailor's hut sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks in the spring run and ${WINTER.warmupTicks} in the winter run, then ${MEASURED_TICKS} measured ticks`,
 );

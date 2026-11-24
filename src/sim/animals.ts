@@ -2,7 +2,7 @@ import { TICKS_PER_SECOND } from './calendar';
 import { TileKind, type TileMap, tileAt } from './map';
 import { hash } from './noise';
 import type { Sim } from './sim';
-import { VillagerState } from './villagerState';
+import { VILLAGER_ROWS, VillagerState } from './villagerState';
 
 export const AnimalKind = { Deer: 0 } as const;
 export type AnimalKind = (typeof AnimalKind)[keyof typeof AnimalKind];
@@ -158,11 +158,11 @@ export function removeAnimal(animals: Animals, row: number): void {
 }
 
 /**
- * Starts the table on a map for `villagers` villagers: of each kind, one
+ * Starts the table on a map: of each kind, one
  * animal for every `perLandTiles` tiles that are not water, each on a random
  * tile of grass or forest, grazing. A row that finds no such tile stays free.
  */
-export function createAnimals(map: TileMap, villagers: number, wild = true): Animals {
+export function createAnimals(map: TileMap, wild = true): Animals {
   const cells = Math.ceil(map.size / CELL);
   const animals: Animals = {
     kind: new Uint8Array(MAX_ANIMALS),
@@ -182,7 +182,7 @@ export function createAnimals(map: TileMap, villagers: number, wild = true): Ani
     shots: 0,
     cells,
     cellHead: new Int32Array(cells * cells).fill(-1),
-    cellNext: new Int32Array(villagers).fill(-1),
+    cellNext: new Int32Array(VILLAGER_ROWS).fill(-1),
   };
   const tiles = map.size * map.size;
   let land = 0;
@@ -312,7 +312,7 @@ function gridVillagers(sim: Sim): void {
   const { animals, villagers } = sim;
   const { cellHead, cellNext, cells } = animals;
   cellHead.fill(-1);
-  for (let id = 0; id < villagers.state.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     const state = villagers.state[id];
     if (state === VillagerState.Inside || state === VillagerState.Dead) continue;
     const cell = Math.floor(villagers.y[id]! / CELL) * cells + Math.floor(villagers.x[id]! / CELL);

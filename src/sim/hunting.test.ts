@@ -76,7 +76,7 @@ function huntUntilShot(sim: Sim, deer: number): { aimFrom: number; aimTicks: num
 describe('a hunter', () => {
   it("takes a place at a finished hunter's lodge as a settler without a job does at a hut", () => {
     const { sim, slot } = lodge(3);
-    expect(Array.from(sim.villagers.workplace).filter((place) => place === slot).length).toBe(2);
+    expect(Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count)).filter((place) => place === slot).length).toBe(2);
     expect([0, 1, 2].map((id) => jobOf(sim, id)).filter((job) => job === Job.Hunter).length).toBe(2);
   });
 

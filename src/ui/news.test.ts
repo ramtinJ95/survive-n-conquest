@@ -6,14 +6,14 @@ import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { Good, type Unit, putDown } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
-import { type Sex, nameOf } from '../sim/names';
+import { Sex, nameOf } from '../sim/names';
 import { HUNGER } from '../sim/needs';
 import { die } from '../sim/villagers';
 import { createOrders } from '../sim/orders';
 import { SETTLERS, type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { CAMP_STORE } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
-import { VillagerState } from '../sim/villagerState';
+import { Cause, VillagerState } from '../sim/villagerState';
 import { LINE_MS, createNews, listNames } from './news';
 
 /** Runs a simulation, hearing a frame after every tick at 100 ms of wall time apiece, and keeps every line the news ever showed in its last words. */
@@ -42,6 +42,14 @@ describe('listNames', () => {
 });
 
 describe('the settlement news', () => {
+  it('names a settler that died of old age at the dawn it died', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [[{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22 }], [{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 20 }]];
+    const sim = createSim(map, { villagers: 4, monsters: 0, campFood: 200, animals: false, settlers });
+    const { said } = listen(sim, 3000 * 4);
+    expect(said).toEqual(['Day 4, 03:36. Ulvar died of old age.']);
+  });
+
   it('says on seed 7 with no orders who went hungry on day 4 and who starved on day 6, one line for each dusk', () => {
     const { said } = listen(createSim(generateMap(7), SETTLERS), 3000 * 7);
     expect(said).toEqual([
@@ -66,6 +74,7 @@ describe('the settlement news', () => {
     const frame = (tick: number, missedMeals: number[]) => ({
       tick,
       states: new Uint8Array(missedMeals.length),
+      causes: new Uint8Array(missedMeals.length),
       missedMeals: Uint8Array.from(missedMeals),
       coldNights: new Uint8Array(missedMeals.length),
       names: Uint16Array.from(missedMeals, (_, id) => id),
@@ -161,8 +170,7 @@ describe('the settlement news', () => {
         events.push(workers());
       } else if (sim.tick === 2000) {
         const [dead] = workers();
-        sim.villagers.missedMeals[dead!] = HUNGER.diesAt;
-        die(sim, dead!);
+        die(sim, dead!, Cause.Hunger);
         events.push([dead!, ...workers()]);
       }
     });
@@ -244,12 +252,12 @@ describe('the settlement news', () => {
   it('says a settler with two cold nights who starves on a winter night starved, and one who freezes there froze', () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 100, animals: false });
     while (!(dateAt(sim.tick).day === 12 && isNight(sim.tick) && tickOfDay(sim.tick) >= TICKS_PER_DAY / 2)) step(sim);
-    expect(Array.from(sim.villagers.coldNights)).toEqual([2, 2]);
+    expect(Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count))).toEqual([2, 2]);
     sim.villagers.missedMeals[0] = HUNGER.diesAt - 1;
     sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
     const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
     const { said } = listen(sim, TICKS_PER_DAY);
-    expect(Array.from(sim.villagers.state)).toEqual([VillagerState.Dead, VillagerState.Dead]);
+    expect(Array.from(sim.villagers.state.subarray(0, sim.villagers.count))).toEqual([VillagerState.Dead, VillagerState.Dead]);
     expect(sim.tally).toMatchObject({ starved: 1, froze: 1 });
     expect(said).toHaveLength(2);
     expect(said).toEqual(

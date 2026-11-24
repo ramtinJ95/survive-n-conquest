@@ -53,7 +53,7 @@ function foodOnGround(sim: Sim): number {
 function watchPicks(sim: Sim): { tiles: number[]; at: number[]; each: () => void } {
   const tiles: number[] = [];
   const ticks: number[] = [];
-  const held = Uint8Array.from(sim.villagers.task);
+  const held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
   return {
     tiles,
     at: ticks,
@@ -177,7 +177,7 @@ describe('a forager', () => {
     const far = at(sim.map, 10, 12);
     runUntil(sim, () => sim.foraging.progress[far]! > 0, TICKS_PER_DAY);
     applyCommand(sim, { kind: 'setPlaces', slot: first, places: 0 });
-    expect(Array.from(sim.villagers.workplace)).toEqual([sim.orders.siteOf[at(sim.map, 50, 50)], sim.orders.siteOf[at(sim.map, 50, 50)]]);
+    expect(Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count))).toEqual([sim.orders.siteOf[at(sim.map, 50, 50)], sim.orders.siteOf[at(sim.map, 50, 50)]]);
     untilDusk(sim);
     expect([sim.foraging.ripeAt[far], sim.foraging.taker[far]]).toEqual([0, -1]);
     expect(sim.foraging.ripeAt[at(sim.map, 52, 52)]).toBeGreaterThan(0);
@@ -226,7 +226,7 @@ describe('a forager', () => {
     finishBuilding(sim, sim.orders.siteOf[at(sim.map, 8, 30)]!);
     finishedHut(sim, 24, 14);
     const taken: number[] = [];
-    const held = Uint8Array.from(sim.villagers.task);
+    const held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
     untilDusk(sim, () => {
       for (const id of [0, 1]) {
         const task = sim.villagers.task[id]!;

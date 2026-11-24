@@ -57,7 +57,7 @@ function runUntil(sim: Sim, done: () => boolean, limit: number, each: () => void
   }
 }
 
-const ids = (sim: Sim) => Array.from(sim.villagers.task, (_, id) => id);
+const ids = (sim: Sim) => Array.from(sim.villagers.task.subarray(0, sim.villagers.count), (_, id) => id);
 const holding = (sim: Sim, kind: number) => ids(sim).filter((id) => sim.villagers.task[id] === kind);
 const slotAt = (sim: Sim, x: number, y: number) => sim.orders.siteOf[at(sim.map, x, y)]!;
 const units = (sim: Sim, slot: number, good: Good) => arrived(sim.map, sim.orders, slot, good);
@@ -71,12 +71,12 @@ function supplied(sim: Sim, id: number): Good {
 
 /** Calls `taken` with each villager whose task changed to `kind` on the last step, and the tile of that task. */
 function watchTakes(sim: Sim, kind: number, taken: (id: number, tile: number) => void): () => void {
-  let held = Uint8Array.from(sim.villagers.task);
+  let held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
   return () => {
-    sim.villagers.task.forEach((task, id) => {
+    sim.villagers.task.subarray(0, sim.villagers.count).forEach((task, id) => {
       if (task === kind && held[id] !== kind) taken(id, sim.villagers.taskTile[id]!);
     });
-    held = Uint8Array.from(sim.villagers.task);
+    held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
   };
 }
 
@@ -330,8 +330,8 @@ describe('a finished house', () => {
     const slot = slotAt(sim, 21, 15);
     runUntil(sim, () => sim.orders.sites.state[slot] === SiteState.Built, 3000);
     const isHouse = (x: number, y: number) => sim.map.kinds[at(sim.map, x, y)] === TileKind.Built;
-    const lastX = Float32Array.from(sim.villagers.x);
-    const lastY = Float32Array.from(sim.villagers.y);
+    const lastX = Float32Array.from(sim.villagers.x.subarray(0, sim.villagers.count));
+    const lastY = Float32Array.from(sim.villagers.y.subarray(0, sim.villagers.count));
     const trespasses: string[] = [];
     const stocked = () => stack(sim, 26, 14)[1]! + stack(sim, 26, 15)[1]! + stack(sim, 26, 16)[1]!;
     runUntil(
@@ -346,8 +346,8 @@ describe('a finished house', () => {
             trespasses.push(`villager ${id} on tick ${sim.tick}`);
           }
         }
-        lastX.set(sim.villagers.x);
-        lastY.set(sim.villagers.y);
+        lastX.set(sim.villagers.x.subarray(0, sim.villagers.count));
+        lastY.set(sim.villagers.y.subarray(0, sim.villagers.count));
       },
     );
     expect(trespasses).toEqual([]);
@@ -360,7 +360,7 @@ function everywhere(sim: Sim, good: Good): number {
   sim.map.stackSize.forEach((size, tile) => {
     if (sim.map.stackGood[tile] === good) count += size;
   });
-  return count + sim.villagers.carried.filter((carried) => carried === good).length;
+  return count + sim.villagers.carried.subarray(0, sim.villagers.count).filter((carried) => carried === good).length;
 }
 
 describe('a cancelled site', () => {

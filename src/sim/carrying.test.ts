@@ -64,7 +64,7 @@ function tally(sim: Sim, good: Good): { stockpiled: number; ground: number } {
   return { stockpiled, ground };
 }
 
-const villagerIds = (sim: Sim) => Array.from(sim.villagers.task, (_, id) => id);
+const villagerIds = (sim: Sim) => Array.from(sim.villagers.task.subarray(0, sim.villagers.count), (_, id) => id);
 const carriers = (sim: Sim) => villagerIds(sim).filter((id) => sim.villagers.task[id] === CARRY);
 const busy = (sim: Sim) => villagerIds(sim).filter((id) => sim.villagers.task[id] !== NO_TASK);
 /** The villagers that hold a carrying task for a unit on the tile and have not picked it up. */
@@ -74,13 +74,13 @@ const standsOn = (sim: Sim, id: number) => tileAt(sim.map, sim.villagers.x[id]!,
 
 /** Counts the carrying tasks taken while the simulation runs, from the villagers' task columns after each step. */
 function countTakes(sim: Sim): () => number {
-  let held = Uint8Array.from(sim.villagers.task);
+  let held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
   let takes = 0;
   return () => {
-    sim.villagers.task.forEach((task, id) => {
+    sim.villagers.task.subarray(0, sim.villagers.count).forEach((task, id) => {
       if (task === CARRY && held[id] !== CARRY) takes++;
     });
-    held = Uint8Array.from(sim.villagers.task);
+    held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
     return takes;
   };
 }
@@ -209,7 +209,7 @@ describe('carrying to a stockpile', () => {
     let unsettled = 0;
     for (let i = 0; i < 600; i++) {
       step(sim);
-      unsettled += sim.villagers.state.filter((state) => state !== VillagerState.Idle).length;
+      unsettled += sim.villagers.state.subarray(0, sim.villagers.count).filter((state) => state !== VillagerState.Idle).length;
     }
     expect(unsettled).toBe(0);
     expect(stacks(sim)).toEqual(before);

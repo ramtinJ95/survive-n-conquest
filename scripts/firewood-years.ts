@@ -256,7 +256,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
   const houses: number[] = [];
   const splitBySeason: number[] = [];
   const dusks: Row['dusks'] = [];
-  const cold = Array.from({ length: sim.villagers.state.length }, () => [] as number[]);
+  const cold = Array.from({ length: sim.villagers.count }, () => [] as number[]);
   const died: string[] = [];
   const arrivals = new Map<number, number>();
   const fires = new Map<number, number>();
@@ -305,7 +305,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
       }
       if (day === 10) {
         housesByDay10 = houses.length;
-        for (let id = 0; id < sim.villagers.state.length; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) clothedAtDay10 += 1;
+        for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) clothedAtDay10 += 1;
       }
     }
     if (!isNight(sim.tick)) {
@@ -318,7 +318,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
         shedDoing[doing] = (shedDoing[doing] ?? 0) + 1;
       }
     }
-    for (let id = 0; id < sim.villagers.state.length; id++) {
+    for (let id = 0; id < sim.villagers.count; id++) {
       if (sim.villagers.task[id] === STOCK && sim.villagers.stockGood[id] === Good.Firewood && sim.villagers.toStore[id] !== CAMP_STORE) walkTicks += 1;
     }
     const coldBefore = Uint8Array.from(sim.villagers.coldNights);
@@ -335,7 +335,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
       if (sim.orders.sites.kind[slot] === Building.House) houses.push(slot);
     }
     let froze1 = sim.tally.froze - froze;
-    for (let id = 0; id < sim.villagers.state.length; id++) {
+    for (let id = 0; id < sim.villagers.count; id++) {
       const dead = before[id] !== VillagerState.Dead && sim.villagers.state[id] === VillagerState.Dead;
       const frozeNow = dead && coldBefore[id] === 2 && froze1 > 0;
       if (frozeNow) froze1 -= 1;

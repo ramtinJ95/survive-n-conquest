@@ -9,7 +9,7 @@ import { createWorld } from './render/world';
 import { TICKS_PER_SECOND } from './sim/calendar';
 import { generateMap } from './sim/mapgen';
 import { parseSeed } from './sim/seed';
-import { populationFor } from './sim/sim';
+import { parseSettlers, populationFor } from './sim/sim';
 import { mountClock } from './ui/clock';
 import { showControlsHint } from './ui/controlsHint';
 import { mountDiedOut } from './ui/diedOut';
@@ -31,8 +31,11 @@ renderer.domElement.id = 'world';
 document.body.append(renderer.domElement);
 
 const params = new URLSearchParams(window.location.search);
+const verifying = params.get('clock') === 'paused';
 const map = generateMap(parseSeed(params.get('seed')));
-const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'));
+// Settlers of stated ages are a verification setting, so a player's page ignores them.
+const settlers = verifying ? parseSettlers(params.get('settlers')) : null;
+const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'), settlers);
 const look = await loadShapes();
 const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
@@ -112,5 +115,4 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   news.heard(data);
   diedOut.heard(data);
 });
-const verifying = params.get('clock') === 'paused';
 sim.postMessage({ kind: 'start', map, population, paused: verifying, everyTick: verifying } satisfies ToSim);

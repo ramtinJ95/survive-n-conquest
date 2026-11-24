@@ -11,7 +11,7 @@ import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { die } from './villagers';
-import { NO_TASK, VillagerState } from './villagerState';
+import { Cause, NO_TASK, VillagerState } from './villagerState';
 
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
@@ -32,7 +32,7 @@ function standAt(sim: Sim, id: number, x: number, y: number): void {
   sim.villagers.y[id] = sim.villagers.targetY[id] = y;
 }
 
-const workplaces = (sim: Sim) => Array.from(sim.villagers.workplace);
+const workplaces = (sim: Sim) => Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count));
 const setPlaces = (sim: Sim, slot: number, places: number) => applyCommand(sim, { kind: 'setPlaces', slot, places });
 
 /**
@@ -98,11 +98,11 @@ describe('the places of a finished hut', () => {
 
   it('open again when a worker dies, and go to the nearest settler without a job, the lower id between two as near', () => {
     const { sim, slot } = aroundAHut();
-    die(sim, 2);
+    die(sim, 2, Cause.Hunger);
     expect(workplaces(sim)).toEqual([-1, slot, -1, slot, -1]);
-    die(sim, 3);
+    die(sim, 3, Cause.Hunger);
     expect(workplaces(sim)).toEqual([-1, slot, -1, -1, slot]);
-    die(sim, 0);
+    die(sim, 0, Cause.Hunger);
     expect(workplaces(sim)).toEqual([-1, slot, -1, -1, slot]);
   });
 });

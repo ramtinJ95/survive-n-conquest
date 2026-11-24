@@ -68,7 +68,7 @@ interface Night {
 
 function runYear(year: WinterYear) {
   const { sim, lodge, step } = playWinterYear(year);
-  const count = sim.villagers.state.length;
+  const count = sim.villagers.count;
   const given: { tick: number; commands: readonly Command[] }[] = [{ tick: 0, commands: year.atStart }];
   const finished: string[] = [];
   const builtAt = new Map<number, number>();
@@ -236,7 +236,7 @@ function materials(sim: Sim) {
   }
   let carriedLogs = 0;
   let carriedStone = 0;
-  for (let id = 0; id < villagers.state.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     if (villagers.carried[id] === Good.Log) carriedLogs += 1;
     if (villagers.carried[id] === Good.Stone) carriedStone += 1;
   }
@@ -293,7 +293,7 @@ function report(title: string, year: WinterYear, why: readonly string[]) {
   console.log('Each winter night, as the simulation judged it: warm or cold, where the settler slept, whether a fire burned there, and whether it wore clothing.');
   console.log(`| Settler | Household | Home at the first winter dusk | Job then | ${WINTER_DAYS.map((day) => `Night of day ${day}`).join(' | ')} |`);
   console.log(`| --- | --- | --- | --- | ${WINTER_DAYS.map(() => '---').join(' | ')} |`);
-  for (let id = 0; id < sim.villagers.state.length; id++) {
+  for (let id = 0; id < sim.villagers.count; id++) {
     const { home, job } = run.atWinter[id]!;
     console.log(
       `| ${nameOfId(sim, id)} | ${sim.villagers.household[id]} | ${home} | ${job} | ${WINTER_DAYS.map((day) => run.nights[id]!.get(day)?.why ?? '').join(' | ')} |`,
@@ -309,7 +309,7 @@ function report(title: string, year: WinterYear, why: readonly string[]) {
     console.log(`| ${day} | ${by?.noon ?? ''} | ${by?.beforeDusk ?? ''} | ${by === undefined ? '' : judged} |`);
   }
   console.log('');
-  console.log(`died: ${run.died.join('; ') || 'nobody'}; cold nights ${tally.coldNights}, starved ${tally.starved}, froze ${tally.froze}, living ${sim.living} of ${sim.villagers.state.length}`);
+  console.log(`died: ${run.died.join('; ') || 'nobody'}; cold nights ${tally.coldNights}, starved ${tally.starved}, froze ${tally.froze}, living ${sim.living} of ${sim.villagers.count}`);
   console.log(`meals: ${tally.meals} eaten of ${run.mealsDue} due (a meal for each living settler at each dusk), ${tally.missed} missed`);
   console.log(`food: picked ${tally.foraged}, kills ${tally.kills}, barn at the year's end ${run.barnAtYearEnd}`);
   const m = materials(sim);

@@ -83,7 +83,7 @@ describe('the units', () => {
     const sim = createSim(map, POPULATION);
     let violations = 0;
     run(sim, 3000, () => {
-      violations += standingOnWaterOrRock(map, sim.villagers.x, sim.villagers.y);
+      violations += standingOnWaterOrRock(map, sim.villagers.x.subarray(0, sim.villagers.count), sim.villagers.y.subarray(0, sim.villagers.count));
       violations += standingOnWaterOrRock(map, sim.monsters.x, sim.monsters.y);
     });
     expect(violations).toBe(0);
@@ -93,7 +93,8 @@ describe('the units', () => {
 describe('the villagers', () => {
   it('walk 1.5 tiles per second and spend most ticks walking', () => {
     const sim = createSim(map, POPULATION);
-    const { x, y } = sim.villagers;
+    const x = sim.villagers.x.subarray(0, sim.villagers.count);
+    const y = sim.villagers.y.subarray(0, sim.villagers.count);
     const lastX = new Float32Array(x.length);
     const lastY = new Float32Array(y.length);
     let longest = 0;

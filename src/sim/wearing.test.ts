@@ -12,7 +12,7 @@ import { STOCKING } from './stocking';
 import { CAMP_STORE, TAILOR_CLOTHING_LIMIT } from './stores';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
 import { VILLAGER_STEP, die } from './villagers';
 import { WEARING } from './wearing';
 import { Stop, WORKSHOP } from './workshops';
@@ -77,7 +77,7 @@ function tasksTaken(sim: Sim, id: number, ticks: number): number[] {
 }
 
 const pieces = (sim: Sim, hut: number) => sim.stores.held[CLOTHING]![hut]!;
-const wearing = (sim: Sim) => Array.from(sim.villagers.worn, (good) => good === Good.Clothing);
+const wearing = (sim: Sim) => Array.from(sim.villagers.worn.subarray(0, sim.villagers.count), (good) => good === Good.Clothing);
 const clothingOnGround = (sim: Sim) => {
   let units = 0;
   for (let tile = 0; tile < sim.map.size * sim.map.size; tile++) if (sim.map.stackGood[tile] === Good.Clothing) units += sim.map.stackSize[tile]!;
@@ -145,14 +145,14 @@ describe('fetching clothing', () => {
     sim.villagers.worn.fill(Good.Clothing);
     chopTrees(sim, 8, 8, 12, 12);
     const hut = hutWith(sim, 30, 20, 0);
-    runUntil(sim, () => sim.villagers.state.every((state) => state === VillagerState.Working), 600);
+    runUntil(sim, () => sim.villagers.state.subarray(0, sim.villagers.count).every((state) => state === VillagerState.Working), 600);
     sim.villagers.worn[1] = Good.None;
     sim.villagers.worn[2] = Good.None;
     runUntil(sim, () => sim.tick % THINK_GROUPS === 0, THINK_GROUPS);
     sim.stores.held[CLOTHING]![hut] = 1;
     const walkers = new Set<number>();
     runUntil(sim, () => sim.tally.dressed === 1, 1200, () => {
-      const going = Array.from(sim.villagers.task, (task, id) => (task === WEAR ? id : -1)).filter((id) => id >= 0);
+      const going = Array.from(sim.villagers.task.subarray(0, sim.villagers.count), (task, id) => (task === WEAR ? id : -1)).filter((id) => id >= 0);
       expect(going.length, `tick ${sim.tick}`).toBeLessThanOrEqual(1);
       for (const id of going) walkers.add(id);
     });
@@ -262,7 +262,7 @@ describe('fetching clothing', () => {
     const hut = hutWith(sim, 30, 20, 1);
     runUntil(sim, () => sim.tally.dressed === 1, 600);
     const wearer = sim.villagers.worn.indexOf(Good.Clothing);
-    die(sim, wearer);
+    die(sim, wearer, Cause.Hunger);
     for (let tick = 0; tick < 100; tick++) step(sim);
     expect([pieces(sim, hut), clothingOnGround(sim), sim.tally.dressed]).toEqual([0, 0, 1]);
   });
@@ -286,7 +286,7 @@ describe('warmth with clothing on a winter night, two of three', () => {
     if (where === 'away') for (const id of [0, 1]) standAt(sim, id, 2, 2);
     lateNightOf(sim, 10);
     step(sim);
-    return Array.from(sim.villagers.coldNights, (nights) => nights === 0);
+    return Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count), (nights) => nights === 0);
   }
 
   it.each([

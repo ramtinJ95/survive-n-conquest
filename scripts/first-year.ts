@@ -63,7 +63,7 @@ function play(withOrders: boolean): Year {
   const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
   const lines: string[] = [];
   const deaths: string[] = [];
-  const villagers = sim.villagers.state.length;
+  const villagers = sim.villagers.count;
   if (withOrders) {
     const { size } = sim.map;
     const { x, y } = FIRST_YEAR_HUT;

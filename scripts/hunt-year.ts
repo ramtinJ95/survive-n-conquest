@@ -118,7 +118,7 @@ function play(name: string): void {
   const rows: string[] = [];
   const missedBefore = Uint8Array.from(sim.villagers.missedMeals);
   const workplace = Int16Array.from(sim.villagers.workplace);
-  const carried = Uint8Array.from(sim.villagers.carried);
+  const carried = sim.villagers.carried.slice(0, sim.villagers.count);
   let dropped = 0;
   const row = (when: string) =>
     rows.push(

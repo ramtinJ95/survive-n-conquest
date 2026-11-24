@@ -44,9 +44,9 @@ const duskOf = (sim: Sim, day: number, each?: () => void) =>
 /** Runs to the last tick of the night that falls at the dusk of `day`, so every villager has come home or never will, and the dawn has not run. */
 const lateNightOf = (sim: Sim, day: number, each?: () => void) => runUntil(sim, () => isDawn(sim.tick) && dateAt(sim.tick).day === day + 1, YEAR, each);
 
-const cold = (sim: Sim) => Array.from(sim.villagers.coldNights);
-const missed = (sim: Sim) => Array.from(sim.villagers.missedMeals);
-const states = (sim: Sim) => Array.from(sim.villagers.state);
+const cold = (sim: Sim) => Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count));
+const missed = (sim: Sim) => Array.from(sim.villagers.missedMeals.subarray(0, sim.villagers.count));
+const states = (sim: Sim) => Array.from(sim.villagers.state.subarray(0, sim.villagers.count));
 const firewood = (sim: Sim, store: number) => sim.stores.held[FIREWOOD]![store]!;
 const firewoodOnGround = (sim: Sim) => {
   let units = 0;

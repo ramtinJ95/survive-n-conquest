@@ -43,7 +43,7 @@ describe('the frame the worker posts', () => {
     while (!sim.villagers.task.includes(FORAGE)) step(sim);
     const forager = sim.villagers.task.indexOf(FORAGE);
     const { frame } = frameOf(sim);
-    expect(frame.storeInbound[CAMP_STORE]).toBe(sim.villagers.task.filter((task) => task === FORAGE).length);
+    expect(frame.storeInbound[CAMP_STORE]).toBe(sim.villagers.task.subarray(0, sim.villagers.count).filter((task) => task === FORAGE).length);
     expect(frame.storeInbound[CAMP_STORE]).toBeGreaterThan(0);
     expect(frame.destinations[forager]).toBe(sim.flow.goal);
   });
@@ -52,11 +52,11 @@ describe('the frame the worker posts', () => {
     const { sim } = settlersAndAHut();
     const { frame, transfer } = frameOf(sim);
     const posted = structuredClone(frame, { transfer });
-    expect(Array.from(posted.workplaces)).toEqual(Array.from(sim.villagers.workplace));
-    expect(Array.from(posted.hired)).toEqual(Array.from(sim.villagers.hired));
+    expect(Array.from(posted.workplaces)).toEqual(Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count)));
+    expect(Array.from(posted.hired)).toEqual(Array.from(sim.villagers.hired.subarray(0, sim.villagers.count)));
     expect(frame.workplaces.length).toBe(0);
     expect(frame.hired.length).toBe(0);
-    expect(sim.villagers.workplace.length).toBe(4);
+    expect(sim.villagers.count).toBe(4);
   });
 
   it('copies the position, kind, and state of every row of the animal table, living or gone', () => {

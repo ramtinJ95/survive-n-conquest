@@ -2709,6 +2709,170 @@ SCENARIOS.hunger = async (session) => {
 };
 
 /**
+ * The aging scenario. A settler's age follows from its birth tick: 5 years of age in a game year, so a year of age is
+ * 7,200 ticks. A starting settler of age `a` is born at tick `-a * 7200`, so every settler of a new game turns a year
+ * older at tick 7,200, 17:36 on day 3, and dies of old age at the first dawn at which it has reached its life span.
+ * `scripts/ages.ts` prints the ages and spans the seed gives, from the game's own modules. The `settlers` setting, which
+ * only a page with `clock=paused` takes, starts the map with settlers of stated ages and spans.
+ */
+const AGES = join(ROOT, 'scripts/ages.ts');
+const AGING_SEARCH = '?seed=7';
+/** Household 1's man is 70 with a span of 70, so he has reached it at the first tick and dies at the first dawn. */
+const OLD_SETTLERS = 'm70:70,w66:80;m68:80,w67:80;m64:80,w69:80;m72:80,w61:80';
+const OLD_AGES = [70, 66, 68, 67, 64, 69, 72, 61];
+const AGING_STOPS = {
+  beforeTurn: { day: 3, time: '17:30' },
+  turnUntil: { day: 3, time: '17:45' },
+  turn: { day: 3, time: '17:36' },
+  beforeDawn: { day: 2, time: '04:40' },
+  dawnUntil: { day: 2, time: '05:00' },
+};
+/** Wheel pixels in from the opening view, so the settlers wandering near the camp at noon stand apart enough to click one by one. */
+const AGING_WHEEL = -900;
+const AGING_CLIP = { width: 640, colors: 64 };
+const AGE_READING = /^(Man|Woman), (\d+)$/;
+
+function agingDriver(session) {
+  const { reads, text, tunics, click } = selectionDriver(session);
+  const ageOf = (read) => Number(AGE_READING.exec(read?.rows?.['Sex and age'] ?? '')?.[2] ?? NaN);
+  const seedAges = (seed) => {
+    const run = spawnSync('bun', [AGES, '--seed', String(seed), '--json'], { cwd: ROOT, encoding: 'utf8' });
+    if (run.status !== 0) fail(`ages.ts failed: ${run.stderr}`);
+    return JSON.parse(run.stdout);
+  };
+  /** Zooms in on the camp and clicks every tunic of a paused frame, and returns the distinct settlers' panels by name. Read at noon, when the settlers have wandered apart. */
+  const readAll = async (page, label) => {
+    await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+    await page.mouse.wheel(0, AGING_WHEEL);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+    const png = await session.screenshot(page, label);
+    const panels = new Map();
+    for (const spot of (await tunics(page, png)).slice(0, 24)) {
+      const read = await click(page, { x: spot.x, y: spot.y });
+      if (settlerPanel(read) && !panels.has(read.title)) panels.set(read.title, read);
+    }
+    return panels;
+  };
+  /** Clicks the tunics of a paused frame until the panel of the settler named `title` opens, and returns its panel or null. */
+  const selectNamed = async (page, title, label) => {
+    const png = await session.screenshot(page, label);
+    for (const spot of (await tunics(page, png)).slice(0, 24)) {
+      const read = await click(page, { x: spot.x, y: spot.y });
+      if (read?.title === title) return read;
+    }
+    return null;
+  };
+  return { reads, text, ageOf, seedAges, readAll, selectNamed };
+}
+
+SCENARIOS.aging = async (session) => {
+  const seen = [];
+  const { reads, text, ageOf, seedAges, readAll, selectNamed } = agingDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const seeded = seedAges(7);
+  const byName = new Map(seeded.map((row) => [row.name, row]));
+  const agreeing = (panels, wanted) => [...panels.values()].map((read) => ({ read, wanted: wanted(read) })).map(({ read, wanted }) => ({ name: read.title, reads: read.rows['Sex and age'], wanted, ok: ageOf(read) === wanted }));
+  const describe = (rows) => rows.map(({ name, reads, wanted }) => `${name} "${reads}" against ${wanted}`).join(', ') || 'nobody';
+
+  const seed = await session.open(CLIP, { record: true, search: AGING_SEARCH });
+  const panels = await readAll(seed.page, 'aging-seed-settlers');
+  const seedRows = agreeing(panels, (read) => byName.get(read.title)?.age);
+  session.check(
+    `on a verification page without the settlers setting, every settler clicked at ${await at(seed.page)} reads the age seed 7 gives it, from 18 to 30`,
+    seedRows.length >= 6 && seedRows.every(({ ok, wanted }) => ok && wanted >= 18 && wanted <= 30),
+    `${seedRows.length} of ${seeded.length} settlers read: ${describe(seedRows)}`,
+  );
+  const chosen = await selectNamed(seed.page, [...panels.keys()][0], 'aging-seed-aim');
+  if (!chosen) fail('no click selected the first settler read again');
+  await session.reach(seed.page, AGING_STOPS.beforeTurn);
+  const from = seed.since();
+  const ages = [];
+  const turned = await session.runUntil(
+    seed.page,
+    async () => {
+      const read = await reads(seed.page);
+      ages.push({ at: await at(seed.page), title: read?.title, age: ageOf(read) });
+      return ages.length > 1 && ages.at(-1).age !== ages.at(-2).age ? ages.at(-1) : null;
+    },
+    { every: 1, until: AGING_STOPS.turnUntil },
+  );
+  await session.screenshot(seed.page, 'aging-turned');
+  const before = ages.at(-2);
+  session.check(
+    `the selected settler's age turns a year older at ${clockText(clockMinutes(AGING_STOPS.turn))}, tick 7,200, which is its birth tick plus its age on day 1 and one more year of 7,200 ticks`,
+    Boolean(turned) && turned.title === chosen?.title && turned.at === clockText(clockMinutes(AGING_STOPS.turn)) && before?.age === byName.get(chosen?.title)?.age && turned.age === before.age + 1,
+    `${chosen?.title} read ${ages.map(({ at, age }) => `${age} at ${at}`).join(', ')}`,
+  );
+  await session.reach(seed.page, { day: 3, time: '17:40' });
+  await session.finishClips(seed.context, seed.page, [{ label: 'aging-age-turns', from, to: seed.since(), ...AGING_CLIP }]);
+  seen.push(...seed.errors);
+
+  const player = await session.open(CLIP, { search: `${AGING_SEARCH}&settlers=${OLD_SETTLERS}`, clock: 'player' });
+  await session.pause(player.page);
+  await session.reach(player.page, { day: 1, time: '12:00' });
+  const playerRows = agreeing(await readAll(player.page, 'aging-player-settlers'), (read) => byName.get(read.title)?.age);
+  session.check(
+    "a player's page, without clock=paused, ignores the settlers setting and its settlers have the ages seed 7 gives",
+    playerRows.length >= 6 && playerRows.every(({ ok }) => ok),
+    `at ${await at(player.page)}, ${playerRows.length} settlers read: ${describe(playerRows)}`,
+  );
+  await player.context.close();
+  seen.push(...player.errors);
+
+  const old = await session.open(CLIP, { record: true, search: `${AGING_SEARCH}&settlers=${OLD_SETTLERS}` });
+  const { page } = old;
+  const stated = await readAll(page, 'aging-old-settlers');
+  const statedAges = [...stated.values()].map(ageOf);
+  session.check(
+    'the settlers setting starts the map with the stated ages',
+    stated.size >= 6 && statedAges.every((age) => OLD_AGES.includes(age)),
+    `${stated.size} settlers read ${[...stated.values()].map((read) => `${read.title} "${read.rows['Sex and age']}"`).join(', ')}`,
+  );
+  const eldest = [...stated.values()].find((read) => ageOf(read) === 70);
+  if (!eldest || !(await selectNamed(page, eldest.title, 'aging-old-aim'))) fail(`no click selected the settler of 70; read ${[...stated.keys()].join(', ')}`);
+  await session.reach(page, AGING_STOPS.beforeDawn);
+  const dawnFrom = old.since();
+  const heard = new Map();
+  const readings = [];
+  const died = await session.runUntil(
+    page,
+    async () => {
+      for (const line of (await page.getByRole('log', { name: 'Settlement news' }).count()) > 0 ? await page.getByRole('log', { name: 'Settlement news' }).locator('p').allTextContents() : []) if (!heard.has(line)) heard.set(line, await at(page));
+      const read = await reads(page);
+      readings.push({ at: await at(page), doing: read?.rows.Doing });
+      return read?.rows.Doing?.startsWith('Died') ? { read, at: await at(page) } : null;
+    },
+    { every: 1, until: AGING_STOPS.dawnUntil },
+  );
+  const deathLine = `Day 2, 04:48. ${eldest.title} died of old age.`;
+  session.check(
+    `${eldest.title}, 70 with a span of 70, dies of old age at the first dawn, 04:48 on day 2, and the first stop after it shows it`,
+    died?.at === 'day 2 04:49' && died.read.rows.Doing === 'Died of old age at 70' && died.read.rows['Sex and age'] === 'Man, 70',
+    `the panel read ${readings.map(({ at, doing }) => `"${doing}" at ${at}`).join(', ')}; at the end "${text(died?.read)}"`,
+  );
+  session.check(`the news says "${deathLine}" at the dawn it happens`, heard.has(deathLine), `heard ${[...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing'}`);
+  await session.reach(page, { day: 2, time: '04:52' });
+  const dawnTo = old.since();
+  await session.screenshot(page, 'aging-died-of-old-age');
+  const { uiBoxes, apart } = selectionDriver(session);
+  const after = await reads(page);
+  for (const size of READY_SIZES) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    await session.still(page);
+    const { ok, detail } = apart(await uiBoxes(page));
+    session.check(`at ${size.width}x${size.height} the panel of the settler who died of old age covers no other panel`, ok && after?.rows.Doing === 'Died of old age at 70', `${text(after)}; ${detail}`);
+    await session.screenshot(page, `aging-dead-panel-${size.width}x${size.height}`);
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+  await session.finishClips(old.context, page, [{ label: 'aging-dies-of-old-age', from: dawnFrom, to: dawnTo, ...AGING_CLIP }]);
+  seen.push(...old.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
  * The eating scenario. On seed 7 the camp opens empty, with `?food=0`, and the player gives #27's first-year orders at
  * 08:00 on day 1, with the page paused at its first tick: the forager's hut on (136, 127) and a Chop on each of its
  * four log trees, from the view of `foraging`. The hut stands by midday, its two foragers bring food in that afternoon
@@ -3295,11 +3459,11 @@ function selectionDriver(session) {
 }
 
 /**
- * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and
- * Household rows. Before households the title was the word Settler.
+ * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and age
+ * row and the Household row. Before households the title was the word Settler, and before ages the row was Sex.
  */
 const settlerPanel = (read) =>
-  Boolean(read?.title) && ['Man', 'Woman'].includes(read.rows?.Sex) && /^Household \d+/.test(read.rows?.Household ?? '');
+  Boolean(read?.title) && /^(Man|Woman), \d+$/.test(read.rows?.['Sex and age'] ?? '') && /^Household \d+/.test(read.rows?.Household ?? '');
 
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
@@ -3322,6 +3486,9 @@ const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a 
 /** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
 const DOING_LONGEST = [
   ...WORKSHOP_DOING.tailor,
+  'Died of old age at 80',
+  'Died of hunger at 79',
+  'Died of cold at 79',
   ...WORKSHOP_DOING.woodshed,
   ...ANYONE_DOING,
   'Idle, no deer within 40 tiles of the lodge',
@@ -3351,7 +3518,7 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         Doing: DOING_LONGEST,
         Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
         Job: ['Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
-        Sex: ['Woman', 'Man'],
+        'Sex and age': ['Woman, 80', 'Man, 80'],
         Household: [`${household}, with ${woman} (died)`, `${household}, with ${man} (died)`],
         Home: ['None, sleeps at the camp', 'A house'],
         'Missed meals': ['2, hungry'],

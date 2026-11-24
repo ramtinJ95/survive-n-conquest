@@ -26,7 +26,7 @@ const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(siz
 /** The villagers that hold the task on a tile. */
 function holders(sim: Sim, tile: number): number[] {
   const found: number[] = [];
-  for (let id = 0; id < sim.villagers.task.length; id++) {
+  for (let id = 0; id < sim.villagers.count; id++) {
     if (sim.villagers.task[id] !== 0 && sim.villagers.taskTile[id] === tile) found.push(id);
   }
   return found;
@@ -61,7 +61,7 @@ function fell(sim: Sim, tile: number, limit: number): number {
     () => sim.map.trees[tile] === 0,
     limit,
     () => {
-      for (let id = 0; id < sim.villagers.task.length; id++) if (working(sim, id, tile)) ticks++;
+      for (let id = 0; id < sim.villagers.count; id++) if (working(sim, id, tile)) ticks++;
       if (sim.map.trees[tile] === 0) ticks++;
     },
   );
@@ -294,7 +294,7 @@ describe('a task', () => {
     const firstTook = new Array<number>(20).fill(-1);
     const offGroup: string[] = [];
     let takes = 0;
-    let held = Uint8Array.from(sim.villagers.task);
+    let held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
     runUntil(sim, () => sim.tick === 1000, 1000, () => {
       for (let id = 0; id < 20; id++) {
         if (held[id] !== 0 || sim.villagers.task[id] === 0) continue;
@@ -303,7 +303,7 @@ describe('a task', () => {
         if (firstTook[id] === -1) firstTook[id] = tick;
         if (tick % 10 !== id % 10) offGroup.push(`villager ${id} on tick ${tick}`);
       }
-      held = Uint8Array.from(sim.villagers.task);
+      held = Uint8Array.from(sim.villagers.task.subarray(0, sim.villagers.count));
     });
     expect(firstTook).toEqual(Array.from({ length: 20 }, (_, id) => id % 10));
     expect(takes).toBeGreaterThan(40);

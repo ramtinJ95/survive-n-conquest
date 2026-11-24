@@ -1,8 +1,10 @@
+import { ageOf } from './sim/aging';
 import { Good } from './sim/goods';
 import { type Readiness, readinessOf } from './sim/readiness';
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import type { Sim, Speed } from './sim/sim';
 import { takeTileChanges } from './sim/tileChanges';
+import type { Villagers } from './sim/villagers';
 
 export interface ClockSnapshot {
   readonly tick: number;
@@ -12,7 +14,12 @@ export interface ClockSnapshot {
   readonly over: boolean;
 }
 
-/** What the worker posts after the clock moves. Positions are pairs of map x and y in tiles, one pair per unit in id order. */
+/**
+ * What the worker posts after the clock moves. Positions are pairs of map x and
+ * y in tiles, one pair per unit in id order. Every villager column holds the
+ * rows of the villagers table in use and no other, so it has one entry for
+ * each villager that ever lived on the map.
+ */
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
@@ -52,6 +59,10 @@ export interface SimFrame extends ClockSnapshot {
   readonly stockGoods: Uint8Array;
   /** The `Good` each villager wears in id order, `Good.Clothing` or `Good.None`. */
   readonly worn: Uint8Array;
+  /** One `Cause` per villager in id order: what it died of, or `Cause.None` while it lives. */
+  readonly causes: Uint8Array;
+  /** Each villager's age in whole years in id order: at the frame's tick, or at its death once it died. */
+  readonly ages: Uint8Array;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -80,13 +91,19 @@ export interface SimFrame extends ClockSnapshot {
   readonly outcome?: OrderOutcome;
 }
 
-function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Array }): Float32Array {
-  const pairs = new Float32Array(x.length * 2);
-  for (let id = 0; id < x.length; id++) {
+function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Array }, count = x.length): Float32Array {
+  const pairs = new Float32Array(count * 2);
+  for (let id = 0; id < count; id++) {
     pairs[id * 2] = x[id]!;
     pairs[id * 2 + 1] = y[id]!;
   }
   return pairs;
+}
+
+function agesOf(villagers: Villagers, tick: number): Uint8Array {
+  const ages = new Uint8Array(villagers.count);
+  for (let id = 0; id < villagers.count; id++) ages[id] = ageOf(villagers, id, tick);
+  return ages;
 }
 
 /**
@@ -96,31 +113,34 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
  */
 export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: SimFrame; readonly transfer: Transferable[] } {
   const { villagers } = sim;
+  const { count } = villagers;
   const frame = {
     tick: sim.tick,
     speed: sim.speed,
     paused: sim.paused,
     over: sim.over,
-    villagers: positions(villagers),
+    villagers: positions(villagers, count),
     monsters: positions(sim.monsters),
     animals: positions(sim.animals),
     animalKinds: sim.animals.kind.slice(),
     animalStates: sim.animals.state.slice(),
-    carried: villagers.carried.slice(),
-    states: villagers.state.slice(),
-    tasks: villagers.task.slice(),
-    taskTiles: villagers.taskTile.slice(),
-    destinations: villagers.destination.slice(),
-    names: villagers.name.slice(),
-    sexes: villagers.sex.slice(),
-    households: villagers.household.slice(),
+    carried: villagers.carried.slice(0, count),
+    states: villagers.state.slice(0, count),
+    tasks: villagers.task.slice(0, count),
+    taskTiles: villagers.taskTile.slice(0, count),
+    destinations: villagers.destination.slice(0, count),
+    names: villagers.name.slice(0, count),
+    sexes: villagers.sex.slice(0, count),
+    households: villagers.household.slice(0, count),
     homes: sim.households.home.slice(),
-    workplaces: villagers.workplace.slice(),
-    hired: villagers.hired.slice(),
-    missedMeals: villagers.missedMeals.slice(),
-    coldNights: villagers.coldNights.slice(),
-    stockGoods: villagers.stockGood.slice(),
-    worn: villagers.worn.slice(),
+    workplaces: villagers.workplace.slice(0, count),
+    hired: villagers.hired.slice(0, count),
+    missedMeals: villagers.missedMeals.slice(0, count),
+    coldNights: villagers.coldNights.slice(0, count),
+    stockGoods: villagers.stockGood.slice(0, count),
+    worn: villagers.worn.slice(0, count),
+    causes: villagers.cause.slice(0, count),
+    ages: agesOf(villagers, sim.tick),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
@@ -156,6 +176,8 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.coldNights,
     frame.stockGoods,
     frame.worn,
+    frame.causes,
+    frame.ages,
     frame.storeFood,
     frame.storeInbound,
     frame.storeFirewood,

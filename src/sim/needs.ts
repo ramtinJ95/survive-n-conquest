@@ -2,6 +2,7 @@ import { Good } from './goods';
 import { NO_HOME } from './households';
 import type { Sim, Tally } from './sim';
 import { CAMP_STORE, fireOf, free } from './stores';
+import { Cause } from './villagerState';
 import type { Villagers } from './villagers';
 
 /**
@@ -14,12 +15,14 @@ export interface Need {
   readonly diesAt: number;
   /** The tally that counts the villagers it killed. */
   readonly deaths: keyof Tally;
+  /** The cause of death of the villagers it killed. */
+  readonly cause: Cause;
 }
 
 /** Meals missed in a row. The third kills. */
-export const HUNGER: Need = { column: (villagers) => villagers.missedMeals, diesAt: 3, deaths: 'starved' };
+export const HUNGER: Need = { column: (villagers) => villagers.missedMeals, diesAt: 3, deaths: 'starved', cause: Cause.Hunger };
 /** Cold nights in a row. The third kills. */
-export const COLD: Need = { column: (villagers) => villagers.coldNights, diesAt: 3, deaths: 'froze' };
+export const COLD: Need = { column: (villagers) => villagers.coldNights, diesAt: 3, deaths: 'froze', cause: Cause.Cold };
 
 /**
  * Every need. A new need adds its column to the villager table and an entry

@@ -15,7 +15,7 @@ import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
 import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
-import { NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -32,9 +32,13 @@ const NAME_SALT = 0x2a3e_5b07;
 
 /**
  * The villager table. Row `i` of every column belongs to villager `i`, and rows
- * never move, so a row index is a villager id. Positions are in tiles.
+ * never move, so a row index is a villager id. Every column has `VILLAGER_ROWS`
+ * rows, and the first `count` are in use. A row is never used twice, so a dead
+ * villager keeps its row. Positions are in tiles.
  */
 export interface Villagers {
+  /** The rows in use. */
+  count: number;
   readonly x: Float32Array;
   readonly y: Float32Array;
   /** Where an idle villager walks by day. */
@@ -71,7 +75,7 @@ export interface Villagers {
   readonly name: Uint16Array;
   /** One `Sex` for each villager. */
   readonly sex: Uint8Array;
-  /** Villagers `2h`, a man, and `2h + 1`, a woman, form household `h`. With an odd count the last household is one man. */
+  /** The household each villager belongs to. */
   readonly household: Int16Array;
   /** The meals each villager missed in a row. */
   readonly missedMeals: Uint8Array;
@@ -85,6 +89,14 @@ export interface Villagers {
   readonly workplace: Int16Array;
   /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
   readonly hired: Uint32Array;
+  /** The tick at which each villager was born. A starting settler's lies before tick 0. */
+  readonly born: Int32Array;
+  /** The whole years each villager lives: it dies of old age at the first dawn at which it is this old. */
+  readonly span: Uint8Array;
+  /** What each villager died of, `Cause.None` while it lives. */
+  readonly cause: Uint8Array;
+  /** The tick at which each villager died, or -1 while it lives. */
+  readonly diedAt: Int32Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -130,60 +142,90 @@ function shuffledNames(seed: number, sex: Sex): Uint16Array {
 }
 
 /**
- * Gives every villager a spot around the camp center and stands it there. A
- * spot that a straight walk from the camp center cannot reach moves to the
- * camp center. Villagers pair off into households, and the seed names them,
- * with no two of a sex named alike while the names last.
+ * The names the seed gives the starting households, indexed by `Sex` and then
+ * by household, so no two of a sex are named alike while the names last.
  */
-export function createVillagers(map: TileMap, camp: FlowField, count: number): Villagers {
+export function startingNames(seed: number): readonly [Uint16Array, Uint16Array] {
+  return [shuffledNames(seed, Sex.Woman), shuffledNames(seed, Sex.Man)];
+}
+
+/** A villager as it enters the table. `name` is an index into `NAMES[sex]`, `born` a tick, and `span` its life span in whole years. */
+export interface NewVillager {
+  readonly sex: Sex;
+  readonly household: number;
+  readonly name: number;
+  readonly born: number;
+  readonly span: number;
+}
+
+/** An empty table of `VILLAGER_ROWS` rows, with the starting settlers added in order, so settler `i` is villager `i`. */
+export function createVillagers(map: TileMap, camp: FlowField, settlers: readonly NewVillager[]): Villagers {
+  if (settlers.length > VILLAGER_ROWS) throw new Error(`${settlers.length} villagers is more than ${VILLAGER_ROWS}`);
+  const rows = VILLAGER_ROWS;
   const villagers: Villagers = {
-    x: new Float32Array(count),
-    y: new Float32Array(count),
-    targetX: new Float32Array(count),
-    targetY: new Float32Array(count),
-    spotX: new Float32Array(count),
-    spotY: new Float32Array(count),
-    state: new Uint8Array(count),
-    draws: new Uint32Array(count),
-    task: new Uint8Array(count),
-    taskTile: new Int32Array(count).fill(-1),
-    workTile: new Int32Array(count).fill(-1),
-    destination: new Int32Array(count).fill(-1),
-    fromStore: new Int16Array(count).fill(-1),
-    toStore: new Int16Array(count).fill(-1),
-    carried: new Uint8Array(count),
-    path: new Int32Array(count * MAX_PATH),
-    pathLength: new Uint16Array(count),
-    pathCursor: new Uint16Array(count),
-    name: new Uint16Array(count),
-    sex: new Uint8Array(count),
-    household: new Int16Array(count),
-    missedMeals: new Uint8Array(count),
-    coldNights: new Uint8Array(count),
-    stockGood: new Uint8Array(count),
-    worn: new Uint8Array(count),
-    workplace: new Int16Array(count).fill(-1),
-    hired: new Uint32Array(count),
+    count: 0,
+    x: new Float32Array(rows),
+    y: new Float32Array(rows),
+    targetX: new Float32Array(rows),
+    targetY: new Float32Array(rows),
+    spotX: new Float32Array(rows),
+    spotY: new Float32Array(rows),
+    state: new Uint8Array(rows),
+    draws: new Uint32Array(rows),
+    task: new Uint8Array(rows),
+    taskTile: new Int32Array(rows).fill(-1),
+    workTile: new Int32Array(rows).fill(-1),
+    destination: new Int32Array(rows).fill(-1),
+    fromStore: new Int16Array(rows).fill(-1),
+    toStore: new Int16Array(rows).fill(-1),
+    carried: new Uint8Array(rows),
+    path: new Int32Array(rows * MAX_PATH),
+    pathLength: new Uint16Array(rows),
+    pathCursor: new Uint16Array(rows),
+    name: new Uint16Array(rows),
+    sex: new Uint8Array(rows),
+    household: new Int16Array(rows),
+    missedMeals: new Uint8Array(rows),
+    coldNights: new Uint8Array(rows),
+    stockGood: new Uint8Array(rows),
+    worn: new Uint8Array(rows),
+    workplace: new Int16Array(rows).fill(-1),
+    hired: new Uint32Array(rows),
+    born: new Int32Array(rows),
+    span: new Uint8Array(rows),
+    cause: new Uint8Array(rows),
+    diedAt: new Int32Array(rows).fill(-1),
   };
-  const names = [shuffledNames(map.seed, Sex.Woman), shuffledNames(map.seed, Sex.Man)] as const;
+  for (const settler of settlers) addVillager(villagers, map, camp, settler);
+  return villagers;
+}
+
+/**
+ * Adds a villager in the next unused row and returns its id, or -1 when the
+ * table is full. It stands idle at its spot around the camp center. A spot
+ * that a straight walk from the camp center cannot reach moves to the camp
+ * center. This is the one place a villager enters the table.
+ */
+export function addVillager(villagers: Villagers, map: TileMap, camp: FlowField, settler: NewVillager): number {
+  const id = villagers.count;
+  if (id >= VILLAGER_ROWS) return -1;
+  villagers.count = id + 1;
   const campX = (camp.goal % map.size) + 0.5;
   const campY = Math.floor(camp.goal / map.size) + 0.5;
-  for (let id = 0; id < count; id++) {
-    const angle = id * GOLDEN_ANGLE;
-    const sx = Math.fround(campX + Math.cos(angle) * SPOT_RADIUS);
-    const sy = Math.fround(campY + Math.sin(angle) * SPOT_RADIUS);
-    const reachable = clearLine(map, campX, campY, sx, sy);
-    villagers.spotX[id] = reachable ? sx : campX;
-    villagers.spotY[id] = reachable ? sy : campY;
-    villagers.x[id] = villagers.targetX[id] = villagers.spotX[id]!;
-    villagers.y[id] = villagers.targetY[id] = villagers.spotY[id]!;
-    const household = id >> 1;
-    const sex = id % 2 === 0 ? Sex.Man : Sex.Woman;
-    villagers.household[id] = household;
-    villagers.sex[id] = sex;
-    villagers.name[id] = names[sex][household % names[sex].length]!;
-  }
-  return villagers;
+  const angle = id * GOLDEN_ANGLE;
+  const sx = Math.fround(campX + Math.cos(angle) * SPOT_RADIUS);
+  const sy = Math.fround(campY + Math.sin(angle) * SPOT_RADIUS);
+  const reachable = clearLine(map, campX, campY, sx, sy);
+  villagers.spotX[id] = reachable ? sx : campX;
+  villagers.spotY[id] = reachable ? sy : campY;
+  villagers.x[id] = villagers.targetX[id] = villagers.spotX[id]!;
+  villagers.y[id] = villagers.targetY[id] = villagers.spotY[id]!;
+  villagers.household[id] = settler.household;
+  villagers.sex[id] = settler.sex;
+  villagers.name[id] = settler.name;
+  villagers.born[id] = settler.born;
+  villagers.span[id] = settler.span;
+  return id;
 }
 
 /**
@@ -322,7 +364,7 @@ function missNeed(sim: Sim, id: number, need: Need): void {
   column[id] = column[id]! + 1;
   if (column[id]! < need.diesAt) return;
   sim.tally[need.deaths] += 1;
-  die(sim, id);
+  die(sim, id, need.cause);
 }
 
 /** The villager's meal of the day: it eats, or misses the meal. */
@@ -441,8 +483,8 @@ function stopTask(sim: Sim, id: number): void {
 
 /** Ends at once every task that no longer stands, as one under a cancelled order or one a new job does not allow. */
 export function stopFallenTasks(sim: Sim): void {
-  const { task } = sim.villagers;
-  for (let id = 0; id < task.length; id++) {
+  const { task, count } = sim.villagers;
+  for (let id = 0; id < count; id++) {
     if (task[id] !== NO_TASK && !stands(sim, id)) stopTask(sim, id);
   }
 }
@@ -511,7 +553,7 @@ function routeStands(map: TileMap, villagers: Villagers, id: number): boolean {
 function leaveClosedLand(sim: Sim): void {
   const { map, flow, villagers, monsters, animals } = sim;
   loseTasks(sim);
-  for (let id = 0; id < villagers.task.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     if (villagers.state[id] === VillagerState.Dead) continue;
     const moved = standOn(sim, villagers.x, villagers.y, id, reached);
     if (moved) {
@@ -552,6 +594,16 @@ function doTask(sim: Sim, id: number): void {
 }
 
 /**
+ * Starts every villager's day at dawn. It runs before any villager moves, so
+ * every dawn meal comes before any villager takes the day's first task, and
+ * stocking cannot take it.
+ */
+export function breakDay(sim: Sim): void {
+  const { state, count } = sim.villagers;
+  for (let id = 0; id < count; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
+}
+
+/**
  * Moves every villager one tick. By day an idle villager looks for work on the
  * tick of its group and wanders near the camp until it finds some. On the same
  * tick a villager that wants a meal gives up any task but its meal, so it goes
@@ -561,12 +613,10 @@ function doTask(sim: Sim, id: number): void {
  * is first used the next night. At dawn every villager is idle again where it
  * stands, so one that was inside comes out on the tile it went in on.
  */
-export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
-  const { state, task } = sim.villagers;
+export function moveVillagers(sim: Sim, night: boolean): void {
+  const { state, task, count } = sim.villagers;
   const group = sim.tick % THINK_GROUPS;
-  // Every villager's dawn meal comes before any villager takes the day's first task, so stocking cannot take it.
-  if (dawn) for (let id = 0; id < state.length; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
-  for (let id = 0; id < state.length; id++) {
+  for (let id = 0; id < count; id++) {
     if (state[id] === VillagerState.Dead) continue;
     if (night) {
       if (!atNight(state[id]!)) nightfall(sim, id);
@@ -584,18 +634,20 @@ export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
 }
 
 /**
- * Removes the villager from the map for good. It gives its task up, as a
- * cancelled one, and puts down what it carries. Its row stays, so ids and
- * households hold. Its place at a workplace opens to the nearest villager
- * without a job. When it was its household's last member, the house goes to
+ * Removes the villager from the map for good, of `cause`, at this tick. It
+ * gives its task up, as a cancelled one, and puts down what it carries. Its
+ * row stays, so ids and households hold. Its place at a workplace opens to the
+ * nearest villager without a job. When it was its household's last member, the house goes to
  * the next household without one. When it was the last villager, the
  * settlement has died out.
  */
-export function die(sim: Sim, id: number): void {
+export function die(sim: Sim, id: number, cause: Cause): void {
   const { villagers } = sim;
   endTask(sim, id);
   if (villagers.carried[id] !== Good.None) putDownHeld(sim, id);
   villagers.state[id] = VillagerState.Dead;
+  villagers.cause[id] = cause;
+  villagers.diedAt[id] = sim.tick;
   sim.tally.died += 1;
   sim.living -= 1;
   loseWorker(sim, id);

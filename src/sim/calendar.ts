@@ -9,8 +9,13 @@ export const TICKS_PER_SEASON = DAYS_PER_SEASON * TICKS_PER_DAY;
 /** A new game opens at this minute of day 1, so that it opens in daylight. Tick 0 is that moment. */
 export const OPENING_MINUTE = 8 * 60;
 
+export const TICKS_PER_YEAR = SEASONS.length * TICKS_PER_SEASON;
+/** A villager ages this many years in a game year. */
+export const YEARS_OF_AGE_PER_YEAR = 5;
+/** A villager is a year older every this many ticks, which is 2.4 days. */
+export const TICKS_PER_YEAR_OF_AGE = TICKS_PER_YEAR / YEARS_OF_AGE_PER_YEAR;
+
 const OPENING_TICK_OF_DAY = (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY;
-const TICKS_PER_YEAR = SEASONS.length * TICKS_PER_SEASON;
 
 export type Season = (typeof SEASONS)[number];
 export type SeasonPart = (typeof SEASON_PARTS)[number];
