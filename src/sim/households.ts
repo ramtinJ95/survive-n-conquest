@@ -1,3 +1,4 @@
+import { works } from './jobs';
 import { MAX_SITES } from './orders';
 import type { Villagers } from './villagers';
 
@@ -59,11 +60,11 @@ export function createHouseholds(): Households {
 export const isUnattended = (households: Households, h: number) => households.living[h]! > 0 && households.workers[h] === 0;
 
 /** Adds villager `id` to household `h` as a member, counting it among the workers when it works. */
-export function addMember(households: Households, villagers: Villagers, h: number, id: number, works: boolean): void {
+export function addMember(households: Households, villagers: Villagers, h: number, id: number): void {
   const was = isUnattended(households, h);
   villagers.household[id] = h;
   households.living[h] = households.living[h]! + 1;
-  if (works) households.workers[h] = households.workers[h]! + 1;
+  if (works(villagers, id)) households.workers[h] = households.workers[h]! + 1;
   if (households.home[h] === NO_HOME) households.atCamp += 1;
   households.unattended += Number(isUnattended(households, h)) - Number(was);
 }
@@ -72,9 +73,9 @@ export function addMember(households: Households, villagers: Villagers, h: numbe
  * Forms a household of the couple `man` and `woman`, either of which may be
  * `NO_VILLAGER`, with its house `home` or NO_HOME, at the dawn `dawn`, and
  * returns its number, or -1 when the table is full. This is the one place a
- * household forms. `works` says whether each of the couple works.
+ * household forms.
  */
-export function formHousehold(households: Households, villagers: Villagers, man: number, woman: number, home: number, dawn: number, works: (id: number) => boolean): number {
+export function formHousehold(households: Households, villagers: Villagers, man: number, woman: number, home: number, dawn: number): number {
   const h = households.count;
   if (h >= MAX_HOUSEHOLDS) return -1;
   households.count = h + 1;
@@ -83,8 +84,8 @@ export function formHousehold(households: Households, villagers: Villagers, man:
   households.lastBirth[h] = dawn;
   households.home[h] = home;
   if (home !== NO_HOME) households.householdIn[home] = h;
-  if (man !== NO_VILLAGER) addMember(households, villagers, h, man, works(man));
-  if (woman !== NO_VILLAGER) addMember(households, villagers, h, woman, works(woman));
+  if (man !== NO_VILLAGER) addMember(households, villagers, h, man);
+  if (woman !== NO_VILLAGER) addMember(households, villagers, h, woman);
   return h;
 }
 
@@ -103,12 +104,13 @@ export function moveInto(households: Households, slot: number): void {
   }
 }
 
-/** Counts a member of household `h` dead, a worker when `worked`. When it was the last, its house, with the food in it, goes to the next household that needs one. */
-export function loseMember(households: Households, h: number, worked: boolean): void {
+/** Counts villager `id` of its household dead. When it was the last, its house, with the food in it, goes to the next household that needs one. */
+export function loseMember(households: Households, villagers: Villagers, id: number): void {
   const { home, living } = households;
+  const h = villagers.household[id]!;
   const was = isUnattended(households, h);
   living[h] = living[h]! - 1;
-  if (worked) households.workers[h] = households.workers[h]! - 1;
+  if (works(villagers, id)) households.workers[h] = households.workers[h]! - 1;
   households.unattended += Number(isUnattended(households, h)) - Number(was);
   if (home[h] === NO_HOME) households.atCamp -= 1;
   if (living[h] !== 0 || home[h] === NO_HOME) return;

@@ -1,10 +1,10 @@
-/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel, which ends at 210 px. At 300 px wide every kind of panel at its longest readings fits that height at 960 by 540. */
+/* Anchored above the camera-controls hint and growing upward, kept below the stockpiles panel, which ends at 229 px with its Children row. At 300 px wide every kind of panel at its longest readings fits that height at 960 by 540, the settler's at 253 of its 255 px. */
 .selection {
   position: fixed;
   left: var(--edge-gap);
   bottom: calc(var(--edge-gap) + 44px);
   width: 300px;
-  max-height: calc(100% - 2 * var(--edge-gap) - 44px - 210px);
+  max-height: calc(100% - var(--edge-gap) - 44px - 229px);
   overflow: hidden;
   box-sizing: border-box;
   margin: 0;

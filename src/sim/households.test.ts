@@ -104,8 +104,8 @@ describe('the households', () => {
   it(`hold at most ${MAX_HOUSEHOLDS}, and a map cannot start with more`, () => {
     const households = createHouseholds();
     const villagers = createVillagers();
-    for (let h = 0; h < MAX_HOUSEHOLDS; h++) expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0, () => true)).toBe(h);
-    expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0, () => true)).toBe(-1);
+    for (let h = 0; h < MAX_HOUSEHOLDS; h++) expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0)).toBe(h);
+    expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0)).toBe(-1);
     expect(() => createSim(generateMap(7, 64), { villagers: MAX_HOUSEHOLDS * 2 + 1, monsters: 0 })).toThrow();
   });
 });

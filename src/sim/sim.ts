@@ -264,10 +264,9 @@ function startingHouseholds(seed: number, population: Population): readonly Star
  */
 function settle(seed: number, population: Population, map: TileMap, flow: FlowField, villagers: Villagers, households: Households): void {
   const names = startingNames(seed);
-  const works = (id: number) => !villagers.child[id];
   startingHouseholds(seed, population).forEach(({ members, dawnsSeen = 0 }, h) => {
     const ids: number[] = [];
-    let taken = [0, 0];
+    const taken = [0, 0];
     for (const { sex, age, span } of members) {
       const id = villagers.count;
       const couple = ids.length < 2;
@@ -279,8 +278,8 @@ function settle(seed: number, population: Population, map: TileMap, flow: FlowFi
       }
       ids.push(id);
     }
-    if (formHousehold(households, villagers, ids[0]!, ids[1] ?? NO_VILLAGER, NO_HOME, -dawnsSeen, works) < 0) throw new Error(`more than ${MAX_HOUSEHOLDS} starting households`);
-    for (const id of ids.slice(2)) addMember(households, villagers, h, id, works(id));
+    if (formHousehold(households, villagers, ids[0]!, ids[1] ?? NO_VILLAGER, NO_HOME, -dawnsSeen) < 0) throw new Error(`more than ${MAX_HOUSEHOLDS} starting households`);
+    for (const id of ids.slice(2)) addMember(households, villagers, h, id);
   });
 }
 

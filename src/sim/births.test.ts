@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { lifeSpan } from './aging';
 import { BEARING_AGES, BIRTH_CHANCE, BIRTH_GAP, FULL_HOUSE, birthDraw, sexAtBirth } from './births';
 import { finishBuilding } from './building';
-import { Building, nearestDoor } from './buildings';
+import { Building, EVERYONE, nearestDoor } from './buildings';
 import { DAYS_PER_SEASON, TICKS_PER_DAY, dateAt, tickOfDay } from './calendar';
 import { isDawn, isNight } from './daylight';
 import { DAWN } from './dawn';
@@ -277,14 +277,14 @@ describe('a child', () => {
     sim.stores.held[FOOD]![slots[0]!] = 0;
     for (let tick = 0; tick < TICKS_PER_DAY / 3; tick++) {
       step(sim);
-      if (sim.villagers.task[2] !== NO_TASK) expect(TASK_KINDS[sim.villagers.task[2]! - 1]!.job).toBe(-2);
+      if (sim.villagers.task[2] !== NO_TASK) expect(TASK_KINDS[sim.villagers.task[2]! - 1]!.job).toBe(EVERYONE);
     }
     expect([sim.villagers.workplace[2], sim.villagers.carried[2]]).toEqual([-1, Good.None]);
     expect([sim.villagers.workplace[0]!, sim.villagers.workplace[1]!].filter((slot) => slot >= 0)).toHaveLength(2);
     sim.villagers.missedMeals[2] = 1;
     sim.stores.held[FOOD]![slots[0]!] = 2;
     expect(takeTask(sim, 2)).toBe(true);
-    expect(TASK_KINDS[sim.villagers.task[2]! - 1]!.job).toBe(-2);
+    expect(TASK_KINDS[sim.villagers.task[2]! - 1]!.job).toBe(EVERYONE);
   });
 
   it('eats 1 meal from its household\'s store at dusk', () => {

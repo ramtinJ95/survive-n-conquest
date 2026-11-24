@@ -712,6 +712,6 @@ export function die(sim: Sim, id: number, cause: Cause): void {
   sim.tally.died += 1;
   sim.living -= 1;
   loseWorker(sim, id);
-  loseMember(sim.households, villagers.household[id]!, works(villagers, id));
+  loseMember(sim.households, villagers, id);
   if (sim.living === 0) sim.over = true;
 }

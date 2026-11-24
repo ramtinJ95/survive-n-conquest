@@ -74,7 +74,7 @@ function bear(sim: Sim, h: number): number {
   const born = { sex, household: h, name, born: sim.tick, span: lifeSpan(seed, id), child: true, mother, father: households.man[h]! };
   if (addVillager(villagers, map, sim.flow, born) < 0) return -1;
   households.names[h * 2 + sex]! |= 1 << name;
-  addMember(households, villagers, h, id, false);
+  addMember(households, villagers, h, id);
   households.lastBirth[h] = sim.dawns;
   sim.living += 1;
   sim.tally.births += 1;
