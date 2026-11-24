@@ -177,27 +177,28 @@ describe('a woodshed', () => {
     expect([firewood(sim, shed), logsOn(sim, 40, 36), sim.workshops.stopped[shed]]).toEqual([0, 4, Stop.NotStocked]);
   });
 
-  it('says it has no log in reach while logs lie off every stockpile and no stockpile has room for one', () => {
+  it('says it has no log in reach while logs lie off every stockpile and no stockpile in reach has room for one', () => {
     const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
     expect(putDown(sim, at(sim.map, 40, 36), Good.Log, 4)).toBe(true);
+    logPile(sim, 2, 60, 0);
     const shed = finished(sim, Building.Woodshed, 36, 32);
     runUntil(sim, () => sim.tick >= TICKS_PER_DAY / 3, TICKS_PER_DAY);
     expect([logsOn(sim, 40, 36), sim.workshops.stopped[shed]]).toEqual([4, Stop.NoInput]);
   });
 
-  it('says first that the sites need the logs, then that no log has been carried to a stockpile once no site lacks one, then that none is in reach once they lie on a stockpile beyond its reach', () => {
+  it('says first that the sites need the logs, then that no log has been carried to a stockpile once no site lacks one, and splits the logs once a settler carries them there', () => {
     const sim = createSim(openMap(), { villagers: 2, monsters: 0 });
     expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 26, y: 26 })).toMatchObject({ ok: true });
     const house = sim.orders.siteOf[at(sim.map, 26, 26)]!;
-    expect(putDown(sim, at(sim.map, 40, 36), Good.Log, 4)).toBe(true);
+    expect(putDown(sim, at(sim.map, 50, 50), Good.Log, 4)).toBe(true);
     logPile(sim, 44, 36, 0);
-    const shed = finished(sim, Building.Woodshed, 4, 4);
+    const shed = finished(sim, Building.Woodshed, 36, 32);
     for (let tick = 0; tick < 10; tick++) step(sim);
     expect(sim.workshops.stopped[shed]).toBe(Stop.ForSites);
     finishBuilding(sim, house);
     runUntil(sim, () => sim.workshops.stopped[shed] === Stop.NotStocked, TICKS_PER_DAY / 4);
-    runUntil(sim, () => logsOn(sim, 44, 36) === 4 && sim.workshops.stopped[shed] === Stop.NoInput, TICKS_PER_DAY / 4);
-    expect([firewood(sim, shed), logsOn(sim, 40, 36)]).toEqual([0, 0]);
+    runUntil(sim, () => firewood(sim, shed) > 0, TICKS_PER_DAY / 2);
+    expect(logsOn(sim, 50, 50)).toBeLessThan(4);
   });
 
   it('takes logs from a stockpile 30 tiles from its middle, and none from one beyond', () => {

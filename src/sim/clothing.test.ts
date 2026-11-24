@@ -230,7 +230,16 @@ describe("a tailor's hut", () => {
     expect([clothing(sim, hut), hidesOn(sim, 40, 36), sim.workshops.stopped[hut]]).toEqual([0, 2, Stop.NoInput]);
   });
 
-  it('says no hide has been carried to a stockpile yet while hides lie off every stockpile and one has room, then works them once a settler carries them there', () => {
+  it('says it has no hide in reach while hides lie off every stockpile and the only stockpile, beyond its reach, holds one', () => {
+    const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+    expect(putDown(sim, at(sim.map, 40, 36), Good.Hide, 2)).toBe(true);
+    hidePile(sim, 50, 50, 1);
+    const hut = finished(sim, Building.Tailor, 4, 4);
+    runUntil(sim, () => sim.tick >= TICKS_PER_DAY / 3, TICKS_PER_DAY);
+    expect([hidesOn(sim, 40, 36), hidesOn(sim, 50, 50), sim.workshops.stopped[hut]]).toEqual([2, 1, Stop.NoInput]);
+  });
+
+  it('says no hide has been carried to a stockpile yet while hides lie off every stockpile and one in reach has room, then works them once a settler carries them there', () => {
     const sim = clothedSim(64, 2);
     expect(putDown(sim, at(sim.map, 50, 50), Good.Hide, 2)).toBe(true);
     hidePile(sim, 40, 36, 0);

@@ -86,9 +86,14 @@ function sitesShort(sim: Sim, good: Unit): boolean {
   return false;
 }
 
-/** Whether a unit of a good that a walk reaches lies off every stockpile while some stockpile has room for it, so a carrier will take it to one. */
-function unstocked({ goods }: Sim, good: Unit): boolean {
-  return goods.loose[good - 1]!.count > 0 && goods.room[good - 1]!.count > 0;
+/**
+ * Whether a unit of a good that a walk reaches lies off every stockpile while a stockpile within the workshop's
+ * reach has room for it, so carrying it there would give the workshop its input.
+ */
+function unstocked({ goods, map, orders }: Sim, slot: number, good: Unit, mx: number, my: number): boolean {
+  if (goods.loose[good - 1]!.count === 0) return false;
+  const place = nearestOpen(goods.room[good - 1]!, map.size, mx, my);
+  return place >= 0 && withinReach(orders.sites, slot, (place % map.size) + 0.5, (place - (place % map.size)) / map.size + 0.5);
 }
 
 /**
@@ -118,7 +123,7 @@ function sendTo(sim: Sim, id: number, slot: number, walkTo: number, px: number, 
  * With no input in reach while a site a walk reaches has not received all of the
  * input it needs, the sites are the reason: carriers take every unit to a site
  * before it reaches a stockpile. Else, while a unit a walk reaches lies off every
- * stockpile and a stockpile has room for it, the reason is that no carrier has taken it to one yet.
+ * stockpile and a stockpile in reach has room for it, the reason is that no carrier has taken it to one yet.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, workshops, goods, map, orders } = sim;
@@ -157,7 +162,7 @@ function take(sim: Sim, id: number): boolean {
     const sx = (source % size) + 0.5;
     const sy = (source - (source % size)) / size + 0.5;
     if (source < 0 || !withinReach(orders.sites, slot, sx, sy)) {
-      workshops.stopped[slot] = sitesShort(sim, recipe.input) ? Stop.ForSites : unstocked(sim, recipe.input) ? Stop.NotStocked : Stop.NoInput;
+      workshops.stopped[slot] = sitesShort(sim, recipe.input) ? Stop.ForSites : unstocked(sim, slot, recipe.input, mx, my) ? Stop.NotStocked : Stop.NoInput;
       return false;
     }
     if (goods.stockedUnits[index]! <= lackingAtSites(sim, recipe.input)) {
