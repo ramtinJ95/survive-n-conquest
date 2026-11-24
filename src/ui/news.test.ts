@@ -6,7 +6,7 @@ import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { Good, type Unit, putDown } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
-import { type Sex, nameOf } from '../sim/names';
+import { Sex, nameOf } from '../sim/names';
 import { HUNGER } from '../sim/needs';
 import { die } from '../sim/villagers';
 import { createOrders } from '../sim/orders';
@@ -42,6 +42,14 @@ describe('listNames', () => {
 });
 
 describe('the settlement news', () => {
+  it('names a settler that died of old age at the dawn it died', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [[{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22 }], [{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 20 }]];
+    const sim = createSim(map, { villagers: 4, monsters: 0, campFood: 200, animals: false, settlers });
+    const { said } = listen(sim, 3000 * 4);
+    expect(said).toEqual(['Day 4, 03:36. Ulvar died of old age.']);
+  });
+
   it('says on seed 7 with no orders who went hungry on day 4 and who starved on day 6, one line for each dusk', () => {
     const { said } = listen(createSim(generateMap(7), SETTLERS), 3000 * 7);
     expect(said).toEqual([

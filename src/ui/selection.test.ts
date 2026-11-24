@@ -877,6 +877,18 @@ function toDusk(sim: Sim, day: number): void {
   while (!(dateAt(sim.tick).day === day && isNight(sim.tick) && tickOfDay(sim.tick) >= TICKS_PER_DAY / 2)) step(sim);
 }
 
+describe("an old settler's panel", () => {
+  it('reads its sex and age, and once it died of old age the age it died at', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 200, animals: false, settlers: [[{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 66 }]] });
+    const row = (id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+    expect([row(0, 'Sex and age'), row(1, 'Sex and age')]).toEqual(['Man, 69', 'Woman, 66']);
+    while (sim.villagers.state[0] !== VillagerState.Dead) step(sim);
+    expect([row(0, 'Doing'), row(0, 'Sex and age'), row(1, 'Sex and age')]).toEqual(['Died of old age at 70', 'Man, 70', 'Woman, 67']);
+    expect(row(1, 'Household')).toBe('Household 1, with Merek (died)');
+  });
+});
+
 describe("a settler's panel in winter", () => {
   it('counts the cold nights a settler had in a row, says it is cold, and says it died of cold', () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)), SEED), { villagers: 2, monsters: 0, campFood: 100, animals: false });
