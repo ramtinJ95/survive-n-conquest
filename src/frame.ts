@@ -1,8 +1,10 @@
+import { ageOf } from './sim/aging';
 import { Good } from './sim/goods';
 import { type Readiness, readinessOf } from './sim/readiness';
 import { type OrderChanges, type OrderOutcome, takeOrderChanges } from './sim/orders';
 import type { Sim, Speed } from './sim/sim';
 import { takeTileChanges } from './sim/tileChanges';
+import type { Villagers } from './sim/villagers';
 
 export interface ClockSnapshot {
   readonly tick: number;
@@ -59,6 +61,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly worn: Uint8Array;
   /** One `Cause` per villager in id order: what it died of, or `Cause.None` while it lives. */
   readonly causes: Uint8Array;
+  /** Each villager's age in whole years in id order: at the frame's tick, or at its death once it died. */
+  readonly ages: Uint8Array;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -96,6 +100,12 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
   return pairs;
 }
 
+function agesOf(villagers: Villagers, tick: number): Uint8Array {
+  const ages = new Uint8Array(villagers.count);
+  for (let id = 0; id < villagers.count; id++) ages[id] = ageOf(villagers, id, tick);
+  return ages;
+}
+
 /**
  * The frame the worker posts, copied out of the simulation, and the buffers
  * the post transfers. It takes the tile and order changes, so each change is
@@ -130,6 +140,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     stockGoods: villagers.stockGood.slice(0, count),
     worn: villagers.worn.slice(0, count),
     causes: villagers.cause.slice(0, count),
+    ages: agesOf(villagers, sim.tick),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
@@ -166,6 +177,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.stockGoods,
     frame.worn,
     frame.causes,
+    frame.ages,
     frame.storeFood,
     frame.storeInbound,
     frame.storeFirewood,

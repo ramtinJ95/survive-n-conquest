@@ -69,6 +69,7 @@ export interface Facts {
     | 'stockGoods'
     | 'worn'
     | 'causes'
+    | 'ages'
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
@@ -330,13 +331,14 @@ const CAUSE_WORDS: Readonly<Record<Exclude<Cause, typeof Cause.None>, string>> =
   [Cause.OldAge]: 'old age',
 };
 
-/** What a villager is doing, in words. A dead one says what it died of. */
+/** What a villager is doing, in words. A dead one says what it died of, and at what age. */
 function doing(facts: Facts, id: number): string {
-  const state = facts.frame.states[id]! as VillagerState;
-  if (state === VillagerState.Dead) return `Died of ${CAUSE_WORDS[facts.frame.causes[id] as Exclude<Cause, typeof Cause.None>]}`;
+  const { frame } = facts;
+  const state = frame.states[id]! as VillagerState;
+  if (state === VillagerState.Dead) return `Died of ${CAUSE_WORDS[frame.causes[id] as Exclude<Cause, typeof Cause.None>]} at ${frame.ages[id]}`;
   const words = STATE_WORDS[state];
   if (words) return words;
-  const task = TASK_WORDS[facts.frame.tasks[id]!];
+  const task = TASK_WORDS[frame.tasks[id]!];
   if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
   return task(facts, id, state === VillagerState.Working);
 }
@@ -486,7 +488,7 @@ export const PANELS: Panels = {
       { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
       { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
       { label: 'Job', read: (facts, { id }) => JOB_WORDS[jobOf(facts, id)].title },
-      { label: 'Sex', read: ({ frame }, { id }) => SEX_WORDS[frame.sexes[id] as Sex] },
+      { label: 'Sex and age', read: ({ frame }, { id }) => `${SEX_WORDS[frame.sexes[id] as Sex]}, ${frame.ages[id]}` },
       { label: 'Household', read: (facts, { id }) => householdOf(facts, id) },
       {
         label: 'Home',

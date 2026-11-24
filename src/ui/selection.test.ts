@@ -139,6 +139,7 @@ describe("a settler's panel", () => {
         stockGoods: Uint8Array.of(carried),
         worn: Uint8Array.of(Good.None),
         causes: Uint8Array.of(Cause.None),
+        ages: Uint8Array.of(24),
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
@@ -164,7 +165,7 @@ describe("a settler's panel", () => {
         { label: 'Doing', value: 'Carrying a log to the stockpile' },
         { label: 'Carries', value: '1 log' },
         { label: 'Job', value: 'None' },
-        { label: 'Sex', value: 'Man' },
+        { label: 'Sex and age', value: 'Man, 24' },
         { label: 'Household', value: 'Household 1' },
         { label: 'Home', value: 'None, sleeps at the camp' },
         { label: 'Missed meals', value: 'None' },
@@ -178,16 +179,16 @@ describe("a settler's panel", () => {
     ]);
   });
 
-  it('is titled with the settler\'s name and says its sex, its household with the others in it, and its home once a house is finished', () => {
+  it('is titled with the settler\'s name and says its sex and age, its household with the others in it, and its home once a house is finished', () => {
     const sim = settlement(SEED);
     const panel = (id: number) => readPanel({ kind: 'villager', id }, factsOf(sim));
     const rows = (id: number) => Object.fromEntries(panel(id).rows.slice(2).map(({ label, value }) => [label, value]));
 
     expect(panel(0).title).toBe('Merek');
-    expect(rows(0)).toEqual({ Job: 'None', Sex: 'Man', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
+    expect(rows(0)).toEqual({ Job: 'None', 'Sex and age': 'Man, 26', Household: 'Household 1, with Elsi', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
     expect(panel(1).title).toBe('Elsi');
-    expect(rows(1)).toEqual({ Job: 'None', Sex: 'Woman', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
-    expect(rows(2)).toMatchObject({ Sex: 'Man', Household: `Household 2, with ${panel(3).title}` });
+    expect(rows(1)).toEqual({ Job: 'None', 'Sex and age': 'Woman, 29', Household: 'Household 1, with Merek', Home: 'None, sleeps at the camp', 'Missed meals': 'None', 'Cold nights': 'None' });
+    expect(rows(2)).toMatchObject({ 'Sex and age': 'Man, 23', Household: `Household 2, with ${panel(3).title}` });
 
     while (sim.orders.sites.state[0] !== SiteState.Built) step(sim);
     expect(rows(0).Home).toBe('A house');
@@ -220,7 +221,7 @@ describe("a settler's panel", () => {
 
   it('counts the meals a settler missed in a row, says it is hungry, and stays open with no ring once it died of hunger', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)), SEED);
-    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 0 });
+    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 0, settlers: [[{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }]] });
     const merek: Selection = { kind: 'villager', id: 0 };
     const row = (label: string) => readPanel(merek, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
     const seen = [row('Missed meals')];
@@ -229,7 +230,7 @@ describe("a settler's panel", () => {
       if (seen.at(-1) !== row('Missed meals')) seen.push(row('Missed meals'));
     }
     expect(seen).toEqual(['None', '1, hungry', '2, hungry', '3']);
-    expect(row('Doing')).toBe('Died of hunger');
+    expect(row('Doing')).toBe('Died of hunger at 41');
     expect(keepSelection(merek, sim.orders)).toBe(merek);
     expect(markPlace(merek, factsOf(sim))).toBeNull();
     expect(readPanel({ kind: 'villager', id: 1 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value).toBe('Household 1, with Merek (died)');
@@ -484,6 +485,7 @@ function siteFacts() {
     stockGoods: new Uint8Array(tasks.length),
     worn: new Uint8Array(tasks.length),
     causes: new Uint8Array(tasks.length),
+    ages: new Uint8Array(tasks.length),
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
@@ -886,7 +888,7 @@ describe("a settler's panel in winter", () => {
       if (seen.at(-1) !== row('Cold nights')) seen.push(row('Cold nights'));
     }
     expect(seen).toEqual(['None', '1, cold', '2, cold', '3']);
-    expect(row('Doing')).toBe('Died of cold');
+    expect(row('Doing')).toBe('Died of cold at 30');
     expect(row('Missed meals')).toBe('None');
   });
 
@@ -897,8 +899,8 @@ describe("a settler's panel in winter", () => {
     sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
     while (!sim.over) step(sim);
     const rows = (id: number) => Object.fromEntries(readPanel({ kind: 'villager', id }, factsOf(sim)).rows.map(({ label, value }) => [label, value]));
-    expect(rows(0)).toMatchObject({ Doing: 'Died of hunger', 'Missed meals': '3', 'Cold nights': '2' });
-    expect(rows(1)).toMatchObject({ Doing: 'Died of cold', 'Missed meals': '1', 'Cold nights': '3' });
+    expect(rows(0)).toMatchObject({ Doing: 'Died of hunger at 30', 'Missed meals': '3', 'Cold nights': '2' });
+    expect(rows(1)).toMatchObject({ Doing: 'Died of cold at 33', 'Missed meals': '1', 'Cold nights': '3' });
   });
 
   it('says a settler walks to a woodshed for firewood, carries it home, and one without a job carries it to the camp', () => {
