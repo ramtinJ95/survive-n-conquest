@@ -1,7 +1,7 @@
 import { Building, Job, MAX_SIDE, footprintStart, kindOf, needOf, siteX0, siteY0 } from './buildings';
 import { closeFlowTiles } from './flowField';
 import { GOOD_KINDS, Good, STACK_LIMIT, type Unit } from './goods';
-import { moveInto } from './households';
+import { openHouse } from './households';
 import { openWorkplace } from './jobs';
 import { TileKind, type TileMap } from './map';
 import { MAX_SITES, type Orders, SiteState, finishSite, setSiteWork } from './orders';
@@ -154,7 +154,7 @@ export function finishBuilding(sim: Sim, slot: number): void {
     siteTasks.closing[index] = tile;
   }
   finishSite(orders, slot);
-  if (orders.sites.kind[slot] === Building.House) moveInto(sim.households, slot);
+  if (orders.sites.kind[slot] === Building.House) openHouse(sim.households, slot);
   openStore(orders, sim.stores, slot);
   closeFlowTiles(map, sim.flow, siteTasks.closing, tiles);
   sim.tally.built += 1;
