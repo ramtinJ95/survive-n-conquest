@@ -89,6 +89,10 @@ export interface Villagers {
   readonly workplace: Int16Array;
   /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
   readonly hired: Uint32Array;
+  /** The tick at which each villager was born. A starting settler's lies before tick 0. */
+  readonly born: Int32Array;
+  /** The whole years each villager lives: it dies of old age at the first dawn at which it is this old. */
+  readonly span: Uint8Array;
   /** What each villager died of, `Cause.None` while it lives. */
   readonly cause: Uint8Array;
   /** The tick at which each villager died, or -1 while it lives. */
@@ -145,11 +149,13 @@ export function startingNames(seed: number): readonly [Uint16Array, Uint16Array]
   return [shuffledNames(seed, Sex.Woman), shuffledNames(seed, Sex.Man)];
 }
 
-/** A villager as it enters the table. `name` is an index into `NAMES[sex]`. */
+/** A villager as it enters the table. `name` is an index into `NAMES[sex]`, `born` a tick, and `span` its life span in whole years. */
 export interface NewVillager {
   readonly sex: Sex;
   readonly household: number;
   readonly name: number;
+  readonly born: number;
+  readonly span: number;
 }
 
 /** An empty table of `VILLAGER_ROWS` rows, with the starting settlers added in order, so settler `i` is villager `i`. */
@@ -185,6 +191,8 @@ export function createVillagers(map: TileMap, camp: FlowField, settlers: readonl
     worn: new Uint8Array(rows),
     workplace: new Int16Array(rows).fill(-1),
     hired: new Uint32Array(rows),
+    born: new Int32Array(rows),
+    span: new Uint8Array(rows),
     cause: new Uint8Array(rows),
     diedAt: new Int32Array(rows).fill(-1),
   };
@@ -215,6 +223,8 @@ export function addVillager(villagers: Villagers, map: TileMap, camp: FlowField,
   villagers.household[id] = settler.household;
   villagers.sex[id] = settler.sex;
   villagers.name[id] = settler.name;
+  villagers.born[id] = settler.born;
+  villagers.span[id] = settler.span;
   return id;
 }
 
@@ -584,6 +594,16 @@ function doTask(sim: Sim, id: number): void {
 }
 
 /**
+ * Starts every villager's day at dawn. It runs before any villager moves, so
+ * every dawn meal comes before any villager takes the day's first task, and
+ * stocking cannot take it.
+ */
+export function breakDay(sim: Sim): void {
+  const { state, count } = sim.villagers;
+  for (let id = 0; id < count; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
+}
+
+/**
  * Moves every villager one tick. By day an idle villager looks for work on the
  * tick of its group and wanders near the camp until it finds some. On the same
  * tick a villager that wants a meal gives up any task but its meal, so it goes
@@ -593,11 +613,9 @@ function doTask(sim: Sim, id: number): void {
  * is first used the next night. At dawn every villager is idle again where it
  * stands, so one that was inside comes out on the tile it went in on.
  */
-export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
+export function moveVillagers(sim: Sim, night: boolean): void {
   const { state, task, count } = sim.villagers;
   const group = sim.tick % THINK_GROUPS;
-  // Every villager's dawn meal comes before any villager takes the day's first task, so stocking cannot take it.
-  if (dawn) for (let id = 0; id < count; id++) if (state[id] !== VillagerState.Dead && atNight(state[id]!)) daybreak(sim, id);
   for (let id = 0; id < count; id++) {
     if (state[id] === VillagerState.Dead) continue;
     if (night) {
