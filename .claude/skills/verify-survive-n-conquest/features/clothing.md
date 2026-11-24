@@ -13,7 +13,7 @@ The tailor's hut is the second workshop. A deer a hunter kills leaves 1 hide on 
 - `clothing-kill` follows a hunter through its last aim to the kill, and picks up the kill's food.
 - `clothing-hide` follows a settler without a job from the camp to a kill's hide and back to the stockpile with `Carries 1 hide`.
 - `clothing-piece` reads the hut's panel through two hides carried in and the work, until it reads `Clothing 1 of 8`.
-- `clothing-stop` reads `Idle, no hide in a stockpile within 30 tiles of the tailor's hut` in the hut's panel after its first piece.
+- `clothing-stop` reads the first stop for lack of hides in the hut's panel after its first piece: `Idle, no hide carried to a stockpile yet` while a hide lies off every stockpile, as at 07:58 on day 3, or `Idle, no hide in a stockpile within 30 tiles of the tailor's hut`.
 - `clothing-layout` keeps the toolbar of 10 tools, the Stockpiles panel with its Hides row, and the hut's panel apart and inside the page at 960 by 540.
 
 ## How to get to it (user POV)

@@ -5110,10 +5110,13 @@ const CLOTHING_FINISHED = { hut: { after: { day: 1, time: '12:00' }, before: { d
 /** The hunt, the hide's walk, and the tailor's piece each must be done by these times, or the scenario stops there. */
 const CLOTHING_UNTIL = { kill: { day: 2, time: '18:00' }, hide: { day: 2, time: '19:05' }, piece: { day: 4, time: '19:05' }, stopped: { day: 5, time: '19:05' } };
 const NO_HIDE = "Idle, no hide in a stockpile within 30 tiles of the tailor's hut";
+const NO_HIDE_CARRIED = 'Idle, no hide carried to a stockpile yet';
+/** The tailor's idle words for a lack of hides: none on a stockpile in reach, or none carried to one yet while hides lie out. */
+const LACKS_HIDES = [NO_HIDE, NO_HIDE_CARRIED];
 const FETCHING_HIDE = 'Walking to a stockpile for a hide';
 const CARRYING_HIDE = "Carrying a hide to the tailor's hut";
 const MAKING = 'Making clothing';
-const TAILOR_DOING = new RegExp(`^(${[FETCHING_HIDE, CARRYING_HIDE, "Walking to the tailor's hut to make clothing", MAKING, 'Looking for a hide', NO_HIDE, "Idle, the tailor's hut is full", 'Idle, no hide carried to a stockpile yet'].join('|')})$`);
+const TAILOR_DOING = new RegExp(`^(${[FETCHING_HIDE, CARRYING_HIDE, "Walking to the tailor's hut to make clothing", MAKING, 'Looking for a hide', NO_HIDE, "Idle, the tailor's hut is full", NO_HIDE_CARRIED].join('|')})$`);
 /** What a settler without a job reads on its way to a kill's hide and on its way to the stockpile with it. */
 const TO_HIDE = 'Walking to pick up a hide';
 const WITH_HIDE = 'Carrying a hide to the stockpile';
@@ -5463,13 +5466,13 @@ SCENARIOS.clothing = async (session) => {
   );
 
   read = work.at(-1)?.clothing >= 1 ? await reads(page) : null;
-  for (let stop = 0; read && read.title === "Tailor's hut" && read.rows.Doing !== NO_HIDE && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.stopped); stop++) {
+  for (let stop = 0; read && read.title === "Tailor's hut" && !LACKS_HIDES.includes(read.rows.Doing) && (await session.gameMinutes(page)) < clockMinutes(CLOTHING_UNTIL.stopped); stop++) {
     read = await runWhile("Tailor's hut", read.rows.Doing, 240, 5);
   }
   const stopped = await reads(page);
   session.check(
     `at ${await at(page)}, after its first piece, which the tailor puts on before it looks for hides again, the tailor's hut's panel says its tailor has stopped for lack of hides and holds no clothing`,
-    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && stopped.rows.Doing === NO_HIDE && clothingOf(stopped) === 0,
+    stopped?.title === "Tailor's hut" && stopped.rows.Tailor === name && LACKS_HIDES.includes(stopped.rows.Doing) && clothingOf(stopped) === 0,
     `the panel reads "${text(stopped)}"`,
   );
   await session.screenshot(page, 'clothing-hut-stopped');
