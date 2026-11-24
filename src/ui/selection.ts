@@ -1,6 +1,7 @@
 import type { PerspectiveCamera } from 'three';
 import { type Selection, pickSelection } from '../render/pickSelection';
 import type { MarkPlace, createSelectionMark } from '../render/selectionMark';
+import { GROWN_AGE, WORK_AGE } from '../sim/aging';
 import { AnimalState } from '../sim/animals';
 import { BUILDING } from '../sim/building';
 import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY, withinReach } from '../sim/buildings';
@@ -33,7 +34,6 @@ import {
 } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
-import { WORK_AGE } from '../sim/sim';
 import { Cause, VillagerState } from '../sim/villagerState';
 import { Stop, WORKSHOP } from '../sim/workshops';
 import { WEARING } from '../sim/wearing';
@@ -393,7 +393,8 @@ const settlersAtCamp = ({ map, camp, frame }: Facts) => {
 };
 
 const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
-const CHILD_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
+/** The sex of a settler younger than `GROWN_AGE`, who works from `WORK_AGE` on. */
+const YOUNG_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
 const BORN_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'daughter', [Sex.Man]: 'son' };
 
 const isChild = ({ frame }: Facts, id: number) => frame.children[id] === 1;
@@ -521,7 +522,7 @@ export const PANELS: Panels = {
       { label: 'Job', read: (facts, { id }) => (isChild(facts, id) ? `Child, works at ${WORK_AGE}` : JOB_WORDS[jobOf(facts, id)].title) },
       {
         label: 'Sex and age',
-        read: (facts, { id }) => `${(isChild(facts, id) ? CHILD_SEX_WORDS : SEX_WORDS)[facts.frame.sexes[id] as Sex]}, ${facts.frame.ages[id]}`,
+        read: ({ frame }, { id }) => `${(frame.ages[id]! < GROWN_AGE ? YOUNG_SEX_WORDS : SEX_WORDS)[frame.sexes[id] as Sex]}, ${frame.ages[id]}`,
       },
       { label: 'Household', read: (facts, { id }) => householdLine(facts, facts.frame.households[id]!) },
       {

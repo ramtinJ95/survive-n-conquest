@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { frameOf } from '../frame';
+import { GROWN_AGE } from '../sim/aging';
 import { AnimalKind, addAnimal } from '../sim/animals';
 import { BUILDING, finishBuilding } from '../sim/building';
 import { BUILDINGS, Building } from '../sim/buildings';
-import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
+import { TICKS_PER_DAY, TICKS_PER_YEAR_OF_AGE, dateAt, tickOfDay } from '../sim/calendar';
 import { isDawn, isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
@@ -25,6 +26,7 @@ import { die } from '../sim/villagers';
 import { Cause, NO_TASK, VillagerState } from '../sim/villagerState';
 import { Stop } from '../sim/workshops';
 import { type Facts, type Selection, keepSelection, markPlace, readPanel } from './selection';
+import { jobCounts } from './stockpiles';
 
 const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
 
@@ -967,6 +969,10 @@ describe("a child's panel and the household line", () => {
   }
   const row = (sim: Sim, id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
   const name = (sim: Sim, id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+  const counts = (sim: Sim) => {
+    const { frame } = frameOf(sim);
+    return jobCounts(sim.orders, frame.states, frame.workplaces, frame.children);
+  };
 
   it('titles a child with its parents, says it is a child who works at 10, and reads a girl or a boy', () => {
     const { sim } = family();
@@ -976,6 +982,27 @@ describe("a child's panel and the household line", () => {
     expect([row(sim, 2, 'Job'), row(sim, 2, 'Sex and age'), row(sim, 3, 'Sex and age'), row(sim, 2, 'Doing')]).toEqual(['Child, works at 10', 'Girl, 6', 'Boy, 4', 'Playing by the house']);
     expect([readPanel({ kind: 'villager', id: 0 }, factsOf(sim)).title, row(sim, 0, 'Job'), row(sim, 0, 'Sex and age')]).toEqual(['Merek', 'None', 'Man, 30']);
     expect(row(sim, 4, 'Household')).toBe('Ulvar and Ysa');
+  });
+
+  it('reads a settler who started to work by its job and what it does, a girl or a boy until 16 and a woman or a man from then, and keeps its parents in its title', () => {
+    const { sim } = family();
+    const ten = 10 * TICKS_PER_YEAR_OF_AGE;
+    sim.villagers.born[2] = sim.tick - ten;
+    while (!isDawn(sim.tick)) step(sim);
+    const before = { Job: row(sim, 2, 'Job'), 'Sex and age': row(sim, 2, 'Sex and age'), counts: counts(sim) };
+    step(sim);
+    expect(before).toEqual({ Job: 'Child, works at 10', 'Sex and age': 'Girl, 10', counts: { withJob: 0, withoutJob: 4, children: 2 } });
+    expect([readPanel({ kind: 'villager', id: 2 }, factsOf(sim)).title, row(sim, 2, 'Job'), row(sim, 2, 'Sex and age'), row(sim, 2, 'Doing')]).toEqual([
+      `${name(sim, 2)}, daughter of Merek and Elsi`,
+      'None',
+      'Girl, 10',
+      row(sim, 4, 'Doing'),
+    ]);
+    expect(counts(sim), 'one child fewer and one settler more').toEqual({ withJob: 0, withoutJob: 5, children: 1 });
+    sim.villagers.born[2] = sim.tick - (GROWN_AGE * TICKS_PER_YEAR_OF_AGE - 1);
+    expect(row(sim, 2, 'Sex and age')).toBe('Girl, 15');
+    sim.villagers.born[2] = sim.tick - GROWN_AGE * TICKS_PER_YEAR_OF_AGE;
+    expect(row(sim, 2, 'Sex and age')).toBe('Woman, 16');
   });
 
   it('reads a household as its living couple by name and its other members and its dead by count, alike on the settler and on its house', () => {
