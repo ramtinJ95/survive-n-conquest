@@ -2727,8 +2727,8 @@ const AGING_STOPS = {
   beforeDawn: { day: 2, time: '04:40' },
   dawnUntil: { day: 2, time: '05:00' },
 };
-/** Wheel pixels in from the opening view, so the settlers at the camp stand apart enough to click one by one. */
-const AGING_WHEEL = -600;
+/** Wheel pixels in from the opening view, so the settlers wandering near the camp at noon stand apart enough to click one by one. */
+const AGING_WHEEL = -900;
 const AGING_CLIP = { width: 640, colors: 64 };
 const AGE_READING = /^(Man|Woman), (\d+)$/;
 
@@ -2740,7 +2740,7 @@ function agingDriver(session) {
     if (run.status !== 0) fail(`ages.ts failed: ${run.stderr}`);
     return JSON.parse(run.stdout);
   };
-  /** Zooms in on the camp and clicks every tunic of a paused frame, and returns the distinct settlers' panels by name. */
+  /** Zooms in on the camp and clicks every tunic of a paused frame, and returns the distinct settlers' panels by name. Read at noon, when the settlers have wandered apart. */
   const readAll = async (page, label) => {
     await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
     await page.mouse.wheel(0, AGING_WHEEL);
@@ -2748,7 +2748,7 @@ function agingDriver(session) {
     await session.still(page);
     const png = await session.screenshot(page, label);
     const panels = new Map();
-    for (const spot of (await tunics(page, png)).slice(0, 16)) {
+    for (const spot of (await tunics(page, png)).slice(0, 24)) {
       const read = await click(page, { x: spot.x, y: spot.y });
       if (settlerPanel(read) && !panels.has(read.title)) panels.set(read.title, read);
     }
@@ -2757,7 +2757,7 @@ function agingDriver(session) {
   /** Clicks the tunics of a paused frame until the panel of the settler named `title` opens, and returns its panel or null. */
   const selectNamed = async (page, title, label) => {
     const png = await session.screenshot(page, label);
-    for (const spot of (await tunics(page, png)).slice(0, 16)) {
+    for (const spot of (await tunics(page, png)).slice(0, 24)) {
       const read = await click(page, { x: spot.x, y: spot.y });
       if (read?.title === title) return read;
     }
@@ -2775,7 +2775,7 @@ SCENARIOS.aging = async (session) => {
   const agreeing = (panels, wanted) => [...panels.values()].map((read) => ({ read, wanted: wanted(read) })).map(({ read, wanted }) => ({ name: read.title, reads: read.rows['Sex and age'], wanted, ok: ageOf(read) === wanted }));
   const describe = (rows) => rows.map(({ name, reads, wanted }) => `${name} "${reads}" against ${wanted}`).join(', ') || 'nobody';
 
-  const seed = await session.open(CLIP, { record: true, search: AGING_SEARCH, clock: 'paused' });
+  const seed = await session.open(CLIP, { record: true, search: AGING_SEARCH });
   const panels = await readAll(seed.page, 'aging-seed-settlers');
   const seedRows = agreeing(panels, (read) => byName.get(read.title)?.age);
   session.check(
@@ -2810,6 +2810,7 @@ SCENARIOS.aging = async (session) => {
 
   const player = await session.open(CLIP, { search: `${AGING_SEARCH}&settlers=${OLD_SETTLERS}`, clock: 'player' });
   await session.pause(player.page);
+  await session.reach(player.page, { day: 1, time: '12:00' });
   const playerRows = agreeing(await readAll(player.page, 'aging-player-settlers'), (read) => byName.get(read.title)?.age);
   session.check(
     "a player's page, without clock=paused, ignores the settlers setting and its settlers have the ages seed 7 gives",
@@ -2819,7 +2820,7 @@ SCENARIOS.aging = async (session) => {
   await player.context.close();
   seen.push(...player.errors);
 
-  const old = await session.open(CLIP, { record: true, search: `${AGING_SEARCH}&settlers=${OLD_SETTLERS}`, clock: 'paused' });
+  const old = await session.open(CLIP, { record: true, search: `${AGING_SEARCH}&settlers=${OLD_SETTLERS}` });
   const { page } = old;
   const stated = await readAll(page, 'aging-old-settlers');
   const statedAges = [...stated.values()].map(ageOf);
