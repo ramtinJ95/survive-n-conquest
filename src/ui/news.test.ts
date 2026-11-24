@@ -44,7 +44,7 @@ describe('listNames', () => {
 describe('the settlement news', () => {
   it('names a settler that died of old age at the dawn it died', () => {
     const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
-    const settlers = [[{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22 }], [{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 20 }]];
+    const settlers = [{ members: [{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22 }] }, { members: [{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 20 }] }];
     const sim = createSim(map, { villagers: 4, monsters: 0, campFood: 200, animals: false, settlers });
     const { said } = listen(sim, 3000 * 4);
     expect(said).toEqual(['Day 4, 03:36. Ulvar died of old age.']);

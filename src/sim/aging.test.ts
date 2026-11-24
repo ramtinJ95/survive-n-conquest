@@ -9,7 +9,7 @@ import { Good } from './goods';
 import { MAX_HOUSEHOLDS, NO_HOME } from './households';
 import { generateMap } from './mapgen';
 import { Sex, nameOf } from './names';
-import { SETTLERS, type Sim, type StartingHousehold, applyCommand, createSim, parseSettlers, populationFor, step } from './sim';
+import { SETTLERS, type Sim, type StartingSettler, applyCommand, createSim, parseSettlers, populationFor, step } from './sim';
 import { at, mapFrom } from './testMaps';
 import { addVillager } from './villagers';
 import { Cause, VILLAGER_ROWS, VillagerState } from './villagerState';
@@ -19,8 +19,8 @@ const man = (age: number, span?: number) => (span === undefined ? { sex: Sex.Man
 const woman = (age: number, span?: number) => (span === undefined ? { sex: Sex.Woman, age } : { sex: Sex.Woman, age, span });
 
 /** Settlers of stated ages on an open map with food and no animals, so nothing but age ends a life in the first days. */
-function settlers(households: readonly StartingHousehold[]): Sim {
-  return createSim(mapFrom(open(32)), { villagers: households.length * 2, monsters: 0, campFood: 200, animals: false, settlers: households });
+function settlers(households: readonly (readonly StartingSettler[])[]): Sim {
+  return createSim(mapFrom(open(32)), { villagers: households.length * 2, monsters: 0, campFood: 200, animals: false, settlers: households.map((members) => ({ members })) });
 }
 
 function runTo(sim: Sim, tick: number): void {
@@ -154,7 +154,7 @@ describe('the villagers table', () => {
 
   it('adds a villager in the next row, which a frame then carries, until the table is full', () => {
     const sim = createSim(mapFrom(open(24)), { villagers: 2, monsters: 0 });
-    const child = { sex: Sex.Woman, household: 0, name: 3, born: 0, span: 70 };
+    const child = { sex: Sex.Woman, household: 0, name: 3, born: 0, span: 70, child: true, mother: 1, father: 0 };
     expect(addVillager(sim.villagers, sim.map, sim.flow, child)).toBe(2);
     expect(sim.villagers.count).toBe(3);
     const { frame } = frameOf(sim);
@@ -168,14 +168,14 @@ describe('the villagers table', () => {
 describe('the settlers setting', () => {
   it('reads households of a man and a woman with their ages and, when given, their spans', () => {
     expect(parseSettlers('m70:70,w66;m24,w22:75')).toEqual([
-      [{ sex: Sex.Man, age: 70, span: 70 }, { sex: Sex.Woman, age: 66 }],
-      [{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22, span: 75 }],
+      { members: [{ sex: Sex.Man, age: 70, span: 70 }, { sex: Sex.Woman, age: 66 }] },
+      { members: [{ sex: Sex.Man, age: 24 }, { sex: Sex.Woman, age: 22, span: 75 }] },
     ]);
-    expect(parseSettlers('m0,w99:1')).toEqual([[{ sex: Sex.Man, age: 0 }, { sex: Sex.Woman, age: 99, span: 1 }]]);
+    expect(parseSettlers('m0,w99:1')).toEqual([{ members: [{ sex: Sex.Man, age: 0 }, { sex: Sex.Woman, age: 99, span: 1 }] }]);
   });
 
   it('ignores anything malformed', () => {
-    const junk = [null, '', 'm24', 'w22,m24', 'm24,w22,w3', 'm24,m22', 'x24,w22', 'm100,w2', 'm-1,w2', 'm24:0,w22', 'm24:100,w22', 'm24,w22;', ';m24,w22', 'm24 ,w22', 'M24,w22', 'm24:,w22', 'm2.5,w22'];
+    const junk = [null, '', 'm24', 'w22,m24', 'm24,m22', 'm24,w22@', 'm24,w22@x', 'm24,w22@1@2', 'm24,w22@1000', '@6', 'm24,w22,@6', 'x24,w22', 'm100,w2', 'm-1,w2', 'm24:0,w22', 'm24:100,w22', 'm24,w22;', ';m24,w22', 'm24 ,w22', 'M24,w22', 'm24:,w22', 'm2.5,w22'];
     for (const text of junk) expect(parseSettlers(text), String(text)).toBeNull();
     expect(parseSettlers(Array.from({ length: MAX_HOUSEHOLDS + 1 }, () => 'm20,w20').join(';'))).toBeNull();
   });
@@ -205,7 +205,7 @@ describe('the settlers setting', () => {
 
 describe('a household one of whose couple dies of old age, under the rules of stages 3 and 4', () => {
   /** Household 0 in a finished house with 6 food, its man clothed and the one forager of a hut, and household 1 at the camp. */
-  function widowed(households: readonly StartingHousehold[]) {
+  function widowed(households: readonly (readonly StartingSettler[])[]) {
     const sim = settlers(households);
     expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 6 })).toMatchObject({ ok: true });
     const house = sim.orders.siteOf[at(sim.map, 6, 6)]!;

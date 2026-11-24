@@ -221,7 +221,7 @@ describe("a settler's panel", () => {
 
   it('counts the meals a settler missed in a row, says it is hungry, and stays open with no ring once it died of hunger', () => {
     const map = mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24)), SEED);
-    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 0, settlers: [[{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }]] });
+    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 0, settlers: [{ members: [{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }] }] });
     const merek: Selection = { kind: 'villager', id: 0 };
     const row = (label: string) => readPanel(merek, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
     const seen = [row('Missed meals')];
@@ -880,7 +880,7 @@ function toDusk(sim: Sim, day: number): void {
 describe("an old settler's panel", () => {
   it('reads its sex and age, and once it died of old age the age it died at', () => {
     const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
-    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 200, animals: false, settlers: [[{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 66 }]] });
+    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 200, animals: false, settlers: [{ members: [{ sex: Sex.Man, age: 69, span: 70 }, { sex: Sex.Woman, age: 66 }] }] });
     const row = (id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
     expect([row(0, 'Sex and age'), row(1, 'Sex and age')]).toEqual(['Man, 69', 'Woman, 66']);
     while (sim.villagers.state[0] !== VillagerState.Dead) step(sim);

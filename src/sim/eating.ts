@@ -1,4 +1,4 @@
-import { ANYONE } from './buildings';
+import { EVERYONE } from './buildings';
 import { Good } from './goods';
 import { eat, storeOf } from './needs';
 import { planPath } from './paths';
@@ -68,4 +68,4 @@ function release(sim: Sim, id: number): void {
 const nothing = () => {};
 
 /** Walking to the store a villager eats from to take the meal it missed, the most urgent kind of task. */
-export const EATING: TaskKind = { job: ANYONE, take, holds, work, release, refresh: nothing, reopen: nothing };
+export const EATING: TaskKind = { job: EVERYONE, take, holds, work, release, refresh: nothing, reopen: nothing };

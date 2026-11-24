@@ -6,7 +6,7 @@ import { EATING, wantsMeal } from './eating';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
 import { NO_HOME, loseMember } from './households';
-import { loseWorker } from './jobs';
+import { loseWorker, works } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
 import { NAMES, Sex } from './names';
@@ -97,6 +97,11 @@ export interface Villagers {
   readonly cause: Uint8Array;
   /** The tick at which each villager died, or -1 while it lives. */
   readonly diedAt: Int32Array;
+  /** 1 while the villager is a child, who does no work. `works` reads it. */
+  readonly child: Uint8Array;
+  /** The ids of each villager's mother and father, or -1 for a settler the map started with. An id stays valid after the parent's death. */
+  readonly mother: Int32Array;
+  readonly father: Int32Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -156,11 +161,15 @@ export interface NewVillager {
   readonly name: number;
   readonly born: number;
   readonly span: number;
+  /** Whether it enters as a child, who does no work. */
+  readonly child: boolean;
+  /** Its parents' ids, or -1. */
+  readonly mother: number;
+  readonly father: number;
 }
 
-/** An empty table of `VILLAGER_ROWS` rows, with the starting settlers added in order, so settler `i` is villager `i`. */
-export function createVillagers(map: TileMap, camp: FlowField, settlers: readonly NewVillager[]): Villagers {
-  if (settlers.length > VILLAGER_ROWS) throw new Error(`${settlers.length} villagers is more than ${VILLAGER_ROWS}`);
+/** An empty table of `VILLAGER_ROWS` rows. `addVillager` adds each villager. */
+export function createVillagers(): Villagers {
   const rows = VILLAGER_ROWS;
   const villagers: Villagers = {
     count: 0,
@@ -195,8 +204,10 @@ export function createVillagers(map: TileMap, camp: FlowField, settlers: readonl
     span: new Uint8Array(rows),
     cause: new Uint8Array(rows),
     diedAt: new Int32Array(rows).fill(-1),
+    child: new Uint8Array(rows),
+    mother: new Int32Array(rows).fill(-1),
+    father: new Int32Array(rows).fill(-1),
   };
-  for (const settler of settlers) addVillager(villagers, map, camp, settler);
   return villagers;
 }
 
@@ -225,6 +236,9 @@ export function addVillager(villagers: Villagers, map: TileMap, camp: FlowField,
   villagers.name[id] = settler.name;
   villagers.born[id] = settler.born;
   villagers.span[id] = settler.span;
+  villagers.child[id] = Number(settler.child);
+  villagers.mother[id] = settler.mother;
+  villagers.father[id] = settler.father;
   return id;
 }
 
@@ -651,6 +665,6 @@ export function die(sim: Sim, id: number, cause: Cause): void {
   sim.tally.died += 1;
   sim.living -= 1;
   loseWorker(sim, id);
-  loseMember(sim.households, villagers.household[id]!);
+  loseMember(sim.households, villagers.household[id]!, works(villagers, id));
   if (sim.living === 0) sim.over = true;
 }

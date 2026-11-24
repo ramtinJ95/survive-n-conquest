@@ -84,7 +84,7 @@ describe('the simulation', () => {
 
   it('opens the swarm with every tree and rock tile marked, as a player marks them', () => {
     const swarm = createSim(map, populationFor('on'));
-    const byHand = createSim(map, { villagers: 1500, monsters: 3000, campFood: BENCHMARK_POPULATION.campFood });
+    const byHand = createSim(map, { villagers: 1500, monsters: 3000, campFood: BENCHMARK_POPULATION.campFood, mostLiving: BENCHMARK_POPULATION.mostLiving });
     applyCommand(byHand, { kind: 'markArea', order: 'chop', area: WHOLE_MAP });
     applyCommand(byHand, { kind: 'markArea', order: 'quarry', area: WHOLE_MAP });
     const claimed = (sim: Sim, claim: Claim) => sim.orders.claims.filter((value) => value === claim).length;

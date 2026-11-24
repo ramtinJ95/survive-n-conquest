@@ -5,11 +5,12 @@ import { TICKS_PER_SECOND } from './calendar';
 import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
 import { DAWN } from './dawn';
+import { VILLAGER_ROWS } from './villagerState';
 import { type FlowField, createFlowField } from './flowField';
 import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
-import { type Households, MAX_HOUSEHOLDS, createHouseholds } from './households';
+import { type Households, MAX_HOUSEHOLDS, NO_HOME, NO_VILLAGER, addMember, createHouseholds, formHousehold } from './households';
 import { type Hunting, createHunting } from './hunting';
 import { setPlaces } from './jobs';
 import { type TileMap, copyMap } from './map';
@@ -18,9 +19,9 @@ import { MAX_SITES, type OrderCommand, type OrderOutcome, type Orders, applyOrde
 import { type PathSearch, createPathSearch } from './paths';
 import { CAMP_FOOD, type Stores, createStores } from './stores';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
-import { Sex } from './names';
+import { Sex, freeName } from './names';
 import { type TileChanges, createTileChanges } from './tileChanges';
-import { type NewVillager, type Villagers, createVillagers, moveVillagers, startingNames, stopFallenTasks } from './villagers';
+import { type Villagers, addVillager, createVillagers, moveVillagers, startingNames, stopFallenTasks } from './villagers';
 import { type Workshops, createWorkshops } from './workshops';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
@@ -40,8 +41,15 @@ export interface StartingSettler {
   readonly span?: number;
 }
 
-/** The members of a starting household in id order. */
-export type StartingHousehold = readonly StartingSettler[];
+/**
+ * A starting household: its couple, a man and then a woman, and then the
+ * couple's children, in id order. `dawnsSeen` is how many dawns it has seen
+ * before the map's first tick, 0 when left out.
+ */
+export interface StartingHousehold {
+  readonly members: readonly StartingSettler[];
+  readonly dawnsSeen?: number;
+}
 
 /** The design's cap on the settlers alive at once. */
 export const MOST_LIVING = 1500;
@@ -56,12 +64,12 @@ export interface Population {
   /** False leaves the map without animals, from the start and at every dawn. A test page uses it to keep a scene still. */
   readonly animals?: boolean;
   /**
-   * Starting settlers of stated ages in place of the seed's, household `h`
-   * taking the next ids in order. `villagers` is their number. Only a
-   * verification page sets it.
+   * Starting households of stated settlers in place of the seed's, household
+   * `h` taking the next ids in order. `villagers` is their number. Only a
+   * verification page and the benchmark set it.
    */
   readonly settlers?: readonly StartingHousehold[];
-  /** The most settlers alive at once, `MOST_LIVING` when left out. Nothing in the simulation holds to it yet. The benchmark reads it. */
+  /** The most settlers alive at once, `MOST_LIVING` when left out. No child is born while this many live. */
   readonly mostLiving?: number;
 }
 
@@ -80,22 +88,25 @@ export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
 
 const MEMBER = /^([mw])(\d{1,2})(?::(\d{1,2}))?$/;
+const DAWNS_SEEN = /^\d{1,3}$/;
 
 /**
  * The `settlers` URL setting: households separated by `;`, members by `,`. A
  * member is `m` or `w`, its age in whole years, and optionally `:` and its life
  * span, as in `m70:70,w66;m24,w22:75`. Each household is a man and then a
- * woman. An age is 0 to 99 and a span 1 to 99. Anything else returns null, and
- * the setting is ignored. Stage 5.2 extends the same form: the members after a
- * household's couple are that couple's children, so their parents follow
- * from the household.
+ * woman, its couple, and then the couple's children, as in `m30,w28,w5,m2`. A
+ * household may end in `@` and the dawns it has seen before the map's first
+ * tick, as in `m30,w28@6`. An age is 0 to 99, a span 1 to 99, and the dawns 0
+ * to 999. Anything else returns null, and the setting is ignored.
  */
 export function parseSettlers(text: string | null): StartingHousehold[] | null {
   if (!text) return null;
   const households: StartingHousehold[] = [];
   for (const part of text.split(';')) {
+    const [list, seen, extra] = part.split('@');
+    if (extra !== undefined || (seen !== undefined && !DAWNS_SEEN.test(seen))) return null;
     const members: StartingSettler[] = [];
-    for (const member of part.split(',')) {
+    for (const member of list!.split(',')) {
       const match = MEMBER.exec(member);
       if (!match) return null;
       const span = match[3] === undefined ? undefined : Number(match[3]);
@@ -103,8 +114,8 @@ export function parseSettlers(text: string | null): StartingHousehold[] | null {
       const sex = match[1] === 'm' ? Sex.Man : Sex.Woman;
       members.push(span === undefined ? { sex, age: Number(match[2]) } : { sex, age: Number(match[2]), span });
     }
-    if (members.length !== 2 || members[0]!.sex !== Sex.Man || members[1]!.sex !== Sex.Woman) return null;
-    households.push(members);
+    if (members.length < 2 || members[0]!.sex !== Sex.Man || members[1]!.sex !== Sex.Woman) return null;
+    households.push(seen === undefined ? { members } : { members, dawnsSeen: Number(seen) });
   }
   return households.length > MAX_HOUSEHOLDS ? null : households;
 }
@@ -124,7 +135,7 @@ export function populationFor(
 ): Population {
   const base = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
   const stated = base === SETTLERS && settlers !== null;
-  const population = stated ? { ...base, villagers: settlers.reduce((sum, members) => sum + members.length, 0), settlers } : base;
+  const population = stated ? { ...base, villagers: settlers.reduce((sum, { members }) => sum + members.length, 0), settlers } : base;
   const campFood = food !== null && /^\d{1,5}$/.test(food) ? Number(food) : NaN;
   const fed = campFood <= 0xffff ? { ...population, campFood } : population;
   return deer === 'off' ? { ...fed, animals: false } : fed;
@@ -215,35 +226,59 @@ export interface Sim {
   hires: number;
   /** Villagers alive. */
   living: number;
+  /** No child is born while this many villagers live. */
+  readonly mostLiving: number;
   /** True once the last villager died. The clock stops for good. A simulation that started with nobody is never over. */
   over: boolean;
   speed: Speed;
   paused: boolean;
 }
 
+/** A villager starts to work at this age. A child is younger. */
+export const WORK_AGE = 10;
+
 /**
- * The settlers a map starts with, in id order. By default villagers `2h`, a
- * man, and `2h + 1`, a woman, form household `h`, and with an odd count the
- * last household is one man. Each has the age and the life span the seed
- * draws for its id. Stated settlers take their stated ages, and their stated
- * spans or the seed's.
+ * The households a map starts with, as stated or, by default, by the seed:
+ * villagers `2h`, a man, and `2h + 1`, a woman, form household `h`, and with
+ * an odd count the last household is one man. Each has the age and the life
+ * span the seed draws for its id. Stated settlers take their stated ages, and
+ * their stated spans or the seed's.
  */
-function startingSettlers(seed: number, population: Population): NewVillager[] {
+function startingHouseholds(seed: number, population: Population): readonly StartingHousehold[] {
+  if (population.settlers) return population.settlers;
+  return Array.from({ length: Math.ceil(population.villagers / 2) }, (_, h) => {
+    const man = { sex: Sex.Man, age: startingAge(seed, 2 * h) };
+    const woman = { sex: Sex.Woman, age: startingAge(seed, 2 * h + 1) };
+    return { members: 2 * h + 1 < population.villagers ? [man, woman] : [man] };
+  });
+}
+
+/**
+ * Adds the starting households, each formed with its couple before the map's
+ * first tick, with its children after them. The couple of household `h` take
+ * the seed's starting names of household `h`. A child takes a name no member
+ * before it bears, and the couple as its parents. A member younger than
+ * `WORK_AGE` is a child.
+ */
+function settle(seed: number, population: Population, map: TileMap, flow: FlowField, villagers: Villagers, households: Households): void {
   const names = startingNames(seed);
-  const nameOf = (sex: Sex, household: number) => names[sex][household % names[sex].length]!;
-  if (population.settlers) {
-    const settlers: NewVillager[] = [];
-    population.settlers.forEach((members, household) => {
-      for (const { sex, age, span } of members) {
-        settlers.push({ sex, household, name: nameOf(sex, household), born: bornAt(age), span: span ?? lifeSpan(seed, settlers.length) });
+  const works = (id: number) => !villagers.child[id];
+  startingHouseholds(seed, population).forEach(({ members, dawnsSeen = 0 }, h) => {
+    const ids: number[] = [];
+    let taken = [0, 0];
+    for (const { sex, age, span } of members) {
+      const id = villagers.count;
+      const couple = ids.length < 2;
+      const name = couple ? names[sex][h % names[sex].length]! : freeName(seed, id, sex, taken[sex]!);
+      taken[sex] = taken[sex]! | (1 << name);
+      const parents = couple ? { mother: -1, father: -1 } : { mother: ids[1]!, father: ids[0]! };
+      if (addVillager(villagers, map, flow, { sex, household: h, name, born: bornAt(age), span: span ?? lifeSpan(seed, id), child: age < WORK_AGE, ...parents }) < 0) {
+        throw new Error(`more starting settlers than the ${VILLAGER_ROWS} rows of the villagers table`);
       }
-    });
-    return settlers;
-  }
-  return Array.from({ length: population.villagers }, (_, id) => {
-    const household = id >> 1;
-    const sex = id % 2 === 0 ? Sex.Man : Sex.Woman;
-    return { sex, household, name: nameOf(sex, household), born: bornAt(startingAge(seed, id)), span: lifeSpan(seed, id) };
+      ids.push(id);
+    }
+    if (formHousehold(households, villagers, ids[0]!, ids[1] ?? NO_VILLAGER, NO_HOME, -dawnsSeen, works) < 0) throw new Error(`more than ${MAX_HOUSEHOLDS} starting households`);
+    for (const id of ids.slice(2)) addMember(households, villagers, h, id, works(id));
   });
 }
 
@@ -252,15 +287,17 @@ export function createSim(source: TileMap, population: Population): Sim {
   const map = copyMap(source);
   const camp = campTile(map);
   const flow = createFlowField(map, camp);
-  const settlers = startingSettlers(map.seed, population);
+  const villagers = createVillagers();
+  const households = createHouseholds();
+  settle(map.seed, population, map, flow, villagers, households);
   const sim: Sim = {
     seed: map.seed,
     map,
     camp,
     flow,
     tileChanges: createTileChanges(map.size * map.size),
-    villagers: createVillagers(map, flow, settlers),
-    households: createHouseholds(settlers.length),
+    villagers,
+    households,
     monsters: createMonsters(map, flow, population.monsters),
     animals: createAnimals(map, population.animals ?? true),
     orders: createOrders(map, camp),
@@ -282,7 +319,8 @@ export function createSim(source: TileMap, population: Population): Sim {
     tick: 0,
     dawns: 0,
     hires: 0,
-    living: settlers.length,
+    living: villagers.count,
+    mostLiving: population.mostLiving ?? MOST_LIVING,
     over: false,
     speed: 1,
     paused: false,

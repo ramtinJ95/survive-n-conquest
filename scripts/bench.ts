@@ -128,10 +128,12 @@ function laterYears(count: number, first: number): StartingHousehold[] {
     const id = first + 2 * h;
     const man = AGES.youngest + ((id * 29) % range);
     const woman = Math.min(Math.max(man - 2 + (h % 5), AGES.youngest), AGES.oldest);
-    return [
-      { sex: Sex.Man, age: man, span: span(id, man) },
-      { sex: Sex.Woman, age: woman, span: span(id + 1, woman) },
-    ];
+    return {
+      members: [
+        { sex: Sex.Man, age: man, span: span(id, man) },
+        { sex: Sex.Woman, age: woman, span: span(id + 1, woman) },
+      ],
+    };
   });
 }
 

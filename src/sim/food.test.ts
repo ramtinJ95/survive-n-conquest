@@ -159,7 +159,7 @@ describe('meals', () => {
     const campAtDusk = campFood(sim);
     lateNight(sim);
     expect(states(sim)).toEqual([VillagerState.Dead, VillagerState.Dead, VillagerState.Settling, VillagerState.Settling]);
-    expect(Array.from(sim.households.home)).toEqual([NO_HOME, slot]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([NO_HOME, slot]);
     expect(missed(sim).slice(2)).toEqual([0, 0]);
     expect(campFood(sim)).toBe(campAtDusk - 2);
   });
@@ -370,14 +370,14 @@ describe('households and death', () => {
   it('give the house of a household whose last member died, with its food, to the next living household without a home', () => {
     const sim = createSim(mapFrom(open(32)), { villagers: 6, monsters: 0 });
     const slot = finishedHouse(sim, 6, 6);
-    expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME, NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([slot, NO_HOME, NO_HOME]);
     sim.stores.held[Good.Food - 1]![slot] = 9;
     die(sim, 2, Cause.Hunger);
     die(sim, 3, Cause.Hunger);
     die(sim, 0, Cause.Hunger);
-    expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME, NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([slot, NO_HOME, NO_HOME]);
     die(sim, 1, Cause.Hunger);
-    expect(Array.from(sim.households.home)).toEqual([NO_HOME, NO_HOME, slot]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([NO_HOME, NO_HOME, slot]);
     expect(sim.stores.held[Good.Food - 1]![slot]).toBe(9);
   });
 
@@ -386,10 +386,10 @@ describe('households and death', () => {
     die(sim, 2, Cause.Hunger);
     die(sim, 3, Cause.Hunger);
     const slot = finishedHouse(sim, 6, 6);
-    expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([slot, NO_HOME]);
     die(sim, 0, Cause.Hunger);
     die(sim, 1, Cause.Hunger);
-    expect(Array.from(sim.households.home)).toEqual([NO_HOME, NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([NO_HOME, NO_HOME]);
   });
 });
 

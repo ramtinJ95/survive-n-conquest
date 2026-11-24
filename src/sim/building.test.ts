@@ -275,7 +275,7 @@ describe("a forager's hut", () => {
       expect([sim.map.kinds[tile], walkable(sim.map, tile), sim.flow.next[tile]]).toEqual([TileKind.Built, false, -1]);
     }
     for (const [x, y] of [[20, 15], [23, 15], [21, 14], [22, 17]] as const) expect(walkable(sim.map, at(sim.map, x, y))).toBe(true);
-    expect(Array.from(sim.households.home)).toEqual([NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([NO_HOME]);
     expect([storeKind(sim.orders, slot), limitOf(sim.orders, sim.stores.campLimit, slot, Good.Food)]).toEqual([StoreKind.None, 0]);
   });
 });
