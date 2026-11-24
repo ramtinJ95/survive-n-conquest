@@ -7136,7 +7136,8 @@ const BIRTH_HOUSES = { 3: { x: 527, y: 241 }, 4: { x: 474, y: 237 }, 5: { x: 493
 const BIRTHS_CLOSER = -500;
 /** Pixels from a tunic's middle at which a click can find a child that stands beside an adult, at `BIRTHS_CLOSER`. */
 const CHILD_REACH = 10;
-const BIRTHS_CLIP = { crop: { x: 400, y: 150, width: 400, height: 250 }, width: 640, colors: 64 };
+/** At `BIRTHS_CLOSER` over the house of Merek and Elsi, the house, its doors, and the news log below them. */
+const BIRTHS_CLIP = { crop: { x: 380, y: 150, width: 560, height: 340 }, width: 560, colors: 64 };
 const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
 
 function birthsDriver(session) {
@@ -7248,6 +7249,7 @@ SCENARIOS.births = async (session) => {
   const firstStop = clockMinutes(first.stop);
   const clipFrom = clockAt(firstStop - 10);
   await session.reach(page, clipFrom);
+  await closer(page, 6, BIRTHS_CLOSER);
   const from = a.since();
   const heard = await listen(page, clipFrom, clockAt(firstStop + 2));
   const bornLine = `${first.news}. ${cases.birth.name} was born to Merek and Elsi.`;
@@ -7264,7 +7266,6 @@ SCENARIOS.births = async (session) => {
   const to = a.since();
 
   await session.reach(page, { day: 4, time: '09:00' });
-  await closer(page, 6, BIRTHS_CLOSER);
   const childTitle = `${cases.birth.name}, ${cases.birth.girl ? 'daughter' : 'son'} of Merek and Elsi`;
   const found = await selectTitled(page, childTitle, 6, 'births-child-aim');
   const child = found.read;
