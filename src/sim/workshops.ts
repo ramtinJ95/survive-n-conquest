@@ -87,13 +87,16 @@ function sitesShort(sim: Sim, good: Unit): boolean {
 }
 
 /**
- * Whether a unit of a good that a walk reaches lies off every stockpile while a stockpile within the workshop's
- * reach has room for it, so carrying it there would give the workshop its input.
+ * Whether a unit of a good that a walk reaches lies off every stockpile and the stockpile place a carrier would take
+ * it to lies within the workshop's reach, so carrying it would give the workshop its input. The unit is the one
+ * nearest the workshop's middle, and its place the one with room nearest that unit, as carriers choose it.
  */
 function unstocked({ goods, map, orders }: Sim, slot: number, good: Unit, mx: number, my: number): boolean {
-  if (goods.loose[good - 1]!.count === 0) return false;
-  const place = nearestOpen(goods.room[good - 1]!, map.size, mx, my);
-  return place >= 0 && withinReach(orders.sites, slot, (place % map.size) + 0.5, (place - (place % map.size)) / map.size + 0.5);
+  const { size } = map;
+  const unit = nearestOpen(goods.loose[good - 1]!, size, mx, my);
+  if (unit < 0) return false;
+  const place = nearestOpen(goods.room[good - 1]!, size, (unit % size) + 0.5, (unit - (unit % size)) / size + 0.5);
+  return place >= 0 && withinReach(orders.sites, slot, (place % size) + 0.5, (place - (place % size)) / size + 0.5);
 }
 
 /**
@@ -123,7 +126,7 @@ function sendTo(sim: Sim, id: number, slot: number, walkTo: number, px: number, 
  * With no input in reach while a site a walk reaches has not received all of the
  * input it needs, the sites are the reason: carriers take every unit to a site
  * before it reaches a stockpile. Else, while a unit a walk reaches lies off every
- * stockpile and a stockpile in reach has room for it, the reason is that no carrier has taken it to one yet.
+ * stockpile and a carrier would take it to a stockpile in reach, the reason is that no carrier has taken it there yet.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, workshops, goods, map, orders } = sim;
