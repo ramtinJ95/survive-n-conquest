@@ -16,8 +16,9 @@ import { MAX_SITES, type OrderCommand, type OrderOutcome, type Orders, applyOrde
 import { type PathSearch, createPathSearch } from './paths';
 import { CAMP_FOOD, type Stores, createStores } from './stores';
 import { reachTasks, refreshTasks, reopenTasks } from './tasks';
+import { Sex } from './names';
 import { type TileChanges, createTileChanges } from './tileChanges';
-import { type Villagers, createVillagers, moveVillagers, stopFallenTasks } from './villagers';
+import { type NewVillager, type Villagers, createVillagers, moveVillagers, startingNames, stopFallenTasks } from './villagers';
 import { type Workshops, createWorkshops } from './workshops';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
@@ -157,26 +158,41 @@ export interface Sim {
   paused: boolean;
 }
 
+/**
+ * The settlers a map starts with, in id order. Villagers `2h`, a man, and
+ * `2h + 1`, a woman, form household `h`. With an odd count the last household
+ * is one man.
+ */
+function startingSettlers(seed: number, population: Population): NewVillager[] {
+  const names = startingNames(seed);
+  return Array.from({ length: population.villagers }, (_, id) => {
+    const household = id >> 1;
+    const sex = id % 2 === 0 ? Sex.Man : Sex.Woman;
+    return { sex, household, name: names[sex][household % names[sex].length]! };
+  });
+}
+
 /** Starts a simulation on its own copy of the map, so the caller's map never changes. */
 export function createSim(source: TileMap, population: Population): Sim {
   const map = copyMap(source);
   const camp = campTile(map);
   const flow = createFlowField(map, camp);
+  const settlers = startingSettlers(map.seed, population);
   const sim: Sim = {
     seed: map.seed,
     map,
     camp,
     flow,
     tileChanges: createTileChanges(map.size * map.size),
-    villagers: createVillagers(map, flow, population.villagers),
-    households: createHouseholds(population.villagers),
+    villagers: createVillagers(map, flow, settlers),
+    households: createHouseholds(settlers.length),
     monsters: createMonsters(map, flow, population.monsters),
-    animals: createAnimals(map, population.villagers, population.animals ?? true),
+    animals: createAnimals(map, population.animals ?? true),
     orders: createOrders(map, camp),
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
-    hunting: createHunting(population.villagers),
+    hunting: createHunting(),
     workshops: createWorkshops(),
     goods: createGoodsState(map.size),
     stores: createStores(population.campFood ?? CAMP_FOOD),
@@ -191,7 +207,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     tick: 0,
     dawns: 0,
     hires: 0,
-    living: population.villagers,
+    living: settlers.length,
     over: false,
     speed: 1,
     paused: false,

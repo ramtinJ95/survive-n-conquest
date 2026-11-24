@@ -66,7 +66,7 @@ function whereInput(sim: Sim, good: Unit): string {
   }
   if (stockpiled) return 'some on a stockpile';
   if (loose) return 'off every stockpile';
-  for (let id = 0; id < villagers.state.length; id++) if (villagers.task[id] === CARRY && villagers.carried[id] === good) return "in a carrier's hands";
+  for (let id = 0; id < villagers.count; id++) if (villagers.task[id] === CARRY && villagers.carried[id] === good) return "in a carrier's hands";
   return 'nowhere';
 }
 

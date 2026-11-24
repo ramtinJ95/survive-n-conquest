@@ -68,7 +68,7 @@ export function readinessOf(sim: Sim): Readiness | null {
   let settlers = 0;
   let dressed = 0;
   let cold = 0;
-  for (let id = 0; id < villagers.state.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     if (villagers.state[id] === VillagerState.Dead) continue;
     settlers += 1;
     if (clothed(sim, id)) dressed += 1;

@@ -28,7 +28,7 @@ function nearestFree(sim: Sim, slot: number): number {
   const py = siteMidY(sim.orders.sites, slot);
   let best = -1;
   let bestDistance = Infinity;
-  for (let id = 0; id < villagers.state.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     if (villagers.state[id] === VillagerState.Dead || villagers.workplace[id]! >= 0) continue;
     const dx = villagers.x[id]! - px;
     const dy = villagers.y[id]! - py;
@@ -50,7 +50,7 @@ export function fillPlaces(sim: Sim): void {
   const { villagers, workers } = sim;
   const { sites } = sim.orders;
   workers.fill(0, 0, sites.used);
-  for (let id = 0; id < villagers.workplace.length; id++) {
+  for (let id = 0; id < villagers.count; id++) {
     const workplace = villagers.workplace[id]!;
     if (workplace >= 0) workers[workplace]! += 1;
   }
@@ -73,9 +73,9 @@ export function openWorkplace(sim: Sim, slot: number): void {
 
 /** The worker at `slot` that came last, or -1 when it has none. */
 function lastHired(sim: Sim, slot: number): number {
-  const { workplace, hired } = sim.villagers;
+  const { workplace, hired, count } = sim.villagers;
   let last = -1;
-  for (let id = 0; id < workplace.length; id++) if (workplace[id] === slot && (last < 0 || hired[id]! > hired[last]!)) last = id;
+  for (let id = 0; id < count; id++) if (workplace[id] === slot && (last < 0 || hired[id]! > hired[last]!)) last = id;
   return last;
 }
 
@@ -90,7 +90,7 @@ export function setPlaces(sim: Sim, slot: number, places: number): void {
   const wanted = Math.min(Math.max(Math.trunc(places) || 0, 0), kindOf(sites, slot).places);
   setSitePlaces(sim.orders, slot, wanted);
   let workers = 0;
-  for (let id = 0; id < sim.villagers.workplace.length; id++) if (sim.villagers.workplace[id] === slot) workers++;
+  for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.workplace[id] === slot) workers++;
   for (; workers > wanted; workers--) assign(sim, lastHired(sim, slot), -1);
   fillPlaces(sim);
 }

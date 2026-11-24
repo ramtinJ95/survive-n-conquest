@@ -9,7 +9,7 @@ import { planPath, stopWhereItStands } from './paths';
 import type { Sim } from './sim';
 import { Wants, nearestCommonStore } from './stores';
 import type { TaskKind } from './tasks';
-import { THINK_GROUPS } from './villagerState';
+import { THINK_GROUPS, VILLAGER_ROWS } from './villagerState';
 
 /** A hunter stops to aim once its deer is this many tiles away or nearer. */
 export const AIM_FROM = 10;
@@ -35,8 +35,9 @@ export interface Hunting {
   readonly killReach: Uint16Array;
 }
 
-export function createHunting(villagers: number): Hunting {
-  return { prey: new Int16Array(villagers).fill(-1), aimed: new Uint16Array(villagers), kill: new Int32Array(villagers).fill(-1), killReach: new Uint16Array(villagers) };
+export function createHunting(): Hunting {
+  const rows = VILLAGER_ROWS;
+  return { prey: new Int16Array(rows).fill(-1), aimed: new Uint16Array(rows), kill: new Int32Array(rows).fill(-1), killReach: new Uint16Array(rows) };
 }
 
 /**

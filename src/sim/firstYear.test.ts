@@ -39,8 +39,8 @@ function firstYear(): Sim {
 /** Steps through the day `day`, from its dawn to its dusk, and counts the units each villager picked in it. */
 function picksOn(sim: Sim, day: number): number[] {
   while (!(isDawn(sim.tick) && dateAt(sim.tick).day === day)) step(sim);
-  const picks = new Array<number>(sim.villagers.state.length).fill(0);
-  const carried = Uint8Array.from(sim.villagers.carried);
+  const picks = new Array<number>(sim.villagers.count).fill(0);
+  const carried = Uint8Array.from(sim.villagers.carried.subarray(0, sim.villagers.count));
   while (!isNight(sim.tick)) {
     step(sim);
     for (let id = 0; id < picks.length; id++) {
@@ -56,7 +56,7 @@ describe('the first year on seed 7 with a hut', () => {
     const sim = firstYear();
     const hut = sim.orders.siteOf[FIRST_YEAR_HUT.y * sim.map.size + FIRST_YEAR_HUT.x]!;
     const spring = picksOn(sim, 2);
-    const foragers = Array.from(sim.villagers.workplace, (place, id) => [place, id] as const).filter(([place]) => place === hut);
+    const foragers = Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count), (place, id) => [place, id] as const).filter(([place]) => place === hut);
     const first = foragers.map(([, id]) => id).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!)[0]!;
     expect(nameOf(sim.villagers.sex[first] as Sex, sim.villagers.name[first]!)).toBe('Ysa');
     expect(spring[first]).toBe(3);
@@ -122,7 +122,7 @@ describe("the first year on seed 7 with a hunter's lodge", () => {
     while (!sim.over && dateAt(sim.tick).day <= 12) {
       if (dateAt(sim.tick).day === 10 && atAutumnsEnd.length === 0) {
         atAutumnsEnd = [barns(), sim.stores.held[Good.Food - 1]![CAMP_STORE]!, sim.tally.kills];
-        huntersAtAutumnsEnd = Array.from(sim.villagers.workplace).filter((place) => place === lodge).length;
+        huntersAtAutumnsEnd = Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count)).filter((place) => place === lodge).length;
       }
       const kills = sim.tally.kills;
       step(sim);
@@ -190,7 +190,7 @@ describe('the first year on seed 7 with warmth', () => {
     if (sim.over) barnAtYearEnd = barns(sim);
     coldNightsAtDusk.push(sim.tally.coldNights);
     const coldNights = coldNightsAtDusk.slice(1).map((count, night) => count - coldNightsAtDusk[night]!);
-    const living = Array.from(sim.villagers.state, (state, id) => [state, id] as const)
+    const living = Array.from(sim.villagers.state.subarray(0, sim.villagers.count), (state, id) => [state, id] as const)
       .filter(([state]) => state !== VillagerState.Dead)
       .map(([, id]) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
     return { sim, finished: [...finished.values()], coldAtNoon, coldBeforeNight, coldNights, barnAtYearEnd, living };

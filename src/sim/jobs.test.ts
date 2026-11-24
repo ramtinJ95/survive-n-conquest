@@ -32,7 +32,7 @@ function standAt(sim: Sim, id: number, x: number, y: number): void {
   sim.villagers.y[id] = sim.villagers.targetY[id] = y;
 }
 
-const workplaces = (sim: Sim) => Array.from(sim.villagers.workplace);
+const workplaces = (sim: Sim) => Array.from(sim.villagers.workplace.subarray(0, sim.villagers.count));
 const setPlaces = (sim: Sim, slot: number, places: number) => applyCommand(sim, { kind: 'setPlaces', slot, places });
 
 /**

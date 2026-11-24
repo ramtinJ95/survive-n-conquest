@@ -282,7 +282,7 @@ function hutSettlement(campFood?: number): { sim: Sim; slot: number } {
 
 /** The settlers that work at a slot, in the order they took their places. */
 const workersOf = (sim: Sim, slot: number) =>
-  [...sim.villagers.workplace.keys()].filter((id) => sim.villagers.workplace[id] === slot).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!);
+  [...sim.villagers.workplace.subarray(0, sim.villagers.count).keys()].filter((id) => sim.villagers.workplace[id] === slot).sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!);
 
 const nameOfId = (sim: Sim, id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
 

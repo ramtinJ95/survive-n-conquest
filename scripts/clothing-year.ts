@@ -133,7 +133,7 @@ function hides(sim: Sim): { stocked: number; ground: number; held: number } {
     else ground += map.stackSize[at]!;
   }
   let held = 0;
-  for (let id = 0; id < sim.villagers.carried.length; id++) if (sim.villagers.carried[id] === Good.Hide) held++;
+  for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.carried[id] === Good.Hide) held++;
   return { stocked, ground, held };
 }
 

@@ -27,16 +27,16 @@ function runUntil(sim: Sim, done: (sim: Sim) => boolean, afterEach: () => void =
 }
 
 const atCamp = (sim: Sim, id: number) => sim.villagers.x[id] === sim.villagers.spotX[id] && sim.villagers.y[id] === sim.villagers.spotY[id];
-const everyone = (sim: Sim, test: (id: number) => boolean) => Array.from(sim.villagers.x, (_, id) => test(id)).every(Boolean);
+const everyone = (sim: Sim, test: (id: number) => boolean) => Array.from(sim.villagers.x.subarray(0, sim.villagers.count), (_, id) => test(id)).every(Boolean);
 
 describe('the settlers', () => {
   it('open the game as 8 villagers at the camp', () => {
     const sim = createSim(map, SETTLERS);
-    expect(sim.villagers.x.length).toBe(8);
+    expect(sim.villagers.count).toBe(8);
     expect(sim.monsters.x.length).toBe(0);
     expect(sim.camp).toBe(campTile(map));
     expect(everyone(sim, (id) => atCamp(sim, id))).toBe(true);
-    const spots = new Set(Array.from(sim.villagers.x, (x, id) => `${x},${sim.villagers.y[id]}`));
+    const spots = new Set(Array.from(sim.villagers.x.subarray(0, sim.villagers.count), (x, id) => `${x},${sim.villagers.y[id]}`));
     expect(spots.size).toBe(8);
   });
 
@@ -62,12 +62,12 @@ describe('the settlers', () => {
 
     runUntil(sim, (s) => s.tick === dusk + 600, watch);
     expect(everyone(sim, (id) => atCamp(sim, id))).toBe(true);
-    const restingX = Float32Array.from(sim.villagers.x);
-    const restingY = Float32Array.from(sim.villagers.y);
+    const restingX = Float32Array.from(sim.villagers.x.subarray(0, sim.villagers.count));
+    const restingY = Float32Array.from(sim.villagers.y.subarray(0, sim.villagers.count));
 
     runUntil(sim, (s) => !isNight(s.tick), watch);
-    expect(sim.villagers.x).toEqual(restingX);
-    expect(sim.villagers.y).toEqual(restingY);
+    expect(sim.villagers.x.subarray(0, sim.villagers.count)).toEqual(restingX);
+    expect(sim.villagers.y.subarray(0, sim.villagers.count)).toEqual(restingY);
 
     runUntil(sim, (s) => s.tick === dusk + 1800 + 100, watch);
     expect(everyone(sim, (id) => atCamp(sim, id))).toBe(false);
@@ -79,7 +79,7 @@ describe('the settlers', () => {
     runUntil(sim, (s) => isNight(s.tick));
     const dusk = sim.tick;
     runUntil(sim, (s) => s.tick === dusk + 600);
-    expect(Array.from(sim.villagers.x, (_, id) => atCamp(sim, id))).toEqual(Array(8).fill(true));
+    expect(Array.from(sim.villagers.x.subarray(0, sim.villagers.count), (_, id) => atCamp(sim, id))).toEqual(Array(8).fill(true));
   });
 
   it('walk around water and rock to reach the camp', () => {

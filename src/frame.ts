@@ -12,7 +12,12 @@ export interface ClockSnapshot {
   readonly over: boolean;
 }
 
-/** What the worker posts after the clock moves. Positions are pairs of map x and y in tiles, one pair per unit in id order. */
+/**
+ * What the worker posts after the clock moves. Positions are pairs of map x and
+ * y in tiles, one pair per unit in id order. Every villager column holds the
+ * rows of the villagers table in use and no other, so it has one entry for
+ * each villager that ever lived on the map.
+ */
 export interface SimFrame extends ClockSnapshot {
   readonly villagers: Float32Array;
   readonly monsters: Float32Array;
@@ -80,9 +85,9 @@ export interface SimFrame extends ClockSnapshot {
   readonly outcome?: OrderOutcome;
 }
 
-function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Array }): Float32Array {
-  const pairs = new Float32Array(x.length * 2);
-  for (let id = 0; id < x.length; id++) {
+function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Array }, count = x.length): Float32Array {
+  const pairs = new Float32Array(count * 2);
+  for (let id = 0; id < count; id++) {
     pairs[id * 2] = x[id]!;
     pairs[id * 2 + 1] = y[id]!;
   }
@@ -96,31 +101,32 @@ function positions({ x, y }: { readonly x: Float32Array; readonly y: Float32Arra
  */
 export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: SimFrame; readonly transfer: Transferable[] } {
   const { villagers } = sim;
+  const { count } = villagers;
   const frame = {
     tick: sim.tick,
     speed: sim.speed,
     paused: sim.paused,
     over: sim.over,
-    villagers: positions(villagers),
+    villagers: positions(villagers, count),
     monsters: positions(sim.monsters),
     animals: positions(sim.animals),
     animalKinds: sim.animals.kind.slice(),
     animalStates: sim.animals.state.slice(),
-    carried: villagers.carried.slice(),
-    states: villagers.state.slice(),
-    tasks: villagers.task.slice(),
-    taskTiles: villagers.taskTile.slice(),
-    destinations: villagers.destination.slice(),
-    names: villagers.name.slice(),
-    sexes: villagers.sex.slice(),
-    households: villagers.household.slice(),
+    carried: villagers.carried.slice(0, count),
+    states: villagers.state.slice(0, count),
+    tasks: villagers.task.slice(0, count),
+    taskTiles: villagers.taskTile.slice(0, count),
+    destinations: villagers.destination.slice(0, count),
+    names: villagers.name.slice(0, count),
+    sexes: villagers.sex.slice(0, count),
+    households: villagers.household.slice(0, count),
     homes: sim.households.home.slice(),
-    workplaces: villagers.workplace.slice(),
-    hired: villagers.hired.slice(),
-    missedMeals: villagers.missedMeals.slice(),
-    coldNights: villagers.coldNights.slice(),
-    stockGoods: villagers.stockGood.slice(),
-    worn: villagers.worn.slice(),
+    workplaces: villagers.workplace.slice(0, count),
+    hired: villagers.hired.slice(0, count),
+    missedMeals: villagers.missedMeals.slice(0, count),
+    coldNights: villagers.coldNights.slice(0, count),
+    stockGoods: villagers.stockGood.slice(0, count),
+    worn: villagers.worn.slice(0, count),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),

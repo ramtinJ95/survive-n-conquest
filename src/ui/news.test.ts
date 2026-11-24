@@ -244,12 +244,12 @@ describe('the settlement news', () => {
   it('says a settler with two cold nights who starves on a winter night starved, and one who freezes there froze', () => {
     const sim = createSim(mapFrom(Array.from({ length: 24 }, () => '.'.repeat(24))), { villagers: 2, monsters: 0, campFood: 100, animals: false });
     while (!(dateAt(sim.tick).day === 12 && isNight(sim.tick) && tickOfDay(sim.tick) >= TICKS_PER_DAY / 2)) step(sim);
-    expect(Array.from(sim.villagers.coldNights)).toEqual([2, 2]);
+    expect(Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count))).toEqual([2, 2]);
     sim.villagers.missedMeals[0] = HUNGER.diesAt - 1;
     sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
     const [first, second] = [0, 1].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
     const { said } = listen(sim, TICKS_PER_DAY);
-    expect(Array.from(sim.villagers.state)).toEqual([VillagerState.Dead, VillagerState.Dead]);
+    expect(Array.from(sim.villagers.state.subarray(0, sim.villagers.count))).toEqual([VillagerState.Dead, VillagerState.Dead]);
     expect(sim.tally).toMatchObject({ starved: 1, froze: 1 });
     expect(said).toHaveLength(2);
     expect(said).toEqual(

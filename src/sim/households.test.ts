@@ -49,7 +49,7 @@ function runUntil(sim: Sim, done: () => boolean, limit: number, each: () => void
   }
 }
 
-const ids = (sim: Sim) => Array.from(sim.villagers.state, (_, id) => id);
+const ids = (sim: Sim) => Array.from(sim.villagers.state.subarray(0, sim.villagers.count), (_, id) => id);
 const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.household[id]!]!;
 const tileOf = (sim: Sim, id: number) => tileAt(sim.map, sim.villagers.x[id]!, sim.villagers.y[id]!);
 const atCamp = (sim: Sim, id: number) => sim.villagers.x[id] === sim.villagers.spotX[id] && sim.villagers.y[id] === sim.villagers.spotY[id];
@@ -57,7 +57,7 @@ const onCenter = (sim: Sim, id: number) => [sim.villagers.x[id]! % 1, sim.villag
 const logs = (sim: Sim) => {
   let units = 0;
   for (let tile = 0; tile < sim.map.size * sim.map.size; tile++) if (sim.map.stackGood[tile] === Good.Log) units += sim.map.stackSize[tile]!;
-  return units + sim.villagers.carried.filter((good) => good === Good.Log).length;
+  return units + sim.villagers.carried.subarray(0, sim.villagers.count).filter((good) => good === Good.Log).length;
 };
 
 /** The twelve tiles that share a side with one of a house's nine tiles. */
@@ -73,14 +73,14 @@ function besideHouse(sim: Sim, slot: number): number[] {
   return beside;
 }
 
-const namesOf = (sim: Sim) => Array.from(sim.villagers.name, (name, id) => nameOf(sim.villagers.sex[id] as Sex, name));
+const namesOf = (sim: Sim) => Array.from(sim.villagers.name.subarray(0, sim.villagers.count), (name, id) => nameOf(sim.villagers.sex[id] as Sex, name));
 
 describe('the households', () => {
   it('pair the 8 settlers into 4 households of a man and a woman, with 8 names the seed chooses', () => {
     const sim = createSim(generateMap(7, 64), SETTLERS);
     const { household, sex } = sim.villagers;
     expect(sim.households.count).toBe(4);
-    expect(Array.from(household)).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
+    expect(Array.from(household.subarray(0, sim.villagers.count))).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
     for (let h = 0; h < 4; h++) expect([sex[2 * h], sex[2 * h + 1]]).toEqual([Sex.Man, Sex.Woman]);
     const names = namesOf(sim);
     expect(new Set(names).size).toBe(8);
@@ -91,13 +91,13 @@ describe('the households', () => {
 
   it('give no two villagers of a sex one name while the names last', () => {
     const sim = createSim(generateMap(7, 64), { villagers: 2 * NAMES[Sex.Woman].length, monsters: 0 });
-    expect(new Set(namesOf(sim)).size).toBe(sim.villagers.name.length);
+    expect(new Set(namesOf(sim)).size).toBe(sim.villagers.count);
   });
 
   it('leave the last household of an odd count with one member', () => {
     const sim = createSim(generateMap(7, 64), { villagers: 3, monsters: 0 });
     expect(sim.households.count).toBe(2);
-    expect(Array.from(sim.villagers.household)).toEqual([0, 0, 1]);
+    expect(Array.from(sim.villagers.household.subarray(0, sim.villagers.count))).toEqual([0, 0, 1]);
   });
 
   it(`hold at most ${MAX_HOUSEHOLDS}`, () => {
@@ -276,7 +276,7 @@ describe('the simulation with homes', () => {
         if (isNight(sim.tick) && !wasNight) insideAtNight.push(0);
         wasNight = isNight(sim.tick);
         if (wasNight) {
-          const inside = sim.villagers.state.filter((state) => state === VillagerState.Inside).length;
+          const inside = sim.villagers.state.subarray(0, sim.villagers.count).filter((state) => state === VillagerState.Inside).length;
           insideAtNight[insideAtNight.length - 1] = Math.max(insideAtNight.at(-1)!, inside);
         }
       }

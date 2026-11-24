@@ -46,7 +46,7 @@ function settlement(houseWood: readonly [number, number], campWood: number, dres
   return { sim, houses };
 }
 
-const coldNow = (sim: Sim) => Array.from(sim.villagers.state.keys()).filter((id) => sim.villagers.state[id] !== VillagerState.Dead && wouldBeCold(sim, id));
+const coldNow = (sim: Sim) => Array.from(sim.villagers.state.subarray(0, sim.villagers.count).keys()).filter((id) => sim.villagers.state[id] !== VillagerState.Dead && wouldBeCold(sim, id));
 
 describe('the cold nights still to come', () => {
   it('are 3 from the first tick of autumn to the first winter dusk, one fewer after each winter dusk, and none in spring and summer', () => {
@@ -136,9 +136,9 @@ describe('the reading of readiness', () => {
       noonOf(sim, 10);
       const predicted = coldNow(sim);
       expect(readinessOf(sim)!.cold).toBe(predicted.length);
-      const before = Array.from(sim.villagers.coldNights);
+      const before = Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count));
       lateNightOf(sim, 10);
-      const judged = Array.from(sim.villagers.coldNights.keys()).filter((id) => sim.villagers.coldNights[id]! > before[id]!);
+      const judged = Array.from(sim.villagers.coldNights.subarray(0, sim.villagers.count).keys()).filter((id) => sim.villagers.coldNights[id]! > before[id]!);
       expect(judged, JSON.stringify({ houseWood, campWood, dressed })).toEqual(predicted);
     }
   });

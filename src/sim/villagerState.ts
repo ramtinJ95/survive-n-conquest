@@ -16,3 +16,9 @@ export const NO_TASK = 0;
 
 /** An idle villager looks for work on one tick in this many, the tick of its group. Villager `id` is in group `id % THINK_GROUPS`. */
 export const THINK_GROUPS = 10;
+
+/**
+ * The rows of the villagers table, and of every column kept for each villager.
+ * A row is never used twice, so this limits everyone who ever lives on the map.
+ */
+export const VILLAGER_ROWS = 4096;

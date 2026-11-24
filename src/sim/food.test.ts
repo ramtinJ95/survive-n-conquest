@@ -40,8 +40,8 @@ const dusk = (sim: Sim) => through(sim, (tick) => isNight(tick) && !isNight(tick
 const dawn = (sim: Sim) => through(sim, isDawn);
 /** Runs to the last tick of the night, so every villager has come home or never will. */
 const lateNight = (sim: Sim) => runUntil(sim, () => isDawn(sim.tick), TICKS_PER_DAY);
-const missed = (sim: Sim) => Array.from(sim.villagers.missedMeals);
-const states = (sim: Sim) => Array.from(sim.villagers.state);
+const missed = (sim: Sim) => Array.from(sim.villagers.missedMeals.subarray(0, sim.villagers.count));
+const states = (sim: Sim) => Array.from(sim.villagers.state.subarray(0, sim.villagers.count));
 const campFood = (sim: Sim) => sim.stores.held[Good.Food - 1]![CAMP_STORE]!;
 
 /** Units of food on the map's tiles. */
@@ -422,7 +422,7 @@ function clockAt(tick: number): string {
 
 /** Where each settler of a run died, as `day HH:MM`, in id order, and the tick the run ended at. */
 function deaths(sim: Sim, limit: number): string[] {
-  const at: string[] = Array(sim.villagers.state.length).fill('');
+  const at: string[] = Array(sim.villagers.count).fill('');
   runUntil(sim, () => sim.over, limit, () => {
     for (let id = 0; id < at.length; id++) {
       if (sim.villagers.state[id] !== VillagerState.Dead || at[id]) continue;
@@ -435,7 +435,7 @@ function deaths(sim: Sim, limit: number): string[] {
 describe('seed 7 with no orders', () => {
   it('eats the 24 meals of the camp on days 1 to 3 and dies out at dusk on day 6', () => {
     const sim = createSim(generateMap(7), SETTLERS);
-    const names = Array.from(sim.villagers.name, (name, id) => nameOf(sim.villagers.sex[id] as Sex, name));
+    const names = Array.from(sim.villagers.name.subarray(0, sim.villagers.count), (name, id) => nameOf(sim.villagers.sex[id] as Sex, name));
     expect(names).toEqual(['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella']);
     const died = deaths(sim, TICKS_PER_DAY * 7);
     expect(Object.fromEntries(names.map((name, id) => [name, died[id]]))).toEqual({
