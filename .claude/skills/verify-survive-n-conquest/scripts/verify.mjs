@@ -3308,8 +3308,14 @@ const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/
  * `Idle, the building sites need the hides`, because no kind of building needs hides.
  */
 const WORKSHOP_DOING = {
-  woodshed: ['Idle, no log in a stockpile within 30 tiles of the woodshed', 'Idle, the building sites need the logs', 'Walking to the woodshed to split a log', 'Carrying a log to the woodshed'],
-  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
+  woodshed: [
+    'Idle, no log in a stockpile within 30 tiles of the woodshed',
+    'Idle, the building sites need the logs',
+    'Idle, no log carried to a stockpile yet',
+    'Walking to the woodshed to split a log',
+    'Carrying a log to the woodshed',
+  ],
+  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", 'Idle, no hide carried to a stockpile yet', "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
 };
 /** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
 const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
@@ -4747,7 +4753,7 @@ const CARRYING_LOG = 'Carrying a log to the woodshed';
 const SPLITTING_LOG = 'Splitting a log';
 const NO_LOG = 'Idle, no log in a stockpile within 30 tiles of the woodshed';
 const WOODCUTTER_DOING = new RegExp(
-  `^(${[FETCHING_LOG, CARRYING_LOG, 'Walking to the woodshed to split a log', SPLITTING_LOG, 'Looking for a log', NO_LOG, 'Idle, the woodshed is full', 'Idle, the building sites need the logs'].join('|')})$`,
+  `^(${[FETCHING_LOG, CARRYING_LOG, 'Walking to the woodshed to split a log', SPLITTING_LOG, 'Looking for a log', NO_LOG, 'Idle, the woodshed is full', 'Idle, the building sites need the logs', 'Idle, no log carried to a stockpile yet'].join('|')})$`,
 );
 const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
 
@@ -5107,7 +5113,7 @@ const NO_HIDE = "Idle, no hide in a stockpile within 30 tiles of the tailor's hu
 const FETCHING_HIDE = 'Walking to a stockpile for a hide';
 const CARRYING_HIDE = "Carrying a hide to the tailor's hut";
 const MAKING = 'Making clothing';
-const TAILOR_DOING = new RegExp(`^(${[FETCHING_HIDE, CARRYING_HIDE, "Walking to the tailor's hut to make clothing", MAKING, 'Looking for a hide', NO_HIDE, "Idle, the tailor's hut is full"].join('|')})$`);
+const TAILOR_DOING = new RegExp(`^(${[FETCHING_HIDE, CARRYING_HIDE, "Walking to the tailor's hut to make clothing", MAKING, 'Looking for a hide', NO_HIDE, "Idle, the tailor's hut is full", 'Idle, no hide carried to a stockpile yet'].join('|')})$`);
 /** What a settler without a job reads on its way to a kill's hide and on its way to the stockpile with it. */
 const TO_HIDE = 'Walking to pick up a hide';
 const WITH_HIDE = 'Carrying a hide to the stockpile';
@@ -6989,6 +6995,88 @@ SCENARIOS['firewood-reason'] = async (session) => {
     read?.title === 'Woodshed' && read.rows.Doing === 'Idle, the building sites need the logs' && read.rows.Firewood === '0 of 40',
     text(read),
   );
+};
+
+/**
+ * The stops of the year "wood and hides" as the readiness scenario gives it, with its tailor's hut at 08:30 on day 4.
+ * `bun scripts/workshop-reasons.ts hides-page --first` plays that year in `src/sim`: from 07:09 on day 9 hides lie off
+ * every stockpile and the tailor takes none of its work until dusk, and at 12:00 on day 9 one hide lies out.
+ */
+const HIDES_REASON_STOPS = { panel: { day: 9, time: '12:00' }, dusk: { day: 9, time: '19:00' }, duskUntil: { day: 9, time: '20:00' } };
+const HIDES_REASON_HUT = [HIDES_YEAR_TAILOR[1], ...WOOD_YEAR_SHED];
+const HIDES_REASON_DOING = 'Idle, no hide carried to a stockpile yet';
+
+SCENARIOS['clothing-reason'] = async (session) => {
+  const { said } = siteDriver(session);
+  const { lines } = hungerDriver(session);
+  const { click, text } = selectionDriver(session);
+  const { page, errors } = await session.open(CLIP, { search: '?seed=7', clock: 'paused' });
+  const at = async () => clockText(await session.gameMinutes(page));
+  const give = async (orders) => {
+    const wrong = [];
+    for (const [key, from, to] of orders) {
+      await page.keyboard.press(key);
+      if (to) await session.drag(page, from, to);
+      else {
+        await page.mouse.move(from.x, from.y, { steps: 3 });
+        await page.mouse.down();
+        await page.mouse.up();
+      }
+      const line = await said(page, HIDES_YEAR_SAID[key]);
+      if (!HIDES_YEAR_SAID[key].test(line)) wrong.push(`${key} at ${from.x},${from.y}: "${line}"`);
+      await page.keyboard.press('Escape');
+    }
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    return wrong;
+  };
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const startAt = await at();
+  const wrong = await give(HIDES_YEAR_ORDERS);
+  session.check(
+    `at ${startAt} the ${HIDES_YEAR_ORDERS.length} orders of the year "wood and hides" are given, each as its status line says, with the clock paused`,
+    wrong.length === 0 && (await at()) === startAt,
+    wrong.length === 0 ? `${HIDES_YEAR_ORDERS.length} orders at ${await at()}` : wrong.join(' | '),
+  );
+  await session.reach(page, READY_STOPS.tailor);
+  const tailorWrong = await give([HIDES_YEAR_TAILOR]);
+  session.check(`at ${await at()} the tailor's hut is placed`, tailorWrong.length === 0, tailorWrong.join(' | ') || "Tailor's hut site placed");
+
+  await session.reach(page, HIDES_REASON_STOPS.panel);
+  await session.still(page);
+  let read = null;
+  for (const spot of HIDES_REASON_HUT) {
+    read = await click(page, spot);
+    if (read?.title === "Tailor's hut") break;
+  }
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await session.screenshot(page, 'clothing-reason-hut-panel');
+  session.check(
+    `at ${await at()} the tailor's hut's panel says its tailor is idle because no hide has been carried to a stockpile yet`,
+    read?.title === "Tailor's hut" && read.rows.Doing === HIDES_REASON_DOING,
+    text(read),
+  );
+  const tailor = read?.rows.Tailor ?? '';
+  await page.keyboard.press('Escape');
+
+  await session.reach(page, HIDES_REASON_STOPS.dusk);
+  const line = new RegExp(`^Day 9, 19:\\d\\d\\. ${tailor} made no clothing: no hide carried yet\\.$`);
+  const heard = await session.runUntil(
+    page,
+    async () => {
+      const found = (await lines(page)).find((news) => line.test(news));
+      return found ? { line: found, at: await at() } : null;
+    },
+    { every: 1, until: HIDES_REASON_STOPS.duskUntil },
+  );
+  await session.still(page);
+  await session.screenshot(page, 'clothing-reason-news');
+  session.check(
+    `at the dusk of day 9 the news says that ${tailor || 'the tailor'} made no clothing that day because no hide has been carried yet`,
+    tailor !== '' && heard !== null,
+    heard ? `"${heard.line}" by ${heard.at}` : `no such line by ${await at()}; the news reads ${JSON.stringify(await lines(page))}`,
+  );
+  session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
 };
 
 function scenarioNamed(name) {
