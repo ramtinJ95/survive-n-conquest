@@ -7132,8 +7132,10 @@ const BIRTHS_FED = '200';
  * lodge beside it.
  */
 const BIRTH_HOUSES = { 3: { x: 527, y: 241 }, 4: { x: 474, y: 237 }, 5: { x: 493, y: 291 }, 6: { x: 564, y: 261 } };
-/** Wheel pixels in over a house, so a child by its door shows as a tunic of its own, apart from its parents. */
+/** Wheel pixels in over a house, so a child by its door stands apart from its parents. */
 const BIRTHS_CLOSER = -500;
+/** Pixels from a tunic's middle at which a click can find a child that stands beside an adult, at `BIRTHS_CLOSER`. */
+const CHILD_REACH = 10;
 const BIRTHS_CLIP = { crop: { x: 400, y: 150, width: 400, height: 250 }, width: 640, colors: 64 };
 const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
 
@@ -7165,16 +7167,21 @@ function birthsDriver(session) {
     await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
     await session.still(page);
   };
-  /** Clicks the tunics of a paused frame, nearest the house in `slot` first, until a panel titled `title` opens. */
+  /**
+   * Clicks the tunics of a paused frame, nearest the house in `slot` first, until a panel titled `title` opens. A child
+   * beside an adult joins the adult's spot, so each spot is tried at its middle and `CHILD_REACH` pixels to each side.
+   */
   const selectTitled = async (page, title, slot, label) => {
     const png = await session.screenshot(page, label);
     const near = BIRTH_HOUSES[slot];
     const spots = (await tunics(page, png)).sort((a, b) => Math.hypot(a.x - near.x, a.y - near.y) - Math.hypot(b.x - near.x, b.y - near.y));
     const tried = [];
     for (const spot of spots.slice(0, 16)) {
-      const read = await click(page, { x: spot.x, y: spot.y });
-      tried.push(read?.title ?? 'nothing');
-      if (read?.title === title) return { read, tried };
+      for (const [dx, dy] of [[0, 0], [CHILD_REACH, 0], [-CHILD_REACH, 0], [0, CHILD_REACH], [0, -CHILD_REACH]]) {
+        const read = await click(page, { x: spot.x + dx, y: spot.y + dy });
+        tried.push(read?.title ?? 'nothing');
+        if (read?.title === title) return { read, tried };
+      }
     }
     return { read: null, tried };
   };
