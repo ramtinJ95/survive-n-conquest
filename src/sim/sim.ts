@@ -9,7 +9,7 @@ import { type FlowField, createFlowField } from './flowField';
 import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
-import { type Households, createHouseholds } from './households';
+import { type Households, MAX_HOUSEHOLDS, createHouseholds } from './households';
 import { type Hunting, createHunting } from './hunting';
 import { setPlaces } from './jobs';
 import { type TileMap, copyMap } from './map';
@@ -33,6 +33,19 @@ export type Command =
   | { readonly kind: 'setPlaces'; readonly slot: number; readonly places: number }
   | OrderCommand;
 
+/** A settler of a stated age in whole years on day 1, with a stated life span or, without one, the seed's. */
+export interface StartingSettler {
+  readonly sex: Sex;
+  readonly age: number;
+  readonly span?: number;
+}
+
+/** The members of a starting household in id order. */
+export type StartingHousehold = readonly StartingSettler[];
+
+/** The design's cap on the settlers alive at once. */
+export const MOST_LIVING = 1500;
+
 export interface Population {
   readonly villagers: number;
   readonly monsters: number;
@@ -42,6 +55,14 @@ export interface Population {
   readonly campFood?: number;
   /** False leaves the map without animals, from the start and at every dawn. A test page uses it to keep a scene still. */
   readonly animals?: boolean;
+  /**
+   * Starting settlers of stated ages in place of the seed's, household `h`
+   * taking the next ids in order. `villagers` is their number. Only a
+   * verification page sets it.
+   */
+  readonly settlers?: readonly StartingHousehold[];
+  /** The most settlers alive at once, `MOST_LIVING` when left out. Nothing in the simulation holds to it yet. The benchmark reads it. */
+  readonly mostLiving?: number;
 }
 
 /**
@@ -50,21 +71,60 @@ export interface Population {
  * stocking of its homes, and runs out at the dusk of day 4, the last one the
  * benchmark measures, so some villagers go hungry there. On seed 7 a camp with
  * plenty had given out 4,785 units on the 256 map and 4,099 on the 512 map
- * before that dusk, and 5,997 and 5,092 by the end of the measured ticks.
+ * before that dusk, and 5,997 and 5,092 by the end of the measured ticks. Its
+ * cap on the living stands above the design's, as the stage 5 brief sets it.
  */
-export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true, campFood: 4900 };
+export const BENCHMARK_POPULATION: Population = { villagers: 1500, monsters: 3000, markAll: true, campFood: 4900, mostLiving: 1600 };
 /** A new game: a few settlers at the camp and nothing else. */
 export const SETTLERS: Population = { villagers: 8, monsters: 0 };
 export const NOBODY: Population = { villagers: 0, monsters: 0 };
+
+const MEMBER = /^([mw])(\d{1,2})(?::(\d{1,2}))?$/;
+
+/**
+ * The `settlers` URL setting: households separated by `;`, members by `,`. A
+ * member is `m` or `w`, its age in whole years, and optionally `:` and its life
+ * span, as in `m70:70,w66;m24,w22:75`. Each household is a man and then a
+ * woman. An age is 0 to 99 and a span 1 to 99. Anything else returns null, and
+ * the setting is ignored. Stage 5.2 extends the same form: the members after a
+ * household's couple are that couple's children, so their parents follow
+ * from the household.
+ */
+export function parseSettlers(text: string | null): StartingHousehold[] | null {
+  if (!text) return null;
+  const households: StartingHousehold[] = [];
+  for (const part of text.split(';')) {
+    const members: StartingSettler[] = [];
+    for (const member of part.split(',')) {
+      const match = MEMBER.exec(member);
+      if (!match) return null;
+      const span = match[3] === undefined ? undefined : Number(match[3]);
+      if (span === 0) return null;
+      const sex = match[1] === 'm' ? Sex.Man : Sex.Woman;
+      members.push(span === undefined ? { sex, age: Number(match[2]) } : { sex, age: Number(match[2]), span });
+    }
+    if (members.length !== 2 || members[0]!.sex !== Sex.Man || members[1]!.sex !== Sex.Woman) return null;
+    households.push(members);
+  }
+  return households.length > MAX_HOUSEHOLDS ? null : households;
+}
 
 /**
  * The population for the `swarm` URL setting: `on` for the benchmark load,
  * `off` for none, and the settlers for anything else. The `food` setting, a
  * whole number, sets the camp's starting food. Anything else leaves it at the
- * population's own.
+ * population's own. Parsed `settlers` replace the seed's starting settlers,
+ * for the settlers only.
  */
-export function populationFor(swarm: string | null, food: string | null = null, deer: string | null = null): Population {
-  const population = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
+export function populationFor(
+  swarm: string | null,
+  food: string | null = null,
+  deer: string | null = null,
+  settlers: readonly StartingHousehold[] | null = null,
+): Population {
+  const base = swarm === 'on' ? BENCHMARK_POPULATION : swarm === 'off' ? NOBODY : SETTLERS;
+  const stated = base === SETTLERS && settlers !== null;
+  const population = stated ? { ...base, villagers: settlers.reduce((sum, members) => sum + members.length, 0), settlers } : base;
   const campFood = food !== null && /^\d{1,5}$/.test(food) ? Number(food) : NaN;
   const fed = campFood <= 0xffff ? { ...population, campFood } : population;
   return deer === 'off' ? { ...fed, animals: false } : fed;
@@ -162,16 +222,28 @@ export interface Sim {
 }
 
 /**
- * The settlers a map starts with, in id order. Villagers `2h`, a man, and
- * `2h + 1`, a woman, form household `h`. With an odd count the last household
- * is one man. Each has the age and the life span the seed draws for its id.
+ * The settlers a map starts with, in id order. By default villagers `2h`, a
+ * man, and `2h + 1`, a woman, form household `h`, and with an odd count the
+ * last household is one man. Each has the age and the life span the seed
+ * draws for its id. Stated settlers take their stated ages, and their stated
+ * spans or the seed's.
  */
 function startingSettlers(seed: number, population: Population): NewVillager[] {
   const names = startingNames(seed);
+  const nameOf = (sex: Sex, household: number) => names[sex][household % names[sex].length]!;
+  if (population.settlers) {
+    const settlers: NewVillager[] = [];
+    population.settlers.forEach((members, household) => {
+      for (const { sex, age, span } of members) {
+        settlers.push({ sex, household, name: nameOf(sex, household), born: bornAt(age), span: span ?? lifeSpan(seed, settlers.length) });
+      }
+    });
+    return settlers;
+  }
   return Array.from({ length: population.villagers }, (_, id) => {
     const household = id >> 1;
     const sex = id % 2 === 0 ? Sex.Man : Sex.Woman;
-    return { sex, household, name: names[sex][household % names[sex].length]!, born: bornAt(startingAge(seed, id)), span: lifeSpan(seed, id) };
+    return { sex, household, name: nameOf(sex, household), born: bornAt(startingAge(seed, id)), span: lifeSpan(seed, id) };
   });
 }
 
