@@ -11,6 +11,10 @@
 export const VillagerState = { Idle: 0, Walking: 1, Working: 2, GoingToCamp: 3, Settling: 4, Waiting: 5, GoingIn: 6, Inside: 7, Dead: 8 } as const;
 export type VillagerState = (typeof VillagerState)[keyof typeof VillagerState];
 
+/** What a villager died of. A living villager's is `None`. */
+export const Cause = { None: 0, Hunger: 1, Cold: 2, OldAge: 3 } as const;
+export type Cause = (typeof Cause)[keyof typeof Cause];
+
 /** A villager column value for no task. Any other value is one more than the kind's index in `TASK_KINDS`. */
 export const NO_TASK = 0;
 

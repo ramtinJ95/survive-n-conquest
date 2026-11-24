@@ -19,7 +19,6 @@ import { Sex, nameOf } from '../sim/names';
 import { type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
-import { COLD } from '../sim/needs';
 import {
   BARN_FOOD_LIMIT,
   CAMP_FIREWOOD_LIMIT,
@@ -34,7 +33,7 @@ import {
 } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
-import { VillagerState } from '../sim/villagerState';
+import { Cause, VillagerState } from '../sim/villagerState';
 import { Stop, WORKSHOP } from '../sim/workshops';
 import { WEARING } from '../sim/wearing';
 import type { SimFrame } from '../frame';
@@ -69,6 +68,7 @@ export interface Facts {
     | 'coldNights'
     | 'stockGoods'
     | 'worn'
+    | 'causes'
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
@@ -324,10 +324,16 @@ const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
   [VillagerState.Inside]: 'At home',
 };
 
-/** What a villager is doing, in words. A dead one says what it died of: the need whose count reached the count that kills. */
+const CAUSE_WORDS: Readonly<Record<Exclude<Cause, typeof Cause.None>, string>> = {
+  [Cause.Hunger]: 'hunger',
+  [Cause.Cold]: 'cold',
+  [Cause.OldAge]: 'old age',
+};
+
+/** What a villager is doing, in words. A dead one says what it died of. */
 function doing(facts: Facts, id: number): string {
   const state = facts.frame.states[id]! as VillagerState;
-  if (state === VillagerState.Dead) return facts.frame.coldNights[id]! >= COLD.diesAt ? 'Died of cold' : 'Died of hunger';
+  if (state === VillagerState.Dead) return `Died of ${CAUSE_WORDS[facts.frame.causes[id] as Exclude<Cause, typeof Cause.None>]}`;
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[facts.frame.tasks[id]!];

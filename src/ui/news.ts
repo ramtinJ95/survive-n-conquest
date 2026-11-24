@@ -2,16 +2,15 @@ import { BUILDINGS, Building, needOf } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { type Sex, nameOf } from '../sim/names';
-import { COLD, HUNGER } from '../sim/needs';
 import type { Orders } from '../sim/orders';
-import { VillagerState } from '../sim/villagerState';
+import { Cause, VillagerState } from '../sim/villagerState';
 import { Stop } from '../sim/workshops';
 import type { SimFrame } from '../frame';
 import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'states' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
+type Seen = Pick<SimFrame, 'tick' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -23,7 +22,8 @@ interface NewsEvent {
 }
 
 const alive = (frame: Seen, id: number) => frame.states[id] !== VillagerState.Dead;
-const died = (before: Seen, after: Seen, id: number) => alive(before, id) && !alive(after, id);
+/** Whether the settler died of `cause` between the two frames. */
+const diedOf = (cause: Cause) => (before: Seen, after: Seen, id: number) => alive(before, id) && !alive(after, id) && after.causes[id] === cause;
 
 /** The kinds of building with places to work in, each with its own lines of who took a place and who left one. */
 const WORKPLACES = (Object.values(Building) as Building[]).filter((building) => BUILDINGS[building].places > 0);
@@ -55,10 +55,11 @@ const duskFell = (before: Seen, after: Seen) => !isNight(before.tick) && isNight
 /** Every kind of news, in the order a frame's lines are made. */
 const EVENTS: readonly NewsEvent[] = [
   { kind: 'hungry', befell: (before, after, id) => alive(after, id) && before.missedMeals[id] === 0 && after.missedMeals[id]! > 0, verb: () => 'went hungry' },
-  { kind: 'starved', befell: (before, after, id) => died(before, after, id) && after.missedMeals[id]! >= HUNGER.diesAt, verb: () => 'starved' },
+  { kind: 'starved', befell: diedOf(Cause.Hunger), verb: () => 'starved' },
   { kind: 'ate', befell: (before, after, id) => alive(after, id) && before.missedMeals[id]! > 0 && after.missedMeals[id] === 0, verb: () => 'ate again' },
   { kind: 'cold', befell: (before, after, id) => alive(after, id) && after.coldNights[id]! > before.coldNights[id]!, verb: () => 'had a cold night' },
-  { kind: 'froze', befell: (before, after, id) => died(before, after, id) && after.coldNights[id]! >= COLD.diesAt, verb: () => 'froze' },
+  { kind: 'froze', befell: diedOf(Cause.Cold), verb: () => 'froze' },
+  { kind: 'old age', befell: diedOf(Cause.OldAge), verb: () => 'died of old age' },
   ...WORKPLACES.flatMap((building): NewsEvent[] => {
     const job = JOB_WORDS[BUILDINGS[building].job];
     const at = (frame: Seen, id: number, orders: Orders) => frame.workplaces[id]! >= 0 && orders.sites.kind[frame.workplaces[id]!] === building;
@@ -135,8 +136,8 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 
 /**
  * The settlement's news: who went hungry, who starved, who ate again, who had
- * a cold night, who froze, who took a place at a workplace, who left one, and,
- * at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
+ * a cold night, who froze, who died of old age, who took a place at a
+ * workplace, who left one, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
  */
@@ -187,7 +188,7 @@ export function createNews(orders: Orders) {
   };
 }
 
-/** The log that tells the player who went hungry, who starved, who ate again, who had a cold night, who froze, and who took or left a place at a workplace, by name. */
+/** The log that tells the player who went hungry, who starved, who ate again, who had a cold night, who froze, who died of old age, and who took or left a place at a workplace, by name. */
 export function mountNews(root: HTMLElement, orders: Orders) {
   const panel = document.createElement('section');
   panel.className = 'news';

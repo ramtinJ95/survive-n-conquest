@@ -15,7 +15,7 @@ import { MAX_PATH, planPath } from './paths';
 import type { Sim } from './sim';
 import { CAMP_STORE } from './stores';
 import { endTask, loseTasks, stands, takeTask, taskKind } from './tasks';
-import { NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from './villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from './villagerState';
 
 /** Tiles a villager walks in one tick. */
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
@@ -89,6 +89,10 @@ export interface Villagers {
   readonly workplace: Int16Array;
   /** When each villager took its place, as a count of `Sim.hires`, so the one that came last is plain. 0 without a place. */
   readonly hired: Uint32Array;
+  /** What each villager died of, `Cause.None` while it lives. */
+  readonly cause: Uint8Array;
+  /** The tick at which each villager died, or -1 while it lives. */
+  readonly diedAt: Int32Array;
 }
 
 function draw(map: TileMap, villagers: Villagers, id: number): number {
@@ -181,6 +185,8 @@ export function createVillagers(map: TileMap, camp: FlowField, settlers: readonl
     worn: new Uint8Array(rows),
     workplace: new Int16Array(rows).fill(-1),
     hired: new Uint32Array(rows),
+    cause: new Uint8Array(rows),
+    diedAt: new Int32Array(rows).fill(-1),
   };
   for (const settler of settlers) addVillager(villagers, map, camp, settler);
   return villagers;
@@ -348,7 +354,7 @@ function missNeed(sim: Sim, id: number, need: Need): void {
   column[id] = column[id]! + 1;
   if (column[id]! < need.diesAt) return;
   sim.tally[need.deaths] += 1;
-  die(sim, id);
+  die(sim, id, need.cause);
 }
 
 /** The villager's meal of the day: it eats, or misses the meal. */
@@ -610,18 +616,20 @@ export function moveVillagers(sim: Sim, night: boolean, dawn: boolean): void {
 }
 
 /**
- * Removes the villager from the map for good. It gives its task up, as a
- * cancelled one, and puts down what it carries. Its row stays, so ids and
- * households hold. Its place at a workplace opens to the nearest villager
- * without a job. When it was its household's last member, the house goes to
+ * Removes the villager from the map for good, of `cause`, at this tick. It
+ * gives its task up, as a cancelled one, and puts down what it carries. Its
+ * row stays, so ids and households hold. Its place at a workplace opens to the
+ * nearest villager without a job. When it was its household's last member, the house goes to
  * the next household without one. When it was the last villager, the
  * settlement has died out.
  */
-export function die(sim: Sim, id: number): void {
+export function die(sim: Sim, id: number, cause: Cause): void {
   const { villagers } = sim;
   endTask(sim, id);
   if (villagers.carried[id] !== Good.None) putDownHeld(sim, id);
   villagers.state[id] = VillagerState.Dead;
+  villagers.cause[id] = cause;
+  villagers.diedAt[id] = sim.tick;
   sim.tally.died += 1;
   sim.living -= 1;
   loseWorker(sim, id);

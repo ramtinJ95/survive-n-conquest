@@ -14,7 +14,7 @@ import { CAMP_FOOD, CAMP_STORE } from './stores';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
 import { die } from './villagers';
-import { NO_TASK, VillagerState } from './villagerState';
+import { Cause, NO_TASK, VillagerState } from './villagerState';
 
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const GATHER = TASK_KINDS.indexOf(GATHERING) + 1;
@@ -245,7 +245,7 @@ describe('hunger', () => {
     runUntil(sim, () => sim.villagers.task.includes(GATHER), 20);
     const chopper = sim.villagers.task.indexOf(GATHER);
     sim.villagers.carried[chopper] = Good.Food;
-    die(sim, chopper);
+    die(sim, chopper, Cause.Hunger);
     expect([sim.villagers.task[chopper], sim.villagers.carried[chopper], sim.villagers.state[chopper]]).toEqual([NO_TASK, Good.None, VillagerState.Dead]);
     expect(foodOnGround(sim)).toBe(1);
     const where = [sim.villagers.x[chopper], sim.villagers.y[chopper]];
@@ -338,7 +338,7 @@ describe('stocking a home', () => {
 
   it('keeps three days for the living members only', () => {
     const { sim, slot } = housed(100);
-    die(sim, 1);
+    die(sim, 1, Cause.Hunger);
     runUntil(sim, () => sim.stores.held[Good.Food - 1]![slot] === 3, 1300);
     for (let tick = 0; tick < 300; tick++) step(sim);
     expect([sim.stores.held[Good.Food - 1]![slot], sim.stores.inbound[Good.Food - 1]![slot], sim.stores.outbound[Good.Food - 1]![CAMP_STORE]]).toEqual([3, 0, 0]);
@@ -372,23 +372,23 @@ describe('households and death', () => {
     const slot = finishedHouse(sim, 6, 6);
     expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME, NO_HOME]);
     sim.stores.held[Good.Food - 1]![slot] = 9;
-    die(sim, 2);
-    die(sim, 3);
-    die(sim, 0);
+    die(sim, 2, Cause.Hunger);
+    die(sim, 3, Cause.Hunger);
+    die(sim, 0, Cause.Hunger);
     expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME, NO_HOME]);
-    die(sim, 1);
+    die(sim, 1, Cause.Hunger);
     expect(Array.from(sim.households.home)).toEqual([NO_HOME, NO_HOME, slot]);
     expect(sim.stores.held[Good.Food - 1]![slot]).toBe(9);
   });
 
   it('never give a house to a household with nobody left, not even its own house back', () => {
     const sim = createSim(mapFrom(open(32)), { villagers: 4, monsters: 0 });
-    die(sim, 2);
-    die(sim, 3);
+    die(sim, 2, Cause.Hunger);
+    die(sim, 3, Cause.Hunger);
     const slot = finishedHouse(sim, 6, 6);
     expect(Array.from(sim.households.home)).toEqual([slot, NO_HOME]);
-    die(sim, 0);
-    die(sim, 1);
+    die(sim, 0, Cause.Hunger);
+    die(sim, 1, Cause.Hunger);
     expect(Array.from(sim.households.home)).toEqual([NO_HOME, NO_HOME]);
   });
 });

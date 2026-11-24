@@ -12,7 +12,7 @@ import { STOCKING } from './stocking';
 import { CAMP_STORE, TAILOR_CLOTHING_LIMIT } from './stores';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VillagerState } from './villagerState';
 import { VILLAGER_STEP, die } from './villagers';
 import { WEARING } from './wearing';
 import { Stop, WORKSHOP } from './workshops';
@@ -262,7 +262,7 @@ describe('fetching clothing', () => {
     const hut = hutWith(sim, 30, 20, 1);
     runUntil(sim, () => sim.tally.dressed === 1, 600);
     const wearer = sim.villagers.worn.indexOf(Good.Clothing);
-    die(sim, wearer);
+    die(sim, wearer, Cause.Hunger);
     for (let tick = 0; tick < 100; tick++) step(sim);
     expect([pieces(sim, hut), clothingOnGround(sim), sim.tally.dressed]).toEqual([0, 0, 1]);
   });

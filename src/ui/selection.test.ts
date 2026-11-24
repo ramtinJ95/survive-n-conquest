@@ -22,7 +22,7 @@ import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
 import { at, mapFrom } from '../sim/testMaps';
 import { die } from '../sim/villagers';
-import { NO_TASK, VillagerState } from '../sim/villagerState';
+import { Cause, NO_TASK, VillagerState } from '../sim/villagerState';
 import { Stop } from '../sim/workshops';
 import { type Facts, type Selection, keepSelection, markPlace, readPanel } from './selection';
 
@@ -138,6 +138,7 @@ describe("a settler's panel", () => {
         coldNights: Uint8Array.of(0),
         stockGoods: Uint8Array.of(carried),
         worn: Uint8Array.of(Good.None),
+        causes: Uint8Array.of(Cause.None),
         storeFood: new Uint16Array(STORES),
         campFoodLimit: 40,
         storeInbound: new Uint16Array(STORES),
@@ -482,6 +483,7 @@ function siteFacts() {
     coldNights: new Uint8Array(tasks.length),
     stockGoods: new Uint8Array(tasks.length),
     worn: new Uint8Array(tasks.length),
+    causes: new Uint8Array(tasks.length),
     storeFood: new Uint16Array(STORES),
     campFoodLimit: 40,
     storeInbound: new Uint16Array(STORES),
@@ -796,8 +798,8 @@ describe('a building panel', () => {
     expect([food(house), food({ kind: 'camp' })]).toEqual(['0 of 16', '24 of 40']);
     while (sim.stores.held[Good.Food - 1]![0]! < 6) step(sim);
     expect([food(house), food({ kind: 'camp' })]).toEqual(['6 of 16', '18 of 40']);
-    die(sim, 0);
-    die(sim, 1);
+    die(sim, 0, Cause.Hunger);
+    die(sim, 1, Cause.Hunger);
     expect(food(house)).toBe('6 of 16');
   });
 
