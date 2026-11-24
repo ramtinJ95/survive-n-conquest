@@ -79,6 +79,12 @@ function tasksHeld(sim: Sim, id: number, ticks: number): Set<number> {
   return held;
 }
 
+function foodOnGround(sim: Sim): number {
+  let units = 0;
+  for (let tile = 0; tile < sim.map.size * sim.map.size; tile++) if (sim.map.stackGood[tile] === Good.Food) units += sim.map.stackSize[tile]!;
+  return units;
+}
+
 /** Plants trees on the 10 by 10 tiles from (20, 20) and marks them for felling, more than two settlers fell in four days. */
 function chopTrees(sim: Sim): void {
   for (let y = 20; y < 30; y++) for (let x = 20; x < 30; x++) sim.map.trees[at(sim.map, x, y)] = 1;
@@ -203,20 +209,22 @@ describe('the household of a child who starts to work', () => {
     expect(sim.stores.held[FOOD]![home], 'the boy stocks it himself').toBeGreaterThan(0);
   });
 
-  it('gives up the unit a settler without a job carries to its home once the household can carry, by the rule of #49, with the step run by day because every task ends at dusk', () => {
+  it('makes a settler without a job put down the unit it carries to the home once the household can carry, by the rule of #49, with the step run by day because every task ends at dusk', () => {
     const { sim, home } = orphan();
     toDawn(sim, 1);
     let carrier = -1;
     while (carrier < 0) {
       step(sim);
-      carrier = [3, 4].find((id) => sim.villagers.task[id] === STOCK && sim.villagers.toStore[id] === home) ?? -1;
+      carrier = [3, 4].find((id) => sim.villagers.task[id] === STOCK && sim.villagers.toStore[id] === home && sim.villagers.carried[id] === Good.Food) ?? -1;
     }
     expect(sim.stores.inbound[FOOD]![home]).toBe(1);
+    const ground = foodOnGround(sim);
     turnsTenAt(sim, 2, sim.tick);
     startWork(sim);
     expect(STOCKING.holds(sim, carrier)).toBe(false);
     step(sim);
-    expect([sim.villagers.task[carrier], sim.stores.inbound[FOOD]![home]]).toEqual([NO_TASK, 0]);
+    expect([sim.villagers.task[carrier], sim.villagers.carried[carrier], sim.stores.inbound[FOOD]![home]]).toEqual([NO_TASK, Good.None, 0]);
+    expect(foodOnGround(sim), 'the unit is put down where the carrier stands').toBe(ground + 1);
   });
 });
 
