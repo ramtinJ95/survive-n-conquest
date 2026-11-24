@@ -7126,8 +7126,14 @@ const WOOD_YEAR_ORDERS = [
 const BIRTHS_SCRIPT = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/births.ts');
 const BIRTHS_SETTLERS = 'm30,w28@6;m32,w30,w8,m6,w3@6;m33,w39@6;m29,w27@6';
 const BIRTHS_FED = '200';
-/** The house each site slot of `FIREWOOD_YEAR_START` stands in, by the pixel its order clicked: its houses are slots 3 to 6. */
-const BIRTH_HOUSES = { 3: { x: 526, y: 258 }, 4: { x: 475, y: 254 }, 5: { x: 493, y: 308 }, 6: { x: 563, y: 277 } };
+/**
+ * The roof of the house in each site slot of `FIREWOOD_YEAR_START`, whose houses are slots 3 to 6, at `HIDES_YEAR_VIEW`:
+ * `aim.ts` puts a point 2 m over each house's tile there. A click on the tile itself can take the camp's fire or the
+ * lodge beside it.
+ */
+const BIRTH_HOUSES = { 3: { x: 527, y: 241 }, 4: { x: 474, y: 237 }, 5: { x: 493, y: 291 }, 6: { x: 564, y: 261 } };
+/** Wheel pixels in over a house, so a child by its door shows as a tunic of its own, apart from its parents. */
+const BIRTHS_CLOSER = -500;
 const BIRTHS_CLIP = { crop: { x: 400, y: 150, width: 400, height: 250 }, width: 640, colors: 64 };
 const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
 
@@ -7151,6 +7157,13 @@ function birthsDriver(session) {
     await page.keyboard.press('Escape');
     await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
     return read;
+  };
+  /** Wheels the view `wheel` pixels in over the house in `slot`, or back out with the opposite wheel. */
+  const closer = async (page, slot, wheel) => {
+    await page.mouse.move(BIRTH_HOUSES[slot].x, BIRTH_HOUSES[slot].y);
+    await page.mouse.wheel(0, wheel);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
   };
   /** Clicks the tunics of a paused frame, nearest the house in `slot` first, until a panel titled `title` opens. */
   const selectTitled = async (page, title, slot, label) => {
@@ -7179,13 +7192,13 @@ function birthsDriver(session) {
     );
     return heard;
   };
-  return { reads, text, click, uiBoxes, apart, expected, counts, house, selectTitled, listen };
+  return { reads, text, click, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen };
 }
 
 SCENARIOS.births = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
-  const { reads, text, uiBoxes, apart, expected, counts, house, selectTitled, listen } = birthsDriver(session);
+  const { reads, text, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen } = birthsDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const fed = expected(BIRTHS_FED);
   const hungry = expected('-');
@@ -7244,6 +7257,7 @@ SCENARIOS.births = async (session) => {
   const to = a.since();
 
   await session.reach(page, { day: 4, time: '09:00' });
+  await closer(page, 6, BIRTHS_CLOSER);
   const childTitle = `${cases.birth.name}, ${cases.birth.girl ? 'daughter' : 'son'} of Merek and Elsi`;
   const found = await selectTitled(page, childTitle, 6, 'births-child-aim');
   const child = found.read;
@@ -7268,6 +7282,7 @@ SCENARIOS.births = async (session) => {
   const night = await reads(page);
   session.check(`at ${await at(page)} the child is inside with its household and ate at dusk`, night?.title === childTitle && night.rows.Doing === 'At home' && night.rows['Missed meals'] === 'None', text(night));
   await page.keyboard.press('Escape');
+  await closer(page, 6, -BIRTHS_CLOSER);
   const home = await house(page, 6);
   session.check(`the house of Merek and Elsi reads its household as its couple and one child`, home?.title === 'House' && home.rows.Household === 'Merek and Elsi, 1 child', text(home));
 
