@@ -35,15 +35,22 @@ const WORKSHOPS = (Object.values(Building) as Building[]).filter((building) => B
  * What a workshop's worker made none of, and why, for each reason a lack of input stops it, kept short enough that
  * a line naming eight settlers and counting 1,493 more takes no more rows than the longest line before them.
  */
-const IDLE_DAY_WORDS: Readonly<Partial<Record<Building, { readonly none: string; readonly [Stop.NoInput]: string; readonly [Stop.ForSites]: string }>>> = {
-  [Building.Woodshed]: { none: 'split no firewood', [Stop.NoInput]: 'no log in reach', [Stop.ForSites]: 'sites need the logs' },
-  [Building.Tailor]: { none: 'made no clothing', [Stop.NoInput]: 'no hide in reach', [Stop.ForSites]: 'sites need the hides' },
+/** The reasons a lack of input can stop a workshop's worker. */
+type IdleStop = typeof Stop.ForSites | typeof Stop.NotStocked | typeof Stop.NoInput;
+
+/**
+ * What a workshop's worker made none of, and why, for each reason a lack of input stops it, kept short enough that
+ * a line naming eight settlers and counting 1,493 more takes no more rows than the longest line before them.
+ */
+const IDLE_DAY_WORDS: Readonly<Partial<Record<Building, { readonly none: string } & Readonly<Record<IdleStop, string>>>>> = {
+  [Building.Woodshed]: { none: 'split no firewood', [Stop.ForSites]: 'sites need the logs', [Stop.NotStocked]: 'no log carried yet', [Stop.NoInput]: 'no log in reach' },
+  [Building.Tailor]: { none: 'made no clothing', [Stop.ForSites]: 'sites need the hides', [Stop.NotStocked]: 'no hide carried yet', [Stop.NoInput]: 'no hide in reach' },
 };
 
 /** The reasons a lack of input can stop a workshop's worker: the sites only for an input some kind of building needs. */
-const idleReasons = (building: Building): readonly (typeof Stop.ForSites | typeof Stop.NoInput)[] => {
+const idleReasons = (building: Building): readonly IdleStop[] => {
   const input = BUILDINGS[building].recipe!.input;
-  return Object.values(BUILDINGS).some((kind) => needOf(kind, input) > 0) ? [Stop.ForSites, Stop.NoInput] : [Stop.NoInput];
+  return Object.values(BUILDINGS).some((kind) => needOf(kind, input) > 0) ? [Stop.ForSites, Stop.NotStocked, Stop.NoInput] : [Stop.NotStocked, Stop.NoInput];
 };
 
 /** Whether the night began between the two frames, so the day's work is over. */
