@@ -31,10 +31,6 @@ const WORKPLACES = (Object.values(Building) as Building[]).filter((building) => 
 /** The kinds of workshop, each with its own line at dusk for a worker that did none of its work that day for lack of its input. */
 const WORKSHOPS = (Object.values(Building) as Building[]).filter((building) => BUILDINGS[building].recipe !== null);
 
-/**
- * What a workshop's worker made none of, and why, for each reason a lack of input stops it, kept short enough that
- * a line naming eight settlers and counting 1,493 more takes no more rows than the longest line before them.
- */
 /** The reasons a lack of input can stop a workshop's worker. */
 type IdleStop = typeof Stop.ForSites | typeof Stop.NotStocked | typeof Stop.NoInput;
 
