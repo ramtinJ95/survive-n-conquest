@@ -413,14 +413,16 @@ const counted = (count: number, one: string, many: string) => `${count} ${count 
 
 /**
  * A household in words: its couple by name, then its other living members
- * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. A couple of
- * one names its one.
+ * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. The dead are
+ * counted and not named, so a widow reads as `Ysa, 3 children, 1 died`, and
+ * children whose couple both died as `3 children, 2 died`.
  */
 function householdLine(facts: Facts, household: number): string {
   const { frame } = facts;
   const man = frame.couples[household * 2]!;
   const woman = frame.couples[household * 2 + 1]!;
-  const couple = [man, woman].filter((id) => id >= 0).map((id) => nameOfSettler(facts, id));
+  const alive = (id: number) => id >= 0 && frame.states[id] !== VillagerState.Dead;
+  const couple = [man, woman].filter(alive).map((id) => nameOfSettler(facts, id));
   let children = 0;
   let died = 0;
   frame.households.forEach((of, id) => {
@@ -428,7 +430,7 @@ function householdLine(facts: Facts, household: number): string {
     if (frame.states[id] === VillagerState.Dead) died++;
     else if (id !== man && id !== woman) children++;
   });
-  const parts = [couple.join(' and ')];
+  const parts = couple.length > 0 ? [couple.join(' and ')] : [];
   if (children > 0) parts.push(counted(children, 'child', 'children'));
   if (died > 0) parts.push(`${died} died`);
   return parts.join(', ');

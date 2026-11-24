@@ -5,7 +5,7 @@ import { Sex, freeName } from './names';
 import { hashUnit } from './noise';
 import type { Sim } from './sim';
 import { VillagerState } from './villagerState';
-import { addVillager } from './villagers';
+import { type NewVillager, addVillager } from './villagers';
 
 /** A household draws for a birth only after it has seen more than this many dawns since it formed, and as many since its last birth. */
 export const BIRTH_GAP = 6;
@@ -18,6 +18,9 @@ export const BEARING_AGES = [16, 40] as const;
 
 const BIRTH_SALT = 0x6b1d_42f3;
 const SEX_SALT = 0x51c3_8e0d;
+
+/** The one record every birth fills before its row is written, so a birth allocates nothing in the tick. */
+const newborn: { -readonly [K in keyof NewVillager]: NewVillager[K] } = { sex: Sex.Woman, household: 0, name: 0, born: 0, span: 0, child: true, mother: -1, father: -1 };
 
 /** The draw of household `h` at the dawn `dawn`, a count of `Sim.dawns`, in [0, 1). It is a stream of its own, keyed by the seed, the household, and the dawn. */
 export function birthDraw(seed: number, h: number, dawn: number): number {
@@ -71,8 +74,14 @@ function bear(sim: Sim, h: number): number {
   const sex = sexAtBirth(seed, id);
   const mother = households.woman[h]!;
   const name = freeName(seed, id, sex, households.names[h * 2 + sex]!);
-  const born = { sex, household: h, name, born: sim.tick, span: lifeSpan(seed, id), child: true, mother, father: households.man[h]! };
-  if (addVillager(villagers, map, sim.flow, born) < 0) return -1;
+  newborn.sex = sex;
+  newborn.household = h;
+  newborn.name = name;
+  newborn.born = sim.tick;
+  newborn.span = lifeSpan(seed, id);
+  newborn.mother = mother;
+  newborn.father = households.man[h]!;
+  if (addVillager(villagers, map, sim.flow, newborn) < 0) return -1;
   households.names[h * 2 + sex]! |= 1 << name;
   addMember(households, villagers, h, id);
   households.lastBirth[h] = sim.dawns;

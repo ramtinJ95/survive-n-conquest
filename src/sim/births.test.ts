@@ -388,16 +388,17 @@ describe('a home in which nobody can carry', () => {
     expect(stocks(sim, 6)).toBeNull();
   });
 
-  it('is carried for until a member can carry again, and a unit on its way stops when its carrier is hired', () => {
+  it('loses its carrier once the carrier is hired, as a unit for the camp does', () => {
     const { sim, slots } = orphans(2);
     sim.stores.held[FOOD]![CAMP_STORE] = 50;
-    expect(STOCKING.take(sim, 6)).toBe(true);
-    expect(sim.villagers.toStore[6]).toBe(slots[0]);
-    expect(STOCKING.holds(sim, 6)).toBe(true);
-    sim.villagers.child[2] = 0;
-    sim.households.workers[0] = 1;
-    sim.households.unattended -= 1;
-    expect(STOCKING.holds(sim, 6)).toBe(false);
+    expect(takeTask(sim, 6)).toBe(true);
+    expect([sim.villagers.toStore[6], STOCKING.holds(sim, 6)]).toEqual([slots[0], true]);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Hut, x: 24, y: 24 })).toMatchObject({ ok: true });
+    const hut = sim.orders.siteOf[at(sim.map, 24, 24)]!;
+    finishBuilding(sim, hut);
+    applyCommand(sim, { kind: 'setPlaces', slot: hut, places: 2 });
+    expect([6, 7, 8, 9].filter((id) => sim.villagers.workplace[id] === hut)).toContain(6);
+    expect([sim.villagers.task[6], sim.stores.inbound[FOOD]![slots[0]!]]).toEqual([NO_TASK, 0]);
   });
 });
 

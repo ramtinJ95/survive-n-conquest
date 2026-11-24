@@ -237,7 +237,7 @@ describe("a settler's panel", () => {
     expect(row('Doing')).toBe('Died of hunger at 41');
     expect(keepSelection(merek, sim.orders)).toBe(merek);
     expect(markPlace(merek, factsOf(sim))).toBeNull();
-    expect(readPanel({ kind: 'villager', id: 1 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value).toBe('Merek and Elsi, 1 died');
+    expect(readPanel({ kind: 'villager', id: 1 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value).toBe('Elsi, 1 died');
   });
 
   it('says a settler that missed a meal walks home or to the camp to eat, and eats there', () => {
@@ -893,7 +893,7 @@ describe("an old settler's panel", () => {
     expect([row(0, 'Sex and age'), row(1, 'Sex and age')]).toEqual(['Man, 69', 'Woman, 66']);
     while (sim.villagers.state[0] !== VillagerState.Dead) step(sim);
     expect([row(0, 'Doing'), row(0, 'Sex and age'), row(1, 'Sex and age')]).toEqual(['Died of old age at 70', 'Man, 70', 'Woman, 67']);
-    expect(row(1, 'Household')).toBe('Merek and Elsi, 1 died');
+    expect(row(1, 'Household')).toBe('Elsi, 1 died');
   });
 });
 
@@ -978,13 +978,15 @@ describe("a child's panel and the household line", () => {
     expect(row(sim, 4, 'Household')).toBe('Ulvar and Ysa');
   });
 
-  it('reads a household as its couple by name and its other members and its dead by count, alike on the settler and on its house', () => {
+  it('reads a household as its living couple by name and its other members and its dead by count, alike on the settler and on its house', () => {
     const { sim, house } = family();
     const housePanel = () => readPanel({ kind: 'building', slot: house, anchor: 0 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value;
     expect([row(sim, 0, 'Household'), row(sim, 2, 'Household'), housePanel()]).toEqual(Array(3).fill('Merek and Elsi, 2 children'));
     die(sim, 3, Cause.Hunger);
     expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Merek and Elsi, 1 child, 1 died'));
     die(sim, 0, Cause.Cold);
-    expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Merek and Elsi, 1 child, 2 died'));
+    expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Elsi, 1 child, 2 died'));
+    die(sim, 1, Cause.Cold);
+    expect([row(sim, 2, 'Household'), housePanel()], 'the dead are counted and not named').toEqual(Array(2).fill('1 child, 3 died'));
   });
 });

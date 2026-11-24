@@ -3460,11 +3460,11 @@ function selectionDriver(session) {
 
 /**
  * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and age
- * row and the Household row, which names the household's couple. Before households the title was the word Settler,
+ * row and the Household row, which names the household's living couple or counts its children. Before households the title was the word Settler,
  * before ages the row was Sex, and before births the Household row began with the household's number.
  */
 const settlerPanel = (read) =>
-  Boolean(read?.title) && /^(Man|Woman|Girl|Boy), \d+$/.test(read.rows?.['Sex and age'] ?? '') && /^\S+( and \S+)?(, .+)?$/.test(read.rows?.Household ?? '');
+  Boolean(read?.title) && /^(Man|Woman|Girl|Boy), \d+$/.test(read.rows?.['Sex and age'] ?? '') && /^(\S+( and \S+)?|\d+ child(ren)?)(, .+)?$/.test(read.rows?.Household ?? '');
 
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
@@ -3503,8 +3503,8 @@ const DOING_LONGEST = [
  * The longest reading of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as
  * candidates of which the page keeps the tallest, and the first of those as tall. `name`, `woman`, and `man` are the widest names of
  * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
- * repeat, so two workers can share a name. A household reads as its couple, a man and a woman named in that order,
- * then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
+ * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
+ * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
  * its dead with two digits. A child's title names its parents. A site's goods read what it
  * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
  */
