@@ -6,7 +6,7 @@ On seed 7 a player can bring all 8 settlers through the first winter fed and war
 
 - `firewood-year-orders` gives the year's 53 orders at 08:00 on day 1 and its woodshed and 9 trees at 06:17 on day 5, each read in the order status line.
 - `firewood-year-day-10` reads the reading at 12:00 on day 10 as `4 of 4`, `2 of 4`, `0 of 8`, `0`, with no camp fire row, and at 17:00 as `4 of 4` houses with firewood.
-- `firewood-year-end` reads the Stockpiles panel at 05:00 on day 13, after the dawn that ends the last winter night: 5 settlers with a job, 3 with none, 33 barn and camp food, and 16 food in homes, with the reading gone.
+- `firewood-year-end` reads the Stockpiles panel at 05:00 on day 13, after the dawn that ends the last winter night: 5 settlers with a job, 3 with none, the 4 children born to them, 24 barn and camp food, and 20 food in homes, with the reading gone. Before births it read 33 and 16.
 
 ## How to get to it (user POV)
 

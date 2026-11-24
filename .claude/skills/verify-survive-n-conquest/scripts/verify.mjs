@@ -6951,7 +6951,8 @@ const FIREWOOD_YEAR_SHED = [
  * In `src/sim` with the same commands at the same ticks, at 12:00 on day 10 the reading is 4 of 4 households in a
  * house, 2 of 4 houses with 6 firewood, 0 of 8 in clothing, and 0 cold tonight, with no camp fire row; at 17:00 on
  * day 10, 4 of 4 houses with firewood; and at 05:00 on day 13, after the last winter night, 8 settlers live, 5 with a
- * job and 3 with none, with 33 food in the barn and at the camp and 16 in homes.
+ * job and 3 with none, beside the 4 children born to them, with 24 food in the barn and at the camp and 20 in homes.
+ * Before births it was 33 and 16: the children ate the difference.
  */
 const FIREWOOD_YEAR_STOPS = { shed: { day: 5, time: '06:17' }, noon: { day: 10, time: '12:00' }, dusk: { day: 10, time: '17:00' }, end: { day: 13, time: '05:00' } };
 
@@ -7027,8 +7028,8 @@ SCENARIOS['firewood-year'] = async (session) => {
   await session.screenshot(page, 'firewood-year-end');
   const living = Number(end.rows['Settlers with a job']) + Number(end.rows['Settlers with no job']);
   session.check(
-    `at ${await at()}, after the last winter night, 8 settlers live, 5 with a job and 3 with none, with 33 food in the barn and at the camp and 16 in homes, and the reading is gone`,
-    living === 8 && end.rows['Settlers with a job'] === '5' && end.rows['Barn and camp food'] === '33' && end.rows['Food in homes'] === '16' && !gone.shown,
+    `at ${await at()}, after the last winter night, 8 settlers and the 4 children born to them live, the 8 with 5 with a job and 3 with none, with 24 food in the barn and at the camp and 20 in homes, and the reading is gone`,
+    living === 8 && end.rows.Children === '4' && end.rows['Settlers with a job'] === '5' && end.rows['Barn and camp food'] === '24' && end.rows['Food in homes'] === '20' && !gone.shown,
     `${Object.entries(end.rows).map(([name, value]) => `${name}: ${value}`).join('; ')}; reading ${gone.shown ? 'shown' : 'hidden'}`,
   );
 };
@@ -7137,7 +7138,7 @@ const BIRTHS_CLOSER = -500;
 /** Pixels from a tunic's middle at which a click can find a child that stands beside an adult, at `BIRTHS_CLOSER`. */
 const CHILD_REACH = 10;
 /** At `BIRTHS_CLOSER` over the house of Merek and Elsi, the house, its doors, and the news log below them. */
-const BIRTHS_CLIP = { crop: { x: 380, y: 150, width: 560, height: 340 }, width: 560, colors: 64 };
+const BIRTHS_CLIP = { crop: { x: 380, y: 150, width: 420, height: 340 }, width: 420, colors: 64 };
 const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
 
 function birthsDriver(session) {
@@ -7206,7 +7207,7 @@ function birthsDriver(session) {
 SCENARIOS.births = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
-  const { reads, text, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen } = birthsDriver(session);
+  const { reads, text, click, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen } = birthsDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
   const fed = expected(BIRTHS_FED);
   const hungry = expected('-');
@@ -7310,6 +7311,12 @@ SCENARIOS.births = async (session) => {
   const secondLine = `${second.news}. ${cases.second.name} was born to Dorran and Nella.`;
   const theirs = await house(page, cases.hungry.slot);
   session.check(`at the dawn of day 6, fed and in their own house, Dorran and Nella have a child: "${secondLine}"`, secondHeard.has(secondLine) && theirs?.rows.Household === 'Dorran and Nella, 1 child', `${text(theirs)} | heard ${[...secondHeard.keys()].join('; ') || 'nothing'}`);
+  await session.reach(page, { day: 6, time: '09:00' });
+  const byDay = await click(page, BIRTH_HOUSES[6]);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await session.screenshot(page, 'births-house-panel');
+  session.check(`at ${await at(page)} the house of Merek and Elsi still reads its couple and one child`, byDay?.title === 'House' && byDay.rows.Household === 'Merek and Elsi, 1 child', text(byDay));
   await session.finishClips(a.context, page, [{ label: 'births-dawn', from, to, ...BIRTHS_CLIP }]);
   seen.push(...a.errors);
 

@@ -639,7 +639,7 @@ function pageReadings(year: Year, seed: number): string[] {
       const reading = r === null ? 'reading hidden' : `Households in a house ${r.housed} of ${r.households}; Houses with firewood ${r.stocked} of ${r.houses}; Settlers in clothing ${r.clothed} of ${r.settlers}; Cold tonight ${r.cold}${r.camp ? `; Camp fire ${r.camp.lights ? `Lights, ${r.camp.firewood} firewood` : `Out, ${r.camp.firewood} of ${r.camp.burns} firewood`}` : ''}`;
       lines.push(
         `${when}: ${reading}; Barn and camp food ${food[StoreKind.Common]}; Food in homes ${food[StoreKind.Home]}; ` +
-          `Firewood in stores ${wood[StoreKind.Workshop] + wood[StoreKind.Common]}; Firewood in homes ${wood[StoreKind.Home]}; Settlers with a job ${jobs.withJob}; Settlers with no job ${jobs.withoutJob}`,
+          `Firewood in stores ${wood[StoreKind.Workshop] + wood[StoreKind.Common]}; Firewood in homes ${wood[StoreKind.Home]}; Settlers with a job ${jobs.withJob}; Settlers with no job ${jobs.withoutJob}; Children ${jobs.children}`,
       );
     }
     step(sim);
