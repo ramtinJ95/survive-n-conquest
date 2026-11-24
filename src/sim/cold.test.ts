@@ -69,8 +69,9 @@ function strand(sim: Sim, id: number): void {
 }
 
 /** One household of two settlers in a house finished at once on an island map, with `wood` firewood in the house and plenty of food at the camp. */
+/** Two settlers in a house holding `wood` firewood. The cap on the living is theirs, so no child is born into the house. */
 function housed(wood: number): { sim: Sim; house: number } {
-  const sim = createSim(mapFrom(withIsland()), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+  const sim = createSim(mapFrom(withIsland()), { villagers: 2, monsters: 0, campFood: 100, animals: false, mostLiving: 2 });
   const house = finished(sim, Building.House, 14, 14);
   sim.stores.held[FIREWOOD]![house] = wood;
   return { sim, house };

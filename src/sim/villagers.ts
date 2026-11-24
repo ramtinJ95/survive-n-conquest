@@ -21,6 +21,8 @@ import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from './vi
 export const VILLAGER_STEP = 1.5 / TICKS_PER_SECOND;
 /** By day an idle villager picks its next point within this many tiles of the camp center, on both axes. */
 export const WANDER_REACH = 8;
+/** By day a child whose household has a house stays within this many tiles of a door of it, on both axes. */
+export const PLAY_REACH = 3;
 /** Each villager's spot at the camp lies this many tiles from the camp center. */
 const SPOT_RADIUS = 1.5;
 /** A spot is kept only when this many even steps along the line from the camp center to it are all allowed. */
@@ -279,10 +281,16 @@ function stepHome(sim: Sim, id: number): void {
 /**
  * By day, walks an idle villager toward its target near the camp. One that
  * arrives, or whose step would enter water or rock, picks a new target. One
- * that stands farther from the camp than its targets lie walks back first.
+ * that stands farther from the camp than its targets lie walks back first. A
+ * child whose household has a house plays by its door instead.
  */
-function idle(sim: Sim, id: number): void {
+function idle(sim: Sim, id: number, thinks: boolean): void {
   const { map, flow, villagers } = sim;
+  const home = sim.households.home[villagers.household[id]!]!;
+  if (home !== NO_HOME && !works(villagers, id)) {
+    play(sim, id, home, thinks);
+    return;
+  }
   const campX = (flow.goal % map.size) + 0.5;
   const campY = Math.floor(flow.goal / map.size) + 0.5;
   if (Math.abs(villagers.x[id]! - campX) > WANDER_REACH || Math.abs(villagers.y[id]! - campY) > WANDER_REACH) {
@@ -292,6 +300,41 @@ function idle(sim: Sim, id: number): void {
   const moved = stepToward(map, villagers, id, villagers.targetX[id]!, villagers.targetY[id]!);
   const arrived = villagers.x[id] === villagers.targetX[id] && villagers.y[id] === villagers.targetY[id];
   if (!moved || arrived) chooseTarget(map, flow, villagers, id);
+}
+
+/**
+ * By day, a child whose household has a house walks toward a random point
+ * within `PLAY_REACH` tiles of the house's door nearest it, which it keeps in
+ * its work tile for the day, and picks a new point when it arrives or its step
+ * is blocked. One that stands farther from the door, as when its household
+ * gained the house that day, plans a route to the door on its think tick and
+ * walks it. A child with no walk to a door stands where it is.
+ */
+function play(sim: Sim, id: number, home: number, thinks: boolean): void {
+  const { map, villagers } = sim;
+  if (villagers.workTile[id] === -1) {
+    villagers.workTile[id] = nearestDoor(sim, home, villagers.x[id]!, villagers.y[id]!);
+    villagers.pathLength[id] = 0;
+    villagers.pathCursor[id] = 0;
+  }
+  const door = villagers.workTile[id]!;
+  if (door < 0) return;
+  const doorX = (door % map.size) + 0.5;
+  const doorY = Math.floor(door / map.size) + 0.5;
+  if (Math.abs(villagers.x[id]! - doorX) > PLAY_REACH || Math.abs(villagers.y[id]! - doorY) > PLAY_REACH) {
+    if (villagers.pathLength[id] === 0 && (!thinks || !planPath(sim, id, door))) return;
+    if (!walkRoute(sim, id)) villagers.pathLength[id] = 0;
+    return;
+  }
+  villagers.pathLength[id] = 0;
+  const moved = stepToward(map, villagers, id, villagers.targetX[id]!, villagers.targetY[id]!);
+  const arrived = villagers.x[id] === villagers.targetX[id] && villagers.y[id] === villagers.targetY[id];
+  if (moved && !arrived) return;
+  const tx = Math.fround(doorX + (draw(map, villagers, id) * 2 - 1) * PLAY_REACH);
+  const ty = Math.fround(doorY + (draw(map, villagers, id) * 2 - 1) * PLAY_REACH);
+  const inside = tx >= 0 && ty >= 0 && tx < map.size && ty < map.size && walkable(map, tileAt(map, tx, ty));
+  villagers.targetX[id] = inside ? tx : villagers.x[id]!;
+  villagers.targetY[id] = inside ? ty : villagers.y[id]!;
 }
 
 /**
@@ -642,7 +685,7 @@ export function moveVillagers(sim: Sim, night: boolean): void {
     if (thinks && wantsMeal(sim, id) && task[id] !== NO_TASK && taskKind(sim, id) !== EATING) stopTask(sim, id);
     const free = state[id] === VillagerState.Idle || state[id] === VillagerState.Waiting;
     if (free && thinks) state[id] = takeTask(sim, id) ? VillagerState.Walking : VillagerState.Idle;
-    if (state[id] === VillagerState.Idle) idle(sim, id);
+    if (state[id] === VillagerState.Idle) idle(sim, id, thinks);
     else if (state[id] !== VillagerState.Waiting) doTask(sim, id);
   }
 }

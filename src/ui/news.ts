@@ -10,7 +10,7 @@ import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
+type Seen = Pick<SimFrame, 'tick' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -52,8 +52,12 @@ const idleReasons = (building: Building): readonly IdleStop[] => {
 /** Whether the night began between the two frames, so the day's work is over. */
 const duskFell = (before: Seen, after: Seen) => !isNight(before.tick) && isNight(after.tick);
 
+/** The kind of line that says who was born and to whom. Its words name each child with its parents. */
+const BORN = 'born';
+
 /** Every kind of news, in the order a frame's lines are made. */
 const EVENTS: readonly NewsEvent[] = [
+  { kind: BORN, befell: (before, _after, id) => id >= before.states.length, verb: () => 'was born' },
   { kind: 'hungry', befell: (before, after, id) => alive(after, id) && before.missedMeals[id] === 0 && after.missedMeals[id]! > 0, verb: () => 'went hungry' },
   { kind: 'starved', befell: diedOf(Cause.Hunger), verb: () => 'starved' },
   { kind: 'ate', befell: (before, after, id) => alive(after, id) && before.missedMeals[id]! > 0 && after.missedMeals[id] === 0, verb: () => 'ate again' },
@@ -99,6 +103,8 @@ export const MOST_LINES = 4;
 const JOIN_TICKS = TICKS_PER_DAY / 24;
 /** A line names this many settlers at most and counts the rest. */
 const NAMED = 8;
+/** A line of births names this many children with their parents at most and counts the rest, so it takes no more rows than the longest line before it. */
+const NAMED_BIRTHS = 2;
 
 export interface NewsLine {
   readonly kind: string;
@@ -123,19 +129,34 @@ export function listNames(names: readonly string[]): string {
 /** Every kind of line the news can show. */
 export const NEWS_KINDS: readonly string[] = EVENTS.map(({ kind }) => kind);
 
-/** The words of a line of `kind` whose first event came at `tick`, naming the settlers in `names`. */
-export function lineWords(kind: string, tick: number, names: readonly string[]): string {
+/**
+ * "Tova was born to Ulvar and Ysa", "Tova was born to Ulvar and Ysa, and Bodo
+ * to Merek and Elsi", or, past `NAMED_BIRTHS` children, the first of them so
+ * and "and 3 others", from each child's name and its parents' names.
+ */
+function birthWords(names: readonly string[], parents: readonly string[]): string {
+  const named = names.length > NAMED_BIRTHS ? NAMED_BIRTHS : names.length;
+  const each = names.slice(0, named).map((name, at) => (at === 0 ? `${name} was born to ${parents[at]}` : `${name} to ${parents[at]}`));
+  if (names.length > named) each.push(`${(names.length - named).toLocaleString('en-US')} others`);
+  return each.length === 1 ? each[0]! : `${each.slice(0, -1).join(', ')}, and ${each.at(-1)!}`;
+}
+
+/** The words of a line of `kind` whose first event came at `tick`, naming the settlers in `names`, and for a line of births each child's parents in `parents`. */
+export function lineWords(kind: string, tick: number, names: readonly string[], parents: readonly string[] = []): string {
   const { day, minuteOfDay } = dateAt(tick);
   const { verb } = EVENTS.find((event) => event.kind === kind)!;
-  return `Day ${day}, ${formatTime(minuteOfDay)}. ${listNames(names)} ${verb(names.length)}.`;
+  const words = kind === BORN ? birthWords(names, parents) : `${listNames(names)} ${verb(names.length)}`;
+  return `Day ${day}, ${formatTime(minuteOfDay)}. ${words}.`;
 }
 
 function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
-  return lineWords(line.kind, line.tick, line.ids.map((id) => nameOf(frame.sexes[id] as Sex, frame.names[id]!)));
+  const name = (id: number) => nameOf(frame.sexes[id] as Sex, frame.names[id]!);
+  const parents = line.kind === BORN ? line.ids.map((id) => `${name(frame.fathers[id]!)} and ${name(frame.mothers[id]!)}`) : [];
+  return lineWords(line.kind, line.tick, line.ids.map(name), parents);
 }
 
 /**
- * The settlement's news: who went hungry, who starved, who ate again, who had
+ * The settlement's news: who was born and to whom, who went hungry, who starved, who ate again, who had
  * a cold night, who froze, who died of old age, who took a place at a
  * workplace, who left one, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
@@ -188,7 +209,7 @@ export function createNews(orders: Orders) {
   };
 }
 
-/** The log that tells the player who went hungry, who starved, who ate again, who had a cold night, who froze, who died of old age, and who took or left a place at a workplace, by name. */
+/** The log that tells the player who was born and to whom, who went hungry, who starved, who ate again, who had a cold night, who froze, who died of old age, and who took or left a place at a workplace, by name. */
 export function mountNews(root: HTMLElement, orders: Orders) {
   const panel = document.createElement('section');
   panel.className = 'news';

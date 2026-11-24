@@ -196,15 +196,16 @@ describe('the first year on seed 7 with warmth', () => {
     return { sim, finished: [...finished.values()], coldAtNoon, coldBeforeNight, coldNights, barnAtYearEnd, living };
   }
 
-  it('with a house for each household and a woodshed, puts every log felled into the building sites, so the woodshed splits none and all 8 freeze in the last night', () => {
+  it('with a house for each household and a woodshed, puts every log felled into the building sites, so the woodshed splits none, and all 8 and the child born to household 2 freeze in the last night', () => {
     const year = winterYear(winterYearCommands({ houses: 4, layout: WOOD_LAYOUT, tailor: 'at start' }));
-    expect(year.finished).toEqual(['hut day 1 13:03', 'woodshed day 2 15:37', 'lodge day 3 17:43', 'barn day 5 17:35', 'house day 7 09:31', 'house day 8 13:03', 'house day 10 17:14']);
+    expect(year.finished).toEqual(['hut day 1 13:03', 'woodshed day 2 15:37', 'lodge day 3 17:43', 'barn day 5 17:35', 'house day 7 09:31', 'house day 8 13:03', 'house day 11 10:32']);
     const { tally } = year.sim;
-    expect([tally.felled, tally.batches, tally.burnt, tally.firewoodHome, tally.firewoodToCamp]).toEqual([44, 0, 0, 0, 0]);
+    expect([tally.births, year.sim.villagers.household[8]]).toEqual([1, 1]);
+    expect([tally.felled, tally.batches, tally.burnt, tally.firewoodHome, tally.firewoodToCamp]).toEqual([43, 0, 0, 0, 0]);
     expect([tally.foraged, tally.kills, tally.hides, tally.dressed]).toEqual([55, 11, 11, 0]);
-    expect([tally.meals, tally.missed, year.barnAtYearEnd]).toEqual([96, 2, 37]);
-    expect([tally.starved, tally.froze, year.living]).toEqual([0, 8, []]);
-    expect(year.coldNights).toEqual([8, 8, 8]);
+    expect([tally.meals, tally.missed, year.barnAtYearEnd]).toEqual([99, 0, 32]);
+    expect([tally.starved, tally.froze, year.living]).toEqual([0, 9, []]);
+    expect(year.coldNights).toEqual([9, 9, 9]);
     expect(year.coldBeforeNight).toEqual(year.coldNights);
   });
 

@@ -28,6 +28,10 @@ export interface Households {
   readonly woman: Int32Array;
   /** The dawn of each household's last birth, as a count of `Sim.dawns`, or the dawn it formed at until its first. One that formed before the map's first tick has a negative one. */
   readonly lastBirth: Int32Array;
+  /** Scratch for a dawn's births, not part of the state: 1 for each household one of whose living members is wanting. */
+  readonly wanting: Uint8Array;
+  /** Scratch for a dawn's births: at `2h + sex`, bit `i` set when a living member of household `h` bears name `i` of that sex. */
+  readonly names: Uint32Array;
   /** The living members of the households with no home, who eat at the camp. */
   atCamp: number;
   /** The households with a living member and no living worker, whose homes the settlers without a job stock. */
@@ -44,6 +48,8 @@ export function createHouseholds(): Households {
     man: new Int32Array(MAX_HOUSEHOLDS).fill(NO_VILLAGER),
     woman: new Int32Array(MAX_HOUSEHOLDS).fill(NO_VILLAGER),
     lastBirth: new Int32Array(MAX_HOUSEHOLDS),
+    wanting: new Uint8Array(MAX_HOUSEHOLDS),
+    names: new Uint32Array(MAX_HOUSEHOLDS * 2),
     atCamp: 0,
     unattended: 0,
   };

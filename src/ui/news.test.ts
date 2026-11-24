@@ -79,6 +79,8 @@ describe('the settlement news', () => {
       coldNights: new Uint8Array(missedMeals.length),
       names: Uint16Array.from(missedMeals, (_, id) => id),
       sexes: new Uint8Array(missedMeals.length),
+      mothers: new Int32Array(missedMeals.length).fill(-1),
+      fathers: new Int32Array(missedMeals.length).fill(-1),
       workplaces: new Int16Array(missedMeals.length).fill(-1),
       workshopStops: new Uint8Array(0),
       workshopWorked: new Uint8Array(0),

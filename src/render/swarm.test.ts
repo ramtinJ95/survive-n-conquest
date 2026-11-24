@@ -25,6 +25,7 @@ const frame = (tick: number, villagers: number[], rest: Partial<UnitFrame> = {})
   carried: new Uint8Array(villagers.length / 2),
   states: new Uint8Array(villagers.length / 2),
   worn: new Uint8Array(villagers.length / 2),
+  children: new Uint8Array(villagers.length / 2),
   ...rest,
 });
 
@@ -101,6 +102,18 @@ describe('createSwarm', () => {
     const head = ends('villagers').max.y * sizeOf(named('villagers'), 0);
     expect(head).toBeGreaterThan(0.95);
     expect(head).toBeLessThan(1.25);
+  });
+
+  it('draws a child at 0.6 of the size of the same villager as an adult, its feet on the ground', () => {
+    const adult = swarm(1, 0);
+    adult.show(frame(0, [10.5, 20.25]));
+    const child = swarm(1, 0);
+    child.show(frame(0, [10.5, 20.25], { children: Uint8Array.of(1) }));
+    expect(sizeOf(child.named('villagers'), 0) / sizeOf(adult.named('villagers'), 0)).toBeCloseTo(0.6, 5);
+    const ground = heightAt(map, 10.5, 20.25);
+    child.named('villager legs').geometry.computeBoundingBox();
+    const foot = new Vector3(0, child.named('villager legs').geometry.boundingBox!.min.y, 0).applyMatrix4(matrixOf(child.named('villager legs'), 0));
+    expect(foot.y).toBeCloseTo(ground, 5);
   });
 
   it('holds a carried log or stone above the head of the villager that carries it, on raised arms, and nothing over one that carries none', () => {

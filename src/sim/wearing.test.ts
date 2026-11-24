@@ -272,13 +272,13 @@ describe('fetching clothing', () => {
 const lateNightOf = (sim: Sim, day: number) => runUntil(sim, () => isDawn(sim.tick) && dateAt(sim.tick).day === day + 1, YEAR);
 
 describe('warmth with clothing on a winter night, two of three', () => {
-  /** Two settlers of one household, the first clothed and the second not, who sleep in a house or at the camp holding `wood` firewood, or never get home. Returns who is warm. */
+  /** Two settlers of one household, the first clothed and the second not, who sleep in a house or at the camp holding `wood` firewood, or never get home. No child is born to them. Returns who is warm. */
   function night(where: 'house' | 'camp' | 'away', wood: number): boolean[] {
     const rows = open(40);
     for (let y = 1; y <= 5; y++) rows[y] = '.~~~~~' + '.'.repeat(34);
     rows[2] = '.~..~~' + '.'.repeat(34);
     rows[3] = '.~..~~' + '.'.repeat(34);
-    const sim = createSim(mapFrom(rows), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    const sim = createSim(mapFrom(rows), { villagers: 2, monsters: 0, campFood: 100, animals: false, mostLiving: 2 });
     if (where === 'house') sim.stores.held[FIREWOOD]![finished(sim, Building.House, 14, 14)] = wood;
     else sim.stores.held[FIREWOOD]![CAMP_STORE] = wood;
     sim.villagers.worn[0] = Good.Clothing;

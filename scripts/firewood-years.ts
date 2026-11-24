@@ -632,7 +632,7 @@ function pageReadings(year: Year, seed: number): string[] {
       const r = readinessOf(sim);
       const food = storeTotals(sim.orders, sim.stores.held[Good.Food - 1]!);
       const wood = storeTotals(sim.orders, sim.stores.held[Good.Firewood - 1]!);
-      const jobs = jobCounts(sim.orders, sim.villagers.state, sim.villagers.workplace);
+      const jobs = jobCounts(sim.orders, sim.villagers.state.subarray(0, sim.villagers.count), sim.villagers.workplace, sim.villagers.child);
       const reading = r === null ? 'reading hidden' : `Households in a house ${r.housed} of ${r.households}; Houses with firewood ${r.stocked} of ${r.houses}; Settlers in clothing ${r.clothed} of ${r.settlers}; Cold tonight ${r.cold}${r.camp ? `; Camp fire ${r.camp.lights ? `Lights, ${r.camp.firewood} firewood` : `Out, ${r.camp.firewood} of ${r.camp.burns} firewood`}` : ''}`;
       lines.push(
         `${when}: ${reading}; Barn and camp food ${food[StoreKind.Common]}; Food in homes ${food[StoreKind.Home]}; ` +
