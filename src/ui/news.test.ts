@@ -14,7 +14,7 @@ import { SETTLERS, type Sim, applyCommand, createSim, step } from '../sim/sim';
 import { CAMP_STORE } from '../sim/stores';
 import { at, mapFrom } from '../sim/testMaps';
 import { Cause, VillagerState } from '../sim/villagerState';
-import { LINE_MS, createNews, listNames } from './news';
+import { LINE_MS, createNews, lineWords, listNames } from './news';
 
 /** Runs a simulation, hearing a frame after every tick at 100 ms of wall time apiece, and keeps every line the news ever showed in its last words. */
 function listen(sim: Sim, ticks: number, each: () => void = () => {}) {
@@ -38,6 +38,30 @@ describe('listNames', () => {
     const eight = ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', 'Nella'];
     expect(listNames(eight)).toBe('Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and Nella');
     expect(listNames([...eight, ...Array(1492).fill('Ysa')])).toBe('Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and 1,493 others');
+  });
+});
+
+describe('the news of a birth', () => {
+  it('names one child and its parents, two with theirs, and counts the rest, in no more rows than the longest line', () => {
+    const tick = 2600;
+    expect(lineWords('born', tick, ['Tova'], ['Ulvar and Ysa'])).toBe('Day 2, 04:48. Tova was born to Ulvar and Ysa.');
+    expect(lineWords('born', tick, ['Tova', 'Bodo'], ['Ulvar and Ysa', 'Merek and Elsi'])).toBe('Day 2, 04:48. Tova was born to Ulvar and Ysa, and Bodo to Merek and Elsi.');
+    expect(lineWords('born', tick, ['Tova', 'Bodo', 'Lova', 'Osk'], ['Ulvar and Ysa', 'Merek and Elsi', 'Jorrin and Fenna', 'Dorran and Nella'])).toBe(
+      'Day 2, 04:48. Tova was born to Ulvar and Ysa, Bodo to Merek and Elsi, and 2 others.',
+    );
+  });
+
+  it('says who was born and to whom at the dawn of the birth, by the frames', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [{ members: [{ sex: Sex.Man, age: 30 }, { sex: Sex.Woman, age: 28 }], dawnsSeen: 400 }];
+    const sim = createSim(map, { villagers: 2, monsters: 0, campFood: 200, animals: false, settlers, mostLiving: 3 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 6 })).toMatchObject({ ok: true });
+    finishBuilding(sim, sim.orders.siteOf[6 * 32 + 6]!);
+    const { said } = listen(sim, 3000 * 12);
+    const born = said.filter((line) => line.includes('born'));
+    expect(born).toHaveLength(1);
+    const child = nameOf(sim.villagers.sex[2] as Sex, sim.villagers.name[2]!);
+    expect(born[0]).toMatch(new RegExp(`^Day \\d+, \\d\\d:\\d\\d\\. ${child} was born to Merek and Elsi\\.$`));
   });
 });
 

@@ -950,3 +950,41 @@ describe("a settler's panel in winter", () => {
     });
   });
 });
+
+describe("a child's panel and the household line", () => {
+  /** On seed 7, Merek and Elsi with their children of 6 and 4 in a house, and Ulvar and Ysa at the camp. */
+  function family(): { sim: Sim; house: number } {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const settlers = [
+      { members: [{ sex: Sex.Man, age: 30 }, { sex: Sex.Woman, age: 28 }, { sex: Sex.Woman, age: 6 }, { sex: Sex.Man, age: 4 }] },
+      { members: [{ sex: Sex.Man, age: 25 }, { sex: Sex.Woman, age: 24 }] },
+    ];
+    const sim = createSim(map, { villagers: 6, monsters: 0, campFood: 100, animals: false, settlers });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 6 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, 6, 6)]!;
+    finishBuilding(sim, house);
+    return { sim, house };
+  }
+  const row = (sim: Sim, id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+  const name = (sim: Sim, id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+
+  it('titles a child with its parents, says it is a child who works at 10, and reads a girl or a boy', () => {
+    const { sim } = family();
+    const girl = readPanel({ kind: 'villager', id: 2 }, factsOf(sim));
+    expect(girl.title).toBe(`${name(sim, 2)}, daughter of Merek and Elsi`);
+    expect(readPanel({ kind: 'villager', id: 3 }, factsOf(sim)).title).toBe(`${name(sim, 3)}, son of Merek and Elsi`);
+    expect([row(sim, 2, 'Job'), row(sim, 2, 'Sex and age'), row(sim, 3, 'Sex and age'), row(sim, 2, 'Doing')]).toEqual(['Child, works at 10', 'Girl, 6', 'Boy, 4', 'Playing by the house']);
+    expect([readPanel({ kind: 'villager', id: 0 }, factsOf(sim)).title, row(sim, 0, 'Job'), row(sim, 0, 'Sex and age')]).toEqual(['Merek', 'None', 'Man, 30']);
+    expect(row(sim, 4, 'Household')).toBe('Ulvar and Ysa');
+  });
+
+  it('reads a household as its couple by name and its other members and its dead by count, alike on the settler and on its house', () => {
+    const { sim, house } = family();
+    const housePanel = () => readPanel({ kind: 'building', slot: house, anchor: 0 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value;
+    expect([row(sim, 0, 'Household'), row(sim, 2, 'Household'), housePanel()]).toEqual(Array(3).fill('Merek and Elsi, 2 children'));
+    die(sim, 3, Cause.Hunger);
+    expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Merek and Elsi, 1 child, 1 died'));
+    die(sim, 0, Cause.Cold);
+    expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Merek and Elsi, 1 child, 2 died'));
+  });
+});

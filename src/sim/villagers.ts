@@ -306,7 +306,8 @@ function idle(sim: Sim, id: number, thinks: boolean): void {
  * By day, a child whose household has a house walks toward a random point
  * within `PLAY_REACH` tiles of the house's door nearest it, which it keeps in
  * its work tile for the day, and picks a new point when it arrives or its step
- * is blocked. One that stands farther from the door, as when its household
+ * is blocked, or when its point lies farther out, as one from the camp does.
+ * One that stands farther from the door, as when its household
  * gained the house that day, plans a route to the door on its think tick and
  * walks it. A child with no walk to a door stands where it is.
  */
@@ -327,9 +328,12 @@ function play(sim: Sim, id: number, home: number, thinks: boolean): void {
     return;
   }
   villagers.pathLength[id] = 0;
-  const moved = stepToward(map, villagers, id, villagers.targetX[id]!, villagers.targetY[id]!);
-  const arrived = villagers.x[id] === villagers.targetX[id] && villagers.y[id] === villagers.targetY[id];
-  if (moved && !arrived) return;
+  const tx0 = villagers.targetX[id]!;
+  const ty0 = villagers.targetY[id]!;
+  if (Math.abs(tx0 - doorX) <= PLAY_REACH && Math.abs(ty0 - doorY) <= PLAY_REACH) {
+    const moved = stepToward(map, villagers, id, tx0, ty0);
+    if (moved && (villagers.x[id] !== tx0 || villagers.y[id] !== ty0)) return;
+  }
   const tx = Math.fround(doorX + (draw(map, villagers, id) * 2 - 1) * PLAY_REACH);
   const ty = Math.fround(doorY + (draw(map, villagers, id) * 2 - 1) * PLAY_REACH);
   const inside = tx >= 0 && ty >= 0 && tx < map.size && ty < map.size && walkable(map, tileAt(map, tx, ty));
