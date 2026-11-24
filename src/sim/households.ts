@@ -1,4 +1,5 @@
-export const MAX_HOUSEHOLDS = 1024;
+/** At most this many households on a map, half the villagers table's rows, so the households cannot run out first. */
+export const MAX_HOUSEHOLDS = 2048;
 export const NO_HOME = -1;
 
 /** The household table. Household `h` is villagers `2h` and `2h + 1`. */
