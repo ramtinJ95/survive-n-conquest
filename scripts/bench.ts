@@ -319,12 +319,14 @@ function measure(size: number, run: string): boolean {
   const stoppedFull = new Uint8Array(MAX_SITES);
   const stoppedForLogs = new Uint8Array(MAX_SITES);
   const stoppedForSites = new Uint8Array(MAX_SITES);
+  const stoppedNotStocked = new Uint8Array(MAX_SITES);
   const tailorHutsBefore = built(sim, Building.Tailor);
   const tailorsBefore = holding(sim, Job.Tailor);
   const clothingBefore = tailorClothing(sim);
   const clothedBefore = clothed(sim);
   const tailorFull = new Uint8Array(MAX_SITES);
   const tailorForHides = new Uint8Array(MAX_SITES);
+  const tailorNotStocked = new Uint8Array(MAX_SITES);
   const foragersBefore = holding(sim, Job.Forager);
   const huntersBefore = holding(sim, Job.Hunter);
   const deerBefore = sim.animals.living[AnimalKind.Deer]!;
@@ -396,9 +398,11 @@ function measure(size: number, run: string): boolean {
         if (stopped === Stop.Full) stoppedFull[slot] = 1;
         else if (stopped === Stop.NoInput) stoppedForLogs[slot] = 1;
         else if (stopped === Stop.ForSites) stoppedForSites[slot] = 1;
+        else if (stopped === Stop.NotStocked) stoppedNotStocked[slot] = 1;
       } else if (sim.orders.sites.kind[slot] === Building.Tailor) {
         if (stopped === Stop.Full) tailorFull[slot] = 1;
         else if (stopped === Stop.NoInput) tailorForHides[slot] = 1;
+        else if (stopped === Stop.NotStocked) tailorNotStocked[slot] = 1;
       }
     }
     if (tickOfDay(sim.tick) === 0) {
@@ -530,7 +534,7 @@ function measure(size: number, run: string): boolean {
   console.log(
     `  firewood in the measured ticks: ${sim.tally.batches - tallyBefore.batches - pieces} logs split, ${sim.tally.made - tallyBefore.made - pieces} firewood made, ` +
       `${firewoodIn(sim, StoreKind.Workshop)} in the woodsheds at the end; woodsheds that stopped at some measured tick: ${count(stoppedFull)} full, ` +
-      `${count(stoppedForLogs)} with no log in reach, ${count(stoppedForSites)} leaving the logs to the building sites`,
+      `${count(stoppedForLogs)} with no log in reach, ${count(stoppedForSites)} leaving the logs to the building sites, ${count(stoppedNotStocked)} with logs off every stockpile`,
   );
   console.log(
     `  tailor's hut sites: ${tailors} placed ${TAILOR_BESIDE_LODGE} tiles south of each lodge, ${tailorHutsBefore} built in the warm-up ticks, ` +
@@ -539,7 +543,7 @@ function measure(size: number, run: string): boolean {
   );
   console.log(
     `  clothing in the measured ticks: ${hunt.hides} hides left by kills, ${stockedHides(sim)} hides on stockpile tiles at the end, ${pieces} pieces made, ` +
-      `${dressed} put on, ${tailorClothing(sim)} in the tailor's huts at the end; tailor's huts that stopped at some measured tick: ${count(tailorFull)} full, ${count(tailorForHides)} with no hide in reach; ` +
+      `${dressed} put on, ${tailorClothing(sim)} in the tailor's huts at the end; tailor's huts that stopped at some measured tick: ${count(tailorFull)} full, ${count(tailorForHides)} with no hide in reach, ${count(tailorNotStocked)} with hides off every stockpile; ` +
       `villagers that wear clothing ${clothedBefore} at the start and ${clothed(sim)} living at the end, ${tallyBefore.dressed} pieces put on in the warm-up ticks`,
   );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);

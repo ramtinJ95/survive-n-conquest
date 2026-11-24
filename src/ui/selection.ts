@@ -183,6 +183,7 @@ const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
       [Stop.Full]: 'Idle, the woodshed is full',
       [Stop.NoInput]: `Idle, no log in a stockpile within ${BUILDINGS[Building.Woodshed].reach} tiles of the woodshed`,
       [Stop.ForSites]: 'Idle, the building sites need the logs',
+      [Stop.NotStocked]: 'Idle, no log carried to a stockpile yet',
     },
   },
   [Building.Tailor]: {
@@ -195,6 +196,7 @@ const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
       [Stop.Full]: "Idle, the tailor's hut is full",
       [Stop.NoInput]: `Idle, no hide in a stockpile within ${BUILDINGS[Building.Tailor].reach} tiles of the tailor's hut`,
       [Stop.ForSites]: 'Idle, the building sites need the hides',
+      [Stop.NotStocked]: 'Idle, no hide carried to a stockpile yet',
     },
   },
 };

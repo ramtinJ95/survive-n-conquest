@@ -4,7 +4,7 @@ import { finishBuilding } from '../sim/building';
 import { Building } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt, tickOfDay } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
-import { Good, putDown } from '../sim/goods';
+import { Good, type Unit, putDown } from '../sim/goods';
 import { generateMap } from '../sim/mapgen';
 import { type Sex, nameOf } from '../sim/names';
 import { HUNGER } from '../sim/needs';
@@ -110,6 +110,21 @@ describe('the settlement news', () => {
     finishBuilding(working, working.orders.siteOf[at(working.map, 30, 30)]!);
     const workedDays = listen(working, TICKS_PER_DAY * 2).said;
     expect(workedDays).toEqual([expect.stringMatching(/^Day 2, 19:1\d\. .+ split no firewood: no log in reach\.$/)]);
+  });
+
+  it("says at dusk that a workshop's worker made nothing because no unit of its input has been carried to a stockpile yet", () => {
+    const loose = (building: Building, good: Unit) => {
+      const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48))), { villagers: 1, monsters: 0, campFood: 100, animals: false });
+      expect(applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 26, y0: 30, x1: 26, y1: 30 } })).toMatchObject({ ok: true });
+      expect(putDown(sim, at(sim.map, 10, 40), good, 2)).toBe(true);
+      expect(applyCommand(sim, { kind: 'place', building, x: 30, y: 30 })).toMatchObject({ ok: true });
+      finishBuilding(sim, sim.orders.siteOf[at(sim.map, 30, 30)]!);
+      return { said: listen(sim, TICKS_PER_DAY).said, name: nameOf(sim.villagers.sex[0] as Sex, sim.villagers.name[0]!) };
+    };
+    const tailor = loose(Building.Tailor, Good.Hide);
+    expect(tailor.said).toEqual([expect.stringMatching(new RegExp(`^Day 1, 19:1\\d\\. ${tailor.name} made no clothing: no hide carried yet\\.$`))]);
+    const woodcutter = loose(Building.Woodshed, Good.Log);
+    expect(woodcutter.said).toEqual([expect.stringMatching(new RegExp(`^Day 1, 19:1\\d\\. ${woodcutter.name} split no firewood: no log carried yet\\.$`))]);
   });
 
   it('reads the day of work from the frame that crosses dusk, so work taken in the ticks between two frames counts', () => {

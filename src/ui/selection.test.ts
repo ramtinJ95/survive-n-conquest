@@ -10,7 +10,7 @@ import { EATING } from '../sim/eating';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { shotHits } from '../sim/hunting';
-import { Good, refreshStack } from '../sim/goods';
+import { Good, putDown, refreshStack } from '../sim/goods';
 import { NO_HOME } from '../sim/households';
 import { TileKind } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
@@ -623,6 +623,14 @@ describe("a tailor's hut's panel and a tailor's panel", () => {
     });
     expect(readPanel({ kind: 'villager', id: tailor }, factsOf(sim)).rows.find(({ label }) => label === 'Job')!.value).toBe('Tailor');
     expect(settler(factsOf(sim), tailor)).toBe(NO_HIDE);
+  });
+
+  it('says, on the hut and on its tailor, that no hide has been carried to a stockpile yet while hides lie off every stockpile', () => {
+    const { sim, tailor, hut } = tailorSettlement(0);
+    expect(putDown(sim, at(sim.map, 4, 30), Good.Hide, 3)).toBe(true);
+    for (let tick = 0; tick < 10; tick++) step(sim);
+    expect(readPanel(hut, factsOf(sim)).rows.find(({ label }) => label === 'Doing')!.value).toBe('Idle, no hide carried to a stockpile yet');
+    expect(settler(factsOf(sim), tailor)).toBe('Idle, no hide carried to a stockpile yet');
   });
 
   it('reads what a tailor does through a piece: to the stockpile for a hide, carrying it to the hut, twice, making clothing, then idle with 1 piece in the hut', () => {

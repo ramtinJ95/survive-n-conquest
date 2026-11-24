@@ -19,7 +19,7 @@ export interface Recipe {
 }
 
 /** What a workshop's worker does, or why it stopped, as its last look for work found. */
-export const Stop = { Working: 0, Full: 1, NoInput: 2, ForSites: 3 } as const;
+export const Stop = { Working: 0, Full: 1, NoInput: 2, ForSites: 3, NotStocked: 4 } as const;
 export type Stop = (typeof Stop)[keyof typeof Stop];
 
 /**
@@ -87,6 +87,19 @@ function sitesShort(sim: Sim, good: Unit): boolean {
 }
 
 /**
+ * Whether a unit of a good that a walk reaches lies off every stockpile and the stockpile place a carrier would take
+ * it to lies within the workshop's reach, so carrying it would give the workshop its input. The unit is the one
+ * nearest the workshop's middle, and its place the one with room nearest that unit, as carriers choose it.
+ */
+function unstocked({ goods, map, orders }: Sim, slot: number, good: Unit, mx: number, my: number): boolean {
+  const { size } = map;
+  const unit = nearestOpen(goods.loose[good - 1]!, size, mx, my);
+  if (unit < 0) return false;
+  const place = nearestOpen(goods.room[good - 1]!, size, (unit % size) + 0.5, (unit - (unit % size)) / size + 0.5);
+  return place >= 0 && withinReach(orders.sites, slot, (place % size) + 0.5, (place - (place % size)) / size + 0.5);
+}
+
+/**
  * Sends the villager to the workshop's door nearest a point, along a route
  * planned to `walkTo`, the door itself or a unit to pick up on the way.
  * Returns false when no door or no route has a walk.
@@ -112,7 +125,8 @@ function sendTo(sim: Sim, id: number, slot: number, walkTo: number, px: number, 
  * store full, no input in reach, or the input kept for the sites, says so in `stopped`.
  * With no input in reach while a site a walk reaches has not received all of the
  * input it needs, the sites are the reason: carriers take every unit to a site
- * before it reaches a stockpile.
+ * before it reaches a stockpile. Else, while a unit a walk reaches lies off every
+ * stockpile and a carrier would take it to a stockpile in reach, the reason is that no carrier has taken it there yet.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, workshops, goods, map, orders } = sim;
@@ -151,7 +165,7 @@ function take(sim: Sim, id: number): boolean {
     const sx = (source % size) + 0.5;
     const sy = (source - (source % size)) / size + 0.5;
     if (source < 0 || !withinReach(orders.sites, slot, sx, sy)) {
-      workshops.stopped[slot] = sitesShort(sim, recipe.input) ? Stop.ForSites : Stop.NoInput;
+      workshops.stopped[slot] = sitesShort(sim, recipe.input) ? Stop.ForSites : unstocked(sim, slot, recipe.input, mx, my) ? Stop.NotStocked : Stop.NoInput;
       return false;
     }
     if (goods.stockedUnits[index]! <= lackingAtSites(sim, recipe.input)) {

@@ -225,7 +225,7 @@ const goodIn = (sim: Sim, good: Good, kind: StoreKind) => {
   return units;
 };
 /** The woodshed panel's `Doing` for each reason in `workshops.stopped`, as `src/ui/selection.ts` words it. */
-const STOP_WORDS = ['Working or looking for a log', 'Idle, the woodshed is full', 'Idle, no log in a stockpile within 30 tiles of the woodshed', 'Idle, the building sites need the logs'];
+const STOP_WORDS = ['Working or looking for a log', 'Idle, the woodshed is full', 'Idle, no log in a stockpile within 30 tiles of the woodshed', 'Idle, the building sites need the logs', 'Idle, no log carried to a stockpile yet'];
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const MINUTES_PER_TICK = 1440 / TICKS_PER_DAY;
 
