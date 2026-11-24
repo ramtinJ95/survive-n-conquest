@@ -3,6 +3,7 @@ import { DAYS_PER_SEASON, TICKS_PER_DAY, seasonAt, tickOfDay, tickOfSeason } fro
 import { COLD_SEASON, isNight } from './daylight';
 import { Good } from './goods';
 import { NO_HOME } from './households';
+import { works } from './jobs';
 import { WARM_SOURCES, clothed, fireLights, storeOf, warmth } from './needs';
 import { SiteState } from './orders';
 import type { Sim } from './sim';
@@ -16,7 +17,9 @@ const READY_SEASON = 'Autumn';
  * How ready the settlement is for the cold nights still to come, from what
  * each settler has now. `stocked` counts the houses that hold the firewood
  * their fires burn on every cold night whose dusk is still to come. The camp's
- * fire is read only while a household sleeps there.
+ * fire is read only while a household sleeps there. `settlers` and `clothed`
+ * count only those who can wear clothing, so no child, and `cold` counts a
+ * child by its own rule: it has no clothing to warm it.
  */
 export interface Readiness {
   readonly nights: number;
@@ -70,9 +73,10 @@ export function readinessOf(sim: Sim): Readiness | null {
   let cold = 0;
   for (let id = 0; id < villagers.count; id++) {
     if (villagers.state[id] === VillagerState.Dead) continue;
+    if (wouldBeCold(sim, id)) cold += 1;
+    if (!works(villagers, id)) continue;
     settlers += 1;
     if (clothed(sim, id)) dressed += 1;
-    if (wouldBeCold(sim, id)) cold += 1;
   }
   const camp =
     households.atCamp > 0

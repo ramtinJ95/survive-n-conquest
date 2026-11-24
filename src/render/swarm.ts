@@ -40,6 +40,8 @@ const ARM_SIDE = 0.2;
 const ARM_LENGTH = 0.46;
 const CARRY_HEIGHT = SHOULDER_HEIGHT + ARM_LENGTH;
 const SIZE_SPREAD = 0.08;
+/** A child is drawn at this share of an adult's size, so the two differ at the game's usual zoom. */
+const CHILD_SIZE = 0.6;
 /** Radians of a walker's stride and of a worker's swing in one tick, so the motion follows the game's clock. */
 const STRIDE = 0.9;
 const SWING = 0.8;
@@ -103,6 +105,8 @@ export interface UnitFrame {
   readonly states: Uint8Array;
   /** One `Good` per villager in id order: what each one wears. */
   readonly worn: Uint8Array;
+  /** 1 per villager in id order while it is a child. */
+  readonly children: Uint8Array;
 }
 
 /**
@@ -178,7 +182,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
     mesh.setMatrixAt(instance, pose.matrix);
   };
 
-  const act = ({ tick, villagers: positions, carried, states, worn }: UnitFrame) => {
+  const act = ({ tick, villagers: positions, carried, states, worn, children }: UnitFrame) => {
     const count = positions.length / 2;
     const stepped = tick !== shown;
     for (const mesh of carriedMeshes) mesh.count = 0;
@@ -201,7 +205,7 @@ export function createSwarm(map: TileMap, population: Population, shapes: Shapes
       const walks = walking[id] === 1;
       const works = states[id] === VillagerState.Working;
       const load = held[carried[id] as Good];
-      const size = sizes[id]!;
+      const size = sizes[id]! * (children[id] === 1 ? CHILD_SIZE : 1);
       const stride = walks ? Math.sin(tick * STRIDE + id) : 0;
       const stroke = works ? Math.cos(tick * SWING + id) : 0;
       const x = mapX - half;

@@ -1,6 +1,6 @@
 import { ANYONE, Job, nearestDoor, siteMidX, siteMidY } from './buildings';
 import { Good, type Unit, putDownHeld } from './goods';
-import { NO_HOME } from './households';
+import { NO_HOME, isUnattended } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -96,27 +96,45 @@ function fetchFor(sim: Sim, id: number, good: Unit, to: number, px: number, py: 
   return true;
 }
 
+/** The home of household `h` when nobody in it can carry, so the settlers without a job stock it, or NO_HOME. */
+function unattendedHome(sim: Sim, h: number): number {
+  return isUnattended(sim.households, h) ? sim.households.home[h]! : NO_HOME;
+}
+
 /**
  * Sends a villager with empty hands to stock the first store that lacks a
  * unit it can fetch, most urgent first. Food for its household's home comes
  * from the common store nearest the home, then firewood for the home from the
- * woodshed nearest it, or from the camp while nobody sleeps there and it is nearer. A villager without a job then keeps the camp stocked
- * for the households that sleep there: food from the barn nearest the camp,
- * then firewood from the woodshed nearest it. The house is the home of the
+ * woodshed nearest it, or from the camp while nobody sleeps there and it is
+ * nearer. A villager without a job then stocks the homes in which nobody can
+ * carry: food for each, the household with the lowest number first, then
+ * firewood for each in the same order. Then it keeps the camp stocked for the
+ * households that sleep there: food from the barn nearest the camp, then
+ * firewood from the woodshed nearest it. The house is the home of the
  * villager's household, which stays its home while a member lives.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, stores, households, flow } = sim;
   if (villagers.carried[id] !== Good.None) return false;
   const home = homeOf(sim, id);
+  const { sites } = sim.orders;
   if (home !== NO_HOME) {
-    const { sites } = sim.orders;
     const hx = siteMidX(sites, home);
     const hy = siteMidY(sites, home);
     if (lacks(sim, villagers.household[id]!) > 0 && fetchFor(sim, id, Good.Food, home, hx, hy)) return true;
     if (firewoodLacks(sim, home) > 0 && fetchFor(sim, id, Good.Firewood, home, hx, hy)) return true;
   }
   if (jobOf(sim, id) !== Job.None) return false;
+  if (households.unattended > 0) {
+    for (let h = 0; h < households.count; h++) {
+      const to = unattendedHome(sim, h);
+      if (to !== NO_HOME && lacks(sim, h) > 0 && fetchFor(sim, id, Good.Food, to, siteMidX(sites, to), siteMidY(sites, to))) return true;
+    }
+    for (let h = 0; h < households.count; h++) {
+      const to = unattendedHome(sim, h);
+      if (to !== NO_HOME && firewoodLacks(sim, to) > 0 && fetchFor(sim, id, Good.Firewood, to, siteMidX(sites, to), siteMidY(sites, to))) return true;
+    }
+  }
   const { size } = sim.map;
   const cx = (flow.goal % size) + 0.5;
   const cy = Math.floor(flow.goal / size) + 0.5;
@@ -125,12 +143,18 @@ function take(sim: Sim, id: number): boolean {
 }
 
 /**
- * The unit still goes to the home of the villager's household, or to the camp
- * while the villager has no job, as one hired on its way does.
+ * The unit still goes to the home of the villager's household, or, while the
+ * villager has no job, to the camp or to a home in which nobody can carry. One
+ * hired on its way, or bound for a home whose household can carry again or
+ * left it, gives the unit up.
  */
 function holds(sim: Sim, id: number): boolean {
   const to = sim.villagers.toStore[id]!;
-  return to === CAMP_STORE ? jobOf(sim, id) === Job.None : to === homeOf(sim, id);
+  if (to === homeOf(sim, id)) return true;
+  if (jobOf(sim, id) !== Job.None) return false;
+  if (to === CAMP_STORE) return true;
+  const h = sim.households.householdIn[to]!;
+  return h >= 0 && unattendedHome(sim, h) === to;
 }
 
 /**

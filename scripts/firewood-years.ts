@@ -16,7 +16,7 @@ import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from 
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { STOCKING } from '../src/sim/stocking';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { VillagerState } from '../src/sim/villagerState';
+import { VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
 import { jobCounts, storeTotals } from '../src/ui/stockpiles';
 import { readinessOf } from '../src/sim/readiness';
 
@@ -210,6 +210,8 @@ export interface Row {
   readonly missed: number;
   readonly barnAtEnd: number;
   readonly living: number;
+  /** Children born in the year. */
+  readonly born: number;
   readonly felledByAutumn: number;
   readonly felled: number;
   readonly woodcutterIdle: string;
@@ -256,7 +258,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
   const houses: number[] = [];
   const splitBySeason: number[] = [];
   const dusks: Row['dusks'] = [];
-  const cold = Array.from({ length: sim.villagers.count }, () => [] as number[]);
+  const cold = Array.from({ length: VILLAGER_ROWS }, () => [] as number[]);
   const died: string[] = [];
   const arrivals = new Map<number, number>();
   const fires = new Map<number, number>();
@@ -345,7 +347,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
   }
   splitBySeason.push(firewoodSplit(sim));
   if (barnAtEnd < 0) barnAtEnd = goodIn(sim, Good.Food, StoreKind.Common);
-  const coldNights = cold.map((nights, id) => `${nameOfId(sim, id)} ${nights.length > 0 ? nights.join(',') : 'none'}`);
+  const coldNights = cold.slice(0, sim.villagers.count).map((nights, id) => `${nameOfId(sim, id)} ${nights.length > 0 ? nights.join(',') : 'none'}`);
   return {
     sim,
     row: {
@@ -369,6 +371,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
       missed: sim.tally.missed,
       barnAtEnd,
       living: sim.living,
+      born: sim.tally.births,
       felledByAutumn,
       felled: sim.tally.felled,
       shedDoing,
@@ -396,7 +399,7 @@ export function printRow(row: Row): void {
   console.log(`slack, firewood beyond the 2 a house burns: ${slackOf(row).byDusk.join('; ')}; firewood carried into each house from the start of winter to the last cold dusk: ${row.winterArrivals.join(' ')}; nights each house's fire burned: ${row.fires.join(' ')}`);
   console.log(`firewood carried home over the year ${row.unitsHome}, ${row.minutesPerUnitHome} game minutes of walking for each unit`);
   console.log(`clothed at the dusk of day 10: ${row.clothedAtDay10}; cold nights: ${row.coldNights.join('; ')}`);
-  console.log(`died: ${row.died.join('; ') || 'nobody'}; living ${row.living} of 8`);
+  console.log(`died: ${row.died.join('; ') || 'nobody'}; living ${row.living} of the 8 and the ${row.born} born`);
   console.log(`meals: ${row.meals} eaten of ${row.mealsDue} due, ${row.missed} missed; barn at the year's end ${row.barnAtEnd}`);
   console.log(`trees felled by the end of autumn ${row.felledByAutumn}, by the year's end ${row.felled}; woodshed ${row.woodcutterIdle}`);
   console.log(`the woodshed panel's Doing, in daylight ticks after it stood: ${Object.entries(row.shedDoing).map(([k, v]) => `${k} ${v}`).join('; ') || 'no woodshed stood'}`);
@@ -632,11 +635,11 @@ function pageReadings(year: Year, seed: number): string[] {
       const r = readinessOf(sim);
       const food = storeTotals(sim.orders, sim.stores.held[Good.Food - 1]!);
       const wood = storeTotals(sim.orders, sim.stores.held[Good.Firewood - 1]!);
-      const jobs = jobCounts(sim.orders, sim.villagers.state, sim.villagers.workplace);
+      const jobs = jobCounts(sim.orders, sim.villagers.state.subarray(0, sim.villagers.count), sim.villagers.workplace, sim.villagers.child);
       const reading = r === null ? 'reading hidden' : `Households in a house ${r.housed} of ${r.households}; Houses with firewood ${r.stocked} of ${r.houses}; Settlers in clothing ${r.clothed} of ${r.settlers}; Cold tonight ${r.cold}${r.camp ? `; Camp fire ${r.camp.lights ? `Lights, ${r.camp.firewood} firewood` : `Out, ${r.camp.firewood} of ${r.camp.burns} firewood`}` : ''}`;
       lines.push(
         `${when}: ${reading}; Barn and camp food ${food[StoreKind.Common]}; Food in homes ${food[StoreKind.Home]}; ` +
-          `Firewood in stores ${wood[StoreKind.Workshop] + wood[StoreKind.Common]}; Firewood in homes ${wood[StoreKind.Home]}; Settlers with a job ${jobs.withJob}; Settlers with no job ${jobs.withoutJob}`,
+          `Firewood in stores ${wood[StoreKind.Workshop] + wood[StoreKind.Common]}; Firewood in homes ${wood[StoreKind.Home]}; Settlers with a job ${jobs.withJob}; Settlers with no job ${jobs.withoutJob}; Children ${jobs.children}`,
       );
     }
     step(sim);

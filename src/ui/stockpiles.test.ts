@@ -97,7 +97,8 @@ describe('jobCounts', () => {
     orders.sites.state[hut] = SiteState.Built;
     const { Walking, Inside, Dead } = VillagerState;
     const states = Uint8Array.of(Walking, Inside, Walking, Dead, Walking);
-    expect(jobCounts(orders, states, Int16Array.of(-1, hut, hut, -1, -1))).toEqual({ withJob: 2, withoutJob: 2 });
-    expect(jobCounts(orders, states, Int16Array.of(-1, -1, -1, -1, -1))).toEqual({ withJob: 0, withoutJob: 4 });
+    expect(jobCounts(orders, states, Int16Array.of(-1, hut, hut, -1, -1), new Uint8Array(5))).toEqual({ withJob: 2, withoutJob: 2, children: 0 });
+    expect(jobCounts(orders, states, Int16Array.of(-1, -1, -1, -1, -1), new Uint8Array(5))).toEqual({ withJob: 0, withoutJob: 4, children: 0 });
+    expect(jobCounts(orders, states, Int16Array.of(-1, hut, -1, -1, -1), Uint8Array.of(0, 0, 1, 1, 1)), 'a child is in neither count, and a dead one in none').toEqual({ withJob: 1, withoutJob: 1, children: 2 });
   });
 });

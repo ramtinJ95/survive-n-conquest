@@ -24,7 +24,7 @@ const FIREWOOD_SHOWN: readonly { readonly kinds: readonly StoreKind[]; readonly 
   { kinds: [StoreKind.Home], label: 'Firewood in homes' },
 ];
 
-const JOBS_SHOWN: readonly { readonly label: string }[] = [{ label: 'Settlers with a job' }, { label: 'Settlers with no job' }];
+const JOBS_SHOWN: readonly { readonly label: string }[] = [{ label: 'Settlers with a job' }, { label: 'Settlers with no job' }, { label: 'Children' }];
 
 /** The units of a good in the stores of each kind, from the units in each store by store id. */
 export function storeTotals(orders: Orders, held: Uint16Array): Record<StoreKind, number> {
@@ -33,16 +33,27 @@ export function storeTotals(orders: Orders, held: Uint16Array): Record<StoreKind
   return totals;
 }
 
-/** How many living settlers hold a job and how many hold none, from each villager's state and workplace. */
-export function jobCounts(orders: Orders, states: Uint8Array, workplaces: Int16Array): { readonly withJob: number; readonly withoutJob: number } {
+/**
+ * How many living settlers who work hold a job and how many hold none, and how
+ * many living settlers are children, from each villager's state, workplace,
+ * and mark of a child. A child is in neither of the first two counts.
+ */
+export function jobCounts(
+  orders: Orders,
+  states: Uint8Array,
+  workplaces: Int16Array,
+  children: Uint8Array,
+): { readonly withJob: number; readonly withoutJob: number; readonly children: number } {
   let withJob = 0;
   let withoutJob = 0;
+  let young = 0;
   for (let id = 0; id < states.length; id++) {
     if (states[id] === VillagerState.Dead) continue;
-    if (jobAt(orders.sites, workplaces[id]!) === Job.None) withoutJob++;
+    if (children[id] === 1) young++;
+    else if (jobAt(orders.sites, workplaces[id]!) === Job.None) withoutJob++;
     else withJob++;
   }
-  return { withJob, withoutJob };
+  return { withJob, withoutJob, children: young };
 }
 
 /** The units of each good on the stockpile tiles of a map. A stockpile takes no stored good, so one lying on it is not counted. */
@@ -59,7 +70,7 @@ export function stockpileTotals(map: TileMap, claims: Uint8Array): Record<Good, 
  * main thread's copy of the map and the orders. From the newest frame it shows
  * the food in barns and at the camp as one total, the food in homes as another,
  * the firewood in woodsheds and at the camp as one total, the firewood in
- * homes as another, and the settlers with and without a job.
+ * homes as another, the settlers with and without a job, and the children.
  */
 export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders) {
   const panel = document.createElement('section');
@@ -80,7 +91,7 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
   const values = SHOWN.map(row);
   const foodValues = FOOD_SHOWN.map(row);
   const firewoodValues = FIREWOOD_SHOWN.map(row);
-  const [withJob, withoutJob] = JOBS_SHOWN.map(row);
+  const [withJob, withoutJob, children] = JOBS_SHOWN.map(row);
   panel.append(title, list);
   root.append(panel);
 
@@ -99,10 +110,11 @@ export function mountStockpiles(root: HTMLElement, map: TileMap, orders: Orders)
     FIREWOOD_SHOWN.forEach(({ kinds }, index) => setText(firewoodValues[index]!, String(kinds.reduce((sum: number, kind) => sum + firewood[kind], 0))));
   };
 
-  const showJobs = ({ states, workplaces }: SimFrame) => {
-    const counts = jobCounts(orders, states, workplaces);
+  const showJobs = (frame: SimFrame) => {
+    const counts = jobCounts(orders, frame.states, frame.workplaces, frame.children);
     setText(withJob!, String(counts.withJob));
     setText(withoutJob!, String(counts.withoutJob));
+    setText(children!, String(counts.children));
   };
 
   return {

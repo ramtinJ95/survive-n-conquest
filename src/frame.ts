@@ -45,8 +45,15 @@ export interface SimFrame extends ClockSnapshot {
   readonly sexes: Uint8Array;
   /** The household of each villager in id order. */
   readonly households: Int16Array;
-  /** Per household: the site slot of its house, or `NO_HOME`. */
+  /** 1 for each villager in id order while it is a child, who does no work. */
+  readonly children: Uint8Array;
+  /** The ids of each villager's mother and of its father in id order, or -1 for a settler the map started with. */
+  readonly mothers: Int32Array;
+  readonly fathers: Int32Array;
+  /** Per household that formed: the site slot of its house, or `NO_HOME`. */
   readonly homes: Int16Array;
+  /** Per household that formed, two ids: its couple's man and woman, or `NO_VILLAGER`. */
+  readonly couples: Int32Array;
   /** The site slot of the workplace where each villager holds a place in id order, or -1. */
   readonly workplaces: Int16Array;
   /** When each villager took its place, in id order: a higher number came later. 0 for a villager with no place. */
@@ -106,6 +113,15 @@ function agesOf(villagers: Villagers, tick: number): Uint8Array {
   return ages;
 }
 
+function couplesOf({ households }: Sim): Int32Array {
+  const couples = new Int32Array(households.count * 2);
+  for (let h = 0; h < households.count; h++) {
+    couples[h * 2] = households.man[h]!;
+    couples[h * 2 + 1] = households.woman[h]!;
+  }
+  return couples;
+}
+
 /**
  * The frame the worker posts, copied out of the simulation, and the buffers
  * the post transfers. It takes the tile and order changes, so each change is
@@ -132,7 +148,11 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     names: villagers.name.slice(0, count),
     sexes: villagers.sex.slice(0, count),
     households: villagers.household.slice(0, count),
-    homes: sim.households.home.slice(),
+    children: villagers.child.slice(0, count),
+    mothers: villagers.mother.slice(0, count),
+    fathers: villagers.father.slice(0, count),
+    homes: sim.households.home.slice(0, sim.households.count),
+    couples: couplesOf(sim),
     workplaces: villagers.workplace.slice(0, count),
     hired: villagers.hired.slice(0, count),
     missedMeals: villagers.missedMeals.slice(0, count),
@@ -169,7 +189,11 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.names,
     frame.sexes,
     frame.households,
+    frame.children,
+    frame.mothers,
+    frame.fathers,
     frame.homes,
+    frame.couples,
     frame.workplaces,
     frame.hired,
     frame.missedMeals,

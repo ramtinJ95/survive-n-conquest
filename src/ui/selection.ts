@@ -33,6 +33,7 @@ import {
 } from '../sim/stores';
 import { SUPPLYING } from '../sim/supplying';
 import { TASK_KINDS, type TaskKind } from '../sim/tasks';
+import { WORK_AGE } from '../sim/sim';
 import { Cause, VillagerState } from '../sim/villagerState';
 import { Stop, WORKSHOP } from '../sim/workshops';
 import { WEARING } from '../sim/wearing';
@@ -61,7 +62,11 @@ export interface Facts {
     | 'names'
     | 'sexes'
     | 'households'
+    | 'children'
+    | 'mothers'
+    | 'fathers'
     | 'homes'
+    | 'couples'
     | 'workplaces'
     | 'hired'
     | 'missedMeals'
@@ -339,7 +344,10 @@ function doing(facts: Facts, id: number): string {
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[frame.tasks[id]!];
-  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
+  if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) {
+    if (!isChild(facts, id)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
+    return frame.homes[frame.households[id]!] === NO_HOME ? 'Playing at the camp' : 'Playing by the house';
+  }
   return task(facts, id, state === VillagerState.Working);
 }
 
@@ -385,29 +393,52 @@ const settlersAtCamp = ({ map, camp, frame }: Facts) => {
 };
 
 const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
+const CHILD_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
+const BORN_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'daughter', [Sex.Man]: 'son' };
+
+const isChild = ({ frame }: Facts, id: number) => frame.children[id] === 1;
 
 const nameOfSettler = ({ frame }: Facts, id: number) => nameOf(frame.sexes[id] as Sex, frame.names[id]!);
 
-/** The names of a household's members in id order, leaving out villager `except`. A dead member is named as one. */
-function members(facts: Facts, household: number, except = -1): string {
-  const names: string[] = [];
-  facts.frame.households.forEach((of, id) => {
-    if (of !== household || id === except) return;
-    const died = facts.frame.states[id] === VillagerState.Dead;
-    names.push(died ? `${nameOfSettler(facts, id)} (died)` : nameOfSettler(facts, id));
-  });
-  return names.join(' and ');
+/** A settler's name, and for one born in the game whose daughter or son it is, as `Tova, daughter of Ulvar and Ysa`. */
+function titleOf(facts: Facts, id: number): string {
+  const { frame } = facts;
+  const mother = frame.mothers[id]!;
+  const father = frame.fathers[id]!;
+  if (mother < 0 || father < 0) return nameOfSettler(facts, id);
+  return `${nameOfSettler(facts, id)}, ${BORN_WORDS[frame.sexes[id] as Sex]} of ${nameOfSettler(facts, father)} and ${nameOfSettler(facts, mother)}`;
 }
 
-function householdOf(facts: Facts, id: number): string {
-  const household = facts.frame.households[id]!;
-  const others = members(facts, household, id);
-  return others ? `Household ${household + 1}, with ${others}` : `Household ${household + 1}`;
+const counted = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * A household in words: its couple by name, then its other living members
+ * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. The dead are
+ * counted and not named, so a widow reads as `Ysa, 3 children, 1 died`, and
+ * children whose couple both died as `3 children, 2 died`.
+ */
+function householdLine(facts: Facts, household: number): string {
+  const { frame } = facts;
+  const man = frame.couples[household * 2]!;
+  const woman = frame.couples[household * 2 + 1]!;
+  const alive = (id: number) => id >= 0 && frame.states[id] !== VillagerState.Dead;
+  const couple = [man, woman].filter(alive).map((id) => nameOfSettler(facts, id));
+  let children = 0;
+  let died = 0;
+  frame.households.forEach((of, id) => {
+    if (of !== household) return;
+    if (frame.states[id] === VillagerState.Dead) died++;
+    else if (id !== man && id !== woman) children++;
+  });
+  const parts = couple.length > 0 ? [couple.join(' and ')] : [];
+  if (children > 0) parts.push(counted(children, 'child', 'children'));
+  if (died > 0) parts.push(`${died} died`);
+  return parts.join(', ');
 }
 
 function livingIn(facts: Facts, slot: number): string {
   const household = facts.frame.homes.indexOf(slot);
-  return household < 0 ? 'Nobody' : `Household ${household + 1}: ${members(facts, household)}`;
+  return household < 0 ? 'Nobody' : householdLine(facts, household);
 }
 
 /** The names of the workers at a workplace in the order they came, or Nobody. */
@@ -483,13 +514,16 @@ function workplacePanel(building: Building, note: string, rows: readonly Row<Bui
 /** Every panel. A row or a control added here shows in the panel of its kind. */
 export const PANELS: Panels = {
   villager: {
-    title: (facts, { id }) => nameOfSettler(facts, id),
+    title: (facts, { id }) => titleOf(facts, id),
     rows: [
       { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
       { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
-      { label: 'Job', read: (facts, { id }) => JOB_WORDS[jobOf(facts, id)].title },
-      { label: 'Sex and age', read: ({ frame }, { id }) => `${SEX_WORDS[frame.sexes[id] as Sex]}, ${frame.ages[id]}` },
-      { label: 'Household', read: (facts, { id }) => householdOf(facts, id) },
+      { label: 'Job', read: (facts, { id }) => (isChild(facts, id) ? `Child, works at ${WORK_AGE}` : JOB_WORDS[jobOf(facts, id)].title) },
+      {
+        label: 'Sex and age',
+        read: (facts, { id }) => `${(isChild(facts, id) ? CHILD_SEX_WORDS : SEX_WORDS)[facts.frame.sexes[id] as Sex]}, ${facts.frame.ages[id]}`,
+      },
+      { label: 'Household', read: (facts, { id }) => householdLine(facts, facts.frame.households[id]!) },
       {
         label: 'Home',
         read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),

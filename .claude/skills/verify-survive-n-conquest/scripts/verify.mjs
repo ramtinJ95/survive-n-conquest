@@ -544,6 +544,7 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
 function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
   const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
   const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
+  if (!GIF_STEPS.some((step) => step.width <= width)) fail(`no GIF step is ${width} px wide or narrower; the narrowest is ${Math.min(...GIF_STEPS.map((step) => step.width))} px`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
     const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
     const palette = `${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
@@ -3460,10 +3461,11 @@ function selectionDriver(session) {
 
 /**
  * Whether a panel is a settler's: its title is the settler's name, and only a settler's panel has the Sex and age
- * row and the Household row. Before households the title was the word Settler, and before ages the row was Sex.
+ * row and the Household row, which names the household's living couple or counts its children. Before households the title was the word Settler,
+ * before ages the row was Sex, and before births the Household row began with the household's number.
  */
 const settlerPanel = (read) =>
-  Boolean(read?.title) && /^(Man|Woman), \d+$/.test(read.rows?.['Sex and age'] ?? '') && /^Household \d+/.test(read.rows?.Household ?? '');
+  Boolean(read?.title) && /^(Man|Woman|Girl|Boy), \d+$/.test(read.rows?.['Sex and age'] ?? '') && /^(\S+( and \S+)?|\d+ child(ren)?)(, .+)?$/.test(read.rows?.Household ?? '');
 
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
@@ -3502,30 +3504,32 @@ const DOING_LONGEST = [
  * The longest reading of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as
  * candidates of which the page keeps the tallest, and the first of those as tall. `name`, `woman`, and `man` are the widest names of
  * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
- * repeat, so two workers can share a name. A household is a man and a woman, named in that order, and a house names
- * at most one member who died, because it goes to another household when the last dies. A site's goods read what it
+ * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
+ * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
+ * its dead with two digits. A child's title names its parents. A site's goods read what it
  * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
  */
 const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
   const settlers = [String(mostSettlers)];
-  const household = `Household ${Math.ceil(mostSettlers / 2)}`;
+  const couple = `${man} and ${woman}`;
+  const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`];
   const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
   const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
   return {
     villager: {
-      title: [name],
+      title: [`${name}, daughter of ${couple}`, `${name}, son of ${couple}`, name],
       rows: {
-        Doing: DOING_LONGEST,
+        Doing: [...DOING_LONGEST, 'Playing by the house', 'Playing at the camp'],
         Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
-        Job: ['Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
-        'Sex and age': ['Woman, 80', 'Man, 80'],
-        Household: [`${household}, with ${woman} (died)`, `${household}, with ${man} (died)`],
+        Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
+        'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 9', 'Boy, 9'],
+        Household: household,
         Home: ['None, sleeps at the camp', 'A house'],
         'Missed meals': ['2, hungry'],
         'Cold nights': ['2, cold, clothed'],
       },
     },
-    house: { rows: { Household: [`${household}: ${man} (died) and ${woman}`, `${household}: ${man} and ${woman} (died)`], Food: ['16 of 16'], Firewood: ['6 of 6'], 'Fire last night': ['No winter night yet', 'Did not burn', 'Burned'] } },
+    house: { rows: { Household: household, Food: ['16 of 16'], Firewood: ['6 of 6'], 'Fire last night': ['No winter night yet', 'Did not burn', 'Burned'] } },
     hut: workplace('Foragers', 2),
     lodge: workplace('Hunters', 2),
     woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
@@ -5794,13 +5798,13 @@ SCENARIOS.cold = async (session) => {
     const houses = [];
     for (const house of COLD_SPOTS.houses) {
       const read = await selectOne(house.clicks, 'House');
-      const household = /^Household (\d+): (.+)$/.exec(read?.rows?.Household ?? '');
+      const household = /^(\S+) and (\S+)(?:, (\d+) child(?:ren)?)?(?:, (\d+) died)?$/.exec(read?.rows?.Household ?? '');
       houses.push({
         read,
         firewood: firewoodOf(read, 6),
-        household: household ? Number(household[1]) : null,
-        names: household ? namesIn(household[2]) : [],
-        died: household ? household[2].split(/ and /).filter((name) => name.endsWith('(died)')).length : null,
+        names: household ? [household[1], household[2]] : [],
+        children: household ? Number(household[3] ?? 0) : null,
+        died: household ? Number(household[4] ?? 0) : null,
         flame: pixelsIn(png, CLIP.width, house.sign, FLAME).count,
       });
     }
@@ -5884,8 +5888,8 @@ SCENARIOS.cold = async (session) => {
   const built = await readStop('cold-built');
   const siteLabels = await page.getByRole('status', { name: /site$/ }).count();
   session.check(
-    `at ${built.at} both houses are finished and households 1 and 2 have moved in, one in each`,
-    siteLabels === 0 && built.houses.map((house) => house.household).join() === '1,2' && built.houses.every((house) => house.names.length === 2 && house.died === 0),
+    `at ${built.at} both houses are finished and households 1 and 2, ${HUNGER_NAMES.slice(0, 2).join(' and ')} and ${HUNGER_NAMES.slice(2, 4).join(' and ')}, have moved in, one in each`,
+    siteLabels === 0 && built.houses.map((house) => house.names.join(' and ')).join() === [HUNGER_NAMES.slice(0, 2), HUNGER_NAMES.slice(2, 4)].map((couple) => couple.join(' and ')).join() && built.houses.every((house) => house.died === 0),
     `${siteLabels} site labels; ${houseText(built)}`,
   );
   const housed = built.houses.flatMap((house) => house.names);
@@ -6948,9 +6952,32 @@ const FIREWOOD_YEAR_SHED = [
  * In `src/sim` with the same commands at the same ticks, at 12:00 on day 10 the reading is 4 of 4 households in a
  * house, 2 of 4 houses with 6 firewood, 0 of 8 in clothing, and 0 cold tonight, with no camp fire row; at 17:00 on
  * day 10, 4 of 4 houses with firewood; and at 05:00 on day 13, after the last winter night, 8 settlers live, 5 with a
- * job and 3 with none, with 33 food in the barn and at the camp and 16 in homes.
+ * job and 3 with none, beside the 4 children born to them, with 24 food in the barn and at the camp and 20 in homes.
+ * Before births it was 33 and 16: the children ate the difference.
  */
 const FIREWOOD_YEAR_STOPS = { shed: { day: 5, time: '06:17' }, noon: { day: 10, time: '12:00' }, dusk: { day: 10, time: '17:00' }, end: { day: 13, time: '05:00' } };
+
+/**
+ * Gives `orders`, each a key and a pixel of `HIDES_YEAR_VIEW` or a drag between two, through the toolbar, and returns the
+ * orders whose status line did not say what `FIREWOOD_YEAR_SAID` expects.
+ */
+async function giveYearOrders(session, page, orders, said) {
+  const wrong = [];
+  for (const [key, from, to] of orders) {
+    await page.keyboard.press(key);
+    if (to) await session.drag(page, from, to);
+    else {
+      await page.mouse.move(from.x, from.y, { steps: 3 });
+      await page.mouse.down();
+      await page.mouse.up();
+    }
+    const line = await said(page, FIREWOOD_YEAR_SAID[key]);
+    if (!FIREWOOD_YEAR_SAID[key].test(line)) wrong.push(`${key} at ${from.x},${from.y}: "${line}"`);
+    await page.keyboard.press('Escape');
+  }
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  return wrong;
+}
 
 SCENARIOS['firewood-year'] = async (session) => {
   const { said } = siteDriver(session);
@@ -6966,23 +6993,7 @@ SCENARIOS['firewood-year'] = async (session) => {
   const reading = () => rowsOf(page.getByRole('status', { name: 'Winter readiness', includeHidden: true }));
   const text = (read) => [read.title, ...Object.entries(read.rows).map(([name, value]) => `${name}: ${value}`)].join('; ');
   await takeForageView(session, page, HIDES_YEAR_VIEW);
-  const give = async (orders) => {
-    const wrong = [];
-    for (const [key, from, to] of orders) {
-      await page.keyboard.press(key);
-      if (to) await session.drag(page, from, to);
-      else {
-        await page.mouse.move(from.x, from.y, { steps: 3 });
-        await page.mouse.down();
-        await page.mouse.up();
-      }
-      const line = await said(page, FIREWOOD_YEAR_SAID[key]);
-      if (!FIREWOOD_YEAR_SAID[key].test(line)) wrong.push(`${key} at ${from.x},${from.y}: "${line}"`);
-      await page.keyboard.press('Escape');
-    }
-    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
-    return wrong;
-  };
+  const give = (orders) => giveYearOrders(session, page, orders, said);
   const startAt = await at();
   const wrongStart = await give(FIREWOOD_YEAR_START);
   session.check(
@@ -7018,8 +7029,8 @@ SCENARIOS['firewood-year'] = async (session) => {
   await session.screenshot(page, 'firewood-year-end');
   const living = Number(end.rows['Settlers with a job']) + Number(end.rows['Settlers with no job']);
   session.check(
-    `at ${await at()}, after the last winter night, 8 settlers live, 5 with a job and 3 with none, with 33 food in the barn and at the camp and 16 in homes, and the reading is gone`,
-    living === 8 && end.rows['Settlers with a job'] === '5' && end.rows['Barn and camp food'] === '33' && end.rows['Food in homes'] === '16' && !gone.shown,
+    `at ${await at()}, after the last winter night, 8 settlers and the 4 children born to them live, the 8 with 5 with a job and 3 with none, with 24 food in the barn and at the camp and 20 in homes, and the reading is gone`,
+    living === 8 && end.rows.Children === '4' && end.rows['Settlers with a job'] === '5' && end.rows['Barn and camp food'] === '24' && end.rows['Food in homes'] === '20' && !gone.shown,
     `${Object.entries(end.rows).map(([name, value]) => `${name}: ${value}`).join('; ')}; reading ${gone.shown ? 'shown' : 'hidden'}`,
   );
 };
@@ -7102,6 +7113,231 @@ const WOOD_YEAR_ORDERS = [
   ['KeyM', {x:530,y:187}, {x:530,y:187}],
   ['KeyM', {x:522,y:179}, {x:522,y:179}],
 ];
+/**
+ * The births scenario. On seed 7 the `settlers` setting states four households that have each seen 6 dawns before the
+ * map's first tick, so each draws for a child at its first dawn with a house: Merek and Elsi, 28; Ulvar and Ysa, 30,
+ * with three children, a house of 5; Jorrin and Fenna, whose woman is 40 from 17:36 on day 3; and Dorran and Nella, 27.
+ * The page gives `firewood-year`'s orders at 08:00 on day 1: four houses, which go to the households in the order they
+ * stand. `scripts/births.ts` plays the same commands in `src/sim` and prints each dawn's draws and births, and the
+ * scenario checks the page against it. With `?food=200` every household is fed: Merek and Elsi have a child at the dawn
+ * of day 4, while Dorran and Nella, whose draw falls under the chance too, still live at the camp; at the dawn of day 5
+ * the house of 5 and the woman of 40 draw under the chance in their houses and have none; at the dawn of day 6 Dorran
+ * and Nella have a child in their own house. A page with the camp's own 24 food has the same orders, and there Dorran
+ * and Nella moved into an empty house and are hungry at that dawn, and have none.
+ */
+const BIRTHS_SCRIPT = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/births.ts');
+const BIRTHS_SETTLERS = 'm30,w28@6;m32,w30,w8,m6,w3@6;m33,w39@6;m29,w27@6';
+const BIRTHS_FED = '200';
+/**
+ * The roof of the house in each site slot of `FIREWOOD_YEAR_START`, whose houses are slots 3 to 6, at `HIDES_YEAR_VIEW`:
+ * `aim.ts` puts a point 2 m over each house's tile there. A click on the tile itself can take the camp's fire or the
+ * lodge beside it.
+ */
+const BIRTH_HOUSES = { 3: { x: 527, y: 241 }, 4: { x: 474, y: 237 }, 5: { x: 493, y: 291 }, 6: { x: 564, y: 261 } };
+/** Wheel pixels in over a house, so a child by its door stands apart from its parents. */
+const BIRTHS_CLOSER = -500;
+/** Pixels from a tunic's middle at which a click can find a child that stands beside an adult, at `BIRTHS_CLOSER`. */
+const CHILD_REACH = 10;
+/** At `BIRTHS_CLOSER` over the house of Merek and Elsi, the house, its doors, and the news log below them. */
+const BIRTHS_CLIP = { crop: { x: 320, y: 150, width: 480, height: 340 }, width: 480, colors: 64 };
+const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
+
+function birthsDriver(session) {
+  const { reads, text, tunics, click, uiBoxes, apart } = selectionDriver(session);
+  const { stockpiles, lines } = hungerDriver(session);
+  const expected = (food) => {
+    const run = spawnSync('bun', [BIRTHS_SCRIPT, BIRTHS_SETTLERS, food, String(BIRTH_DAWNS.second)], { cwd: ROOT, encoding: 'utf8' });
+    if (run.status !== 0) fail(`births.ts failed: ${run.stderr}`);
+    return JSON.parse(run.stdout);
+  };
+  const counts = (page) =>
+    stockpiles(page).evaluate((node) => {
+      const rows = {};
+      for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+      return { children: rows.Children, adults: Number(rows['Settlers with a job']) + Number(rows['Settlers with no job']) };
+    });
+  /** Selects the house in `slot` by the pixel its order clicked, and returns its panel. */
+  const house = async (page, slot) => {
+    const read = await click(page, BIRTH_HOUSES[slot]);
+    await page.keyboard.press('Escape');
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    return read;
+  };
+  /** Wheels the view `wheel` pixels in over the house in `slot`, or back out with the opposite wheel. */
+  const closer = async (page, slot, wheel) => {
+    await page.mouse.move(BIRTH_HOUSES[slot].x, BIRTH_HOUSES[slot].y);
+    await page.mouse.wheel(0, wheel);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+  };
+  /**
+   * Clicks the tunics of a paused frame, nearest the house in `slot` first, until a panel titled `title` opens. A child
+   * beside an adult joins the adult's spot, so each spot is tried at its middle and `CHILD_REACH` pixels to each side.
+   */
+  const selectTitled = async (page, title, slot, label) => {
+    const png = await session.screenshot(page, label);
+    const near = BIRTH_HOUSES[slot];
+    const spots = (await tunics(page, png)).sort((a, b) => Math.hypot(a.x - near.x, a.y - near.y) - Math.hypot(b.x - near.x, b.y - near.y));
+    const tried = [];
+    for (const spot of spots.slice(0, 16)) {
+      for (const [dx, dy] of [[0, 0], [CHILD_REACH, 0], [-CHILD_REACH, 0], [0, CHILD_REACH], [0, -CHILD_REACH]]) {
+        const read = await click(page, { x: spot.x + dx, y: spot.y + dy });
+        tried.push(read?.title ?? 'nothing');
+        if (read?.title === title) return { read, tried };
+      }
+    }
+    return { read: null, tried };
+  };
+  /** Steps the paused clock a minute at a time from `from` to `until`, and returns every news line with the stop it was first read at. */
+  const listen = async (page, from, until) => {
+    await session.reach(page, from);
+    const heard = new Map();
+    await session.runUntil(
+      page,
+      async () => {
+        for (const line of await lines(page)) if (!heard.has(line)) heard.set(line, clockText(await session.gameMinutes(page)));
+        return null;
+      },
+      { every: 1, until },
+    );
+    return heard;
+  };
+  return { reads, text, click, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen };
+}
+
+SCENARIOS.births = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes, apart, expected, counts, house, closer, selectTitled, listen } = birthsDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const fed = expected(BIRTHS_FED);
+  const hungry = expected('-');
+  const dawn = (run, number) => run.find((entry) => entry.dawn === number);
+  const household = (run, number, h) => dawn(run, number).households.find((entry) => entry.household === h);
+  const cases = {
+    birth: dawn(fed, BIRTH_DAWNS.first).born.find((child) => child.household === 1),
+    camp: household(fed, BIRTH_DAWNS.first, 4),
+    full: household(fed, BIRTH_DAWNS.full, 2),
+    old: household(fed, BIRTH_DAWNS.full, 3),
+    second: dawn(fed, BIRTH_DAWNS.second).born.find((child) => child.household === 4),
+    hungry: household(hungry, BIRTH_DAWNS.second, 4),
+  };
+  session.check(
+    'in src/sim the same commands give this page its cases: a child of household 1 at the dawn of day 4, while household 4 draws under the chance at the camp; household 2 in a house of 5 and household 3 with a woman of 40, both fed, draw under it at the dawn of day 5; with the camp\'s own food household 4 is hungry in its house when it draws under it at the dawn of day 6',
+    Boolean(cases.birth && cases.second) &&
+      cases.camp.slot === -1 && cases.camp.lucky && cases.camp.wanting === 0 &&
+      cases.full.slot >= 0 && cases.full.living === 5 && cases.full.lucky && cases.full.wanting === 0 &&
+      cases.old.slot >= 0 && cases.old.woman === 40 && cases.old.lucky && cases.old.wanting === 0 && cases.old.living < 5 &&
+      cases.hungry.slot >= 0 && cases.hungry.living < 5 && cases.hungry.lucky && cases.hungry.wanting > 0 && cases.hungry.woman < 40 && dawn(hungry, BIRTH_DAWNS.second).born.length === 0,
+    JSON.stringify(cases),
+  );
+
+  const player = await session.open(CLIP, { search: `?seed=7&food=${BIRTHS_FED}&settlers=${BIRTHS_SETTLERS}`, clock: 'player' });
+  await session.pause(player.page);
+  const playerCounts = await counts(player.page);
+  session.check("a player's page, without clock=paused, ignores the settlers setting: it opens with the seed's 8 settlers and no child", playerCounts.children === '0' && playerCounts.adults === 8, JSON.stringify(playerCounts));
+  await player.context.close();
+  seen.push(...player.errors);
+
+  const a = await session.open(CLIP, { record: true, search: `?seed=7&food=${BIRTHS_FED}&settlers=${BIRTHS_SETTLERS}`, clock: 'paused' });
+  const { page } = a;
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const opening = await counts(page);
+  session.check('the settlers setting opens the map with its 8 settlers and the 3 children after the couple of household 2, counted apart from the settlers with a job and without one', opening.children === '3' && opening.adults === 8, JSON.stringify(opening));
+  const wrong = await giveYearOrders(session, page, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(page)} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrong.length === 0, wrong.join(' | ') || 'all said');
+
+  const first = dawn(fed, BIRTH_DAWNS.first);
+  const firstStop = clockMinutes(first.stop);
+  const clipFrom = clockAt(firstStop - 10);
+  await session.reach(page, clipFrom);
+  await closer(page, 6, BIRTHS_CLOSER);
+  const from = a.since();
+  const heard = await listen(page, clipFrom, clockAt(firstStop + 2));
+  const bornLine = `${first.news}. ${cases.birth.name} was born to Merek and Elsi.`;
+  session.check(`the news says "${bornLine}" at the dawn the draw gives`, heard.get(bornLine) === clockText(firstStop), [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing');
+  session.check(
+    `no line names a birth to Dorran and Nella at that dawn, though their draw falls under the chance: they live at the camp`,
+    ![...heard.keys()].some((line) => line.includes('Dorran and Nella')),
+    [...heard.keys()].join('; '),
+  );
+  const afterFirst = await counts(page);
+  session.check(`at ${await at(page)} the top-left panel counts 4 children and still 8 settlers with a job or without one`, afterFirst.children === '4' && afterFirst.adults === 8, JSON.stringify(afterFirst));
+  await session.reach(page, clockAt(firstStop + 30));
+  await session.screenshot(page, 'births-dawn');
+  const to = a.since();
+
+  await session.reach(page, { day: 4, time: '09:00' });
+  const childTitle = `${cases.birth.name}, ${cases.birth.girl ? 'daughter' : 'son'} of Merek and Elsi`;
+  const found = await selectTitled(page, childTitle, 6, 'births-child-aim');
+  const child = found.read;
+  session.check(
+    `at ${await at(page)} a click by the house of Merek and Elsi selects the child, whose panel says it is a child who works at 10, its sex and age 0, its household, and that it plays by the house`,
+    child?.rows.Job === 'Child, works at 10' && child.rows['Sex and age'] === `${cases.birth.girl ? 'Girl' : 'Boy'}, 0` && child.rows.Household === 'Merek and Elsi, 1 child' &&
+      child.rows.Home === 'A house' && child.rows.Doing === 'Playing by the house' && child.rows['Missed meals'] === 'None',
+    child ? text(child) : `tried ${found.tried.join(', ')}`,
+  );
+  await session.screenshot(page, 'births-child-panel');
+  for (const size of READY_SIZES) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    await session.still(page);
+    const { ok, detail } = apart(await uiBoxes(page));
+    session.check(`at ${size.width}x${size.height} the child's panel covers no other panel`, ok, detail);
+    await session.screenshot(page, `births-child-panel-${size.width}x${size.height}`);
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+  await session.reach(page, { day: 4, time: '22:00' });
+  const night = await reads(page);
+  session.check(`at ${await at(page)} the child is inside with its household and ate at dusk`, night?.title === childTitle && night.rows.Doing === 'At home' && night.rows['Missed meals'] === 'None', text(night));
+  await page.keyboard.press('Escape');
+  await closer(page, 6, -BIRTHS_CLOSER);
+  const home = await house(page, 6);
+  session.check(`the house of Merek and Elsi reads its household as its couple and one child`, home?.title === 'House' && home.rows.Household === 'Merek and Elsi, 1 child', text(home));
+
+  const full = dawn(fed, BIRTH_DAWNS.full);
+  const fullHeard = await listen(page, clockAt(clockMinutes(full.stop) - 2), clockAt(clockMinutes(full.stop) + 1));
+  const ofFive = await house(page, cases.full.slot);
+  const ofForty = await house(page, cases.old.slot);
+  session.check(
+    `at the dawn of day 5 no child is born to the house of 5, which reads "Ulvar and Ysa, 3 children", nor to Jorrin and Fenna, whose woman is 40, though both draw under the chance and are fed`,
+    ![...fullHeard.keys()].some((line) => line.includes('was born')) && ofFive?.rows.Household === 'Ulvar and Ysa, 3 children' && ofForty?.rows.Household === 'Jorrin and Fenna',
+    `${text(ofFive)} | ${text(ofForty)} | heard ${[...fullHeard.keys()].join('; ') || 'nothing'}`,
+  );
+  await session.screenshot(page, 'births-house-of-five');
+
+  const second = dawn(fed, BIRTH_DAWNS.second);
+  const secondHeard = await listen(page, clockAt(clockMinutes(second.stop) - 2), clockAt(clockMinutes(second.stop) + 1));
+  const secondLine = `${second.news}. ${cases.second.name} was born to Dorran and Nella.`;
+  const theirs = await house(page, cases.hungry.slot);
+  session.check(`at the dawn of day 6, fed and in their own house, Dorran and Nella have a child: "${secondLine}"`, secondHeard.has(secondLine) && theirs?.rows.Household === 'Dorran and Nella, 1 child', `${text(theirs)} | heard ${[...secondHeard.keys()].join('; ') || 'nothing'}`);
+  await session.reach(page, { day: 6, time: '09:00' });
+  const byDay = await click(page, BIRTH_HOUSES[6]);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  await session.screenshot(page, 'births-house-panel');
+  session.check(`at ${await at(page)} the house of Merek and Elsi still reads its couple and one child`, byDay?.title === 'House' && byDay.rows.Household === 'Merek and Elsi, 1 child', text(byDay));
+  await session.finishClips(a.context, page, [{ label: 'births-dawn', from, to, ...BIRTHS_CLIP }]);
+  seen.push(...a.errors);
+
+  const b = await session.open(CLIP, { search: `?seed=7&settlers=${BIRTHS_SETTLERS}`, clock: 'paused' });
+  await takeForageView(session, b.page, HIDES_YEAR_VIEW);
+  const wrongB = await giveYearOrders(session, b.page, FIREWOOD_YEAR_START, said);
+  if (wrongB.length > 0) fail(`the orders of the page with the camp's own food went wrong: ${wrongB.join(' | ')}`);
+  const hungryHeard = await listen(b.page, { day: 5, time: '17:00' }, clockAt(clockMinutes(second.stop) + 1));
+  const kept = await house(b.page, cases.hungry.slot);
+  session.check(
+    `with the camp's own 24 food, Dorran and Nella went hungry in the house they moved into, and at the dawn of day 6 they have no child, though their draw falls under the chance`,
+    [...hungryHeard.keys()].some((line) => / went hungry\.$/.test(line) && /Dorran|Nella/.test(line)) && ![...hungryHeard.keys()].some((line) => line.includes('born to Dorran')) && kept?.rows.Household === 'Dorran and Nella',
+    `${text(kept)} | heard ${[...hungryHeard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing'}`,
+  );
+  await session.screenshot(b.page, 'births-hungry-house');
+  await b.context.close();
+  seen.push(...b.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
 const WOOD_YEAR_SAID = { ...FIREWOOD_YEAR_SAID };
 const WOOD_YEAR_SHED = [{ x: 518, y: 236 }, { x: 522, y: 246 }, { x: 521, y: 262 }, { x: 512, y: 257 }];
 const WOOD_YEAR_STOPS = { dusk: { day: 2, time: '19:00' }, duskUntil: { day: 2, time: '20:00' }, panel: { day: 3, time: '12:00' } };

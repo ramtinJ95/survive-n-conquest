@@ -3,7 +3,8 @@ import { finishBuilding } from './building';
 import { BUILDINGS, Building } from './buildings';
 import { isDawn, isNight } from './daylight';
 import { Good } from './goods';
-import { MAX_HOUSEHOLDS, NO_HOME, createHouseholds } from './households';
+import { MAX_HOUSEHOLDS, NO_HOME, NO_VILLAGER, createHouseholds, formHousehold } from './households';
+import { createVillagers } from './villagers';
 import { tileAt } from './map';
 import { generateMap } from './mapgen';
 import { NAMES, Sex, nameOf } from './names';
@@ -100,9 +101,12 @@ describe('the households', () => {
     expect(Array.from(sim.villagers.household.subarray(0, sim.villagers.count))).toEqual([0, 0, 1]);
   });
 
-  it(`hold at most ${MAX_HOUSEHOLDS}`, () => {
-    expect(createHouseholds(MAX_HOUSEHOLDS * 2).home.length).toBe(MAX_HOUSEHOLDS);
-    expect(() => createHouseholds(MAX_HOUSEHOLDS * 2 + 1)).toThrow();
+  it(`hold at most ${MAX_HOUSEHOLDS}, and a map cannot start with more`, () => {
+    const households = createHouseholds();
+    const villagers = createVillagers();
+    for (let h = 0; h < MAX_HOUSEHOLDS; h++) expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0)).toBe(h);
+    expect(formHousehold(households, villagers, NO_VILLAGER, NO_VILLAGER, NO_HOME, 0)).toBe(-1);
+    expect(() => createSim(generateMap(7, 64), { villagers: MAX_HOUSEHOLDS * 2 + 1, monsters: 0 })).toThrow();
   });
 });
 
@@ -117,7 +121,7 @@ describe('moving into a house', () => {
       }
     });
     expect(finished).not.toEqual([0, 1, 2, 3, 4]);
-    expect(Array.from(sim.households.home)).toEqual(finished.slice(0, 4));
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual(finished.slice(0, 4));
   });
 
   it('gives two houses finished in one tick to the two lowest households with no home, by internals', () => {
@@ -127,11 +131,11 @@ describe('moving into a house', () => {
     step(sim);
     finishBuilding(sim, 2);
     finishBuilding(sim, 0);
-    expect(Array.from(sim.households.home)).toEqual([1, 2, 0, NO_HOME]);
+    expect(Array.from(sim.households.home.subarray(0, sim.households.count))).toEqual([1, 2, 0, NO_HOME]);
   });
 
   it('leaves every household with no home at the start', () => {
-    expect(Array.from(createSim(generateMap(7, 64), SETTLERS).households.home)).toEqual(Array(4).fill(NO_HOME));
+    expect(Array.from(createSim(generateMap(7, 64), SETTLERS).households.home.subarray(0, 4))).toEqual(Array(4).fill(NO_HOME));
   });
 });
 

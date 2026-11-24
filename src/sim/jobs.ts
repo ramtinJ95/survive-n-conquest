@@ -3,6 +3,16 @@ import { Good, putDownHeld } from './goods';
 import { SiteState, setSitePlaces } from './orders';
 import type { Sim } from './sim';
 import { NO_TASK, VillagerState } from './villagerState';
+import type { Villagers } from './villagers';
+
+/**
+ * Whether the villager works: it takes orders, fills places at workplaces,
+ * carries, stocks, and wears clothing. A child does none of these. The tasks
+ * and the jobs both ask this one test.
+ */
+export function works(villagers: Villagers, id: number): boolean {
+  return villagers.child[id] === 0;
+}
 
 /** The job of the villager: the job of its workplace's kind, or `Job.None` when it has no place. */
 export function jobOf(sim: Sim, id: number): Job {
@@ -29,7 +39,7 @@ function nearestFree(sim: Sim, slot: number): number {
   let best = -1;
   let bestDistance = Infinity;
   for (let id = 0; id < villagers.count; id++) {
-    if (villagers.state[id] === VillagerState.Dead || villagers.workplace[id]! >= 0) continue;
+    if (villagers.state[id] === VillagerState.Dead || villagers.workplace[id]! >= 0 || !works(villagers, id)) continue;
     const dx = villagers.x[id]! - px;
     const dy = villagers.y[id]! - py;
     const distance = dx * dx + dy * dy;

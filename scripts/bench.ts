@@ -17,13 +17,14 @@ import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { Claim, MAX_SITES, SiteState } from '../src/sim/orders';
 import { type Readiness, readinessOf } from '../src/sim/readiness';
-import { BENCHMARK_POPULATION, type Population, type Sim, type StartingHousehold, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
+import { BENCHMARK_POPULATION, type Population, type Sim, type StartingHousehold, type StartingSettler, type Tally, WORK_AGE, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
 import { STOCKING } from '../src/sim/stocking';
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { Cause, NO_TASK, THINK_GROUPS, VillagerState } from '../src/sim/villagerState';
+import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
+import { ageAt } from '../src/sim/aging';
 import { Sex } from '../src/sim/names';
 import { die } from '../src/sim/villagers';
 import { WEARING } from '../src/sim/wearing';
@@ -116,30 +117,56 @@ const LEAST_YEARS_LEFT = 5;
 /** `--dead-rows` adds this many settlers after the living ones and kills them before the first tick. */
 const DEAD_ROWS = process.argv.includes('--dead-rows') ? 1_500 : 0;
 
-/** `count` settlers in couples, ids from `first`, of every age from `AGES.youngest` to `AGES.oldest`, with stated spans. */
-function laterYears(count: number, first: number): StartingHousehold[] {
+/**
+ * Of the households whose woman is from `CHILDREN.fromAge` to `CHILDREN.toAge`, household `h` has `h % 3` children at
+ * home under 10, and every `CHILDREN.fullEvery`th one 3, so that some houses hold 5. A child is a year or more younger
+ * than the one before it, and no child is older than its mother less 16.
+ */
+const CHILDREN = { fromAge: 18, toAge: 45, fullEvery: 7 };
+/** Household `h`'s man is `AGES.youngest + (h * AGE_STEP) % range` years old, so the ages of the low-numbered households, which get the houses first, spread over the whole range. */
+const AGE_STEP = 37;
+/** Every household formed this many dawns before the map's first tick, so a household with a house draws for a birth at every dawn it qualifies. */
+const FORMED_DAWNS_AGO = 100;
+
+/**
+ * `count` settlers in households, ids from `first`: couples of every age from `AGES.youngest` to `AGES.oldest`, with
+ * stated spans, and with `children` their children under 10 at home, whose spans the seed draws. The last household
+ * takes only the children that fit in `count`.
+ */
+function laterYears(count: number, first: number, children: boolean): StartingHousehold[] {
   const span = (id: number, age: number) => {
     if (age >= NEAR_END.fromAge && id % NEAR_END.every === 0) return age + NEAR_END.springYears;
     if (age >= NEAR_END.fromAge && id % NEAR_END.every === NEAR_END.every / 2) return age + NEAR_END.winterYears;
     return Math.max(age + LEAST_YEARS_LEFT, 60 + ((id * 13) % 21));
   };
   const range = AGES.oldest - AGES.youngest + 1;
-  return Array.from({ length: count / 2 }, (_, h) => {
-    const id = first + 2 * h;
-    const man = AGES.youngest + ((id * 29) % range);
+  const households: StartingHousehold[] = [];
+  let id = first;
+  for (let h = 0; id < first + count; h++) {
+    const man = AGES.youngest + ((h * AGE_STEP) % range);
     const woman = Math.min(Math.max(man - 2 + (h % 5), AGES.youngest), AGES.oldest);
-    return [
+    const members: StartingSettler[] = [
       { sex: Sex.Man, age: man, span: span(id, man) },
       { sex: Sex.Woman, age: woman, span: span(id + 1, woman) },
     ];
-  });
+    const mothers = children && woman >= CHILDREN.fromAge && woman <= CHILDREN.toAge;
+    const wanted = !mothers ? 0 : h % CHILDREN.fullEvery === 0 ? 3 : h % 3;
+    const room = first + count - id - members.length;
+    for (let child = 0; child < Math.min(wanted, room); child++) {
+      const age = Math.max(0, Math.min(9, woman - 16) - 1 - 3 * child - (h % 2));
+      members.push({ sex: (h + child) % 2 === 0 ? Sex.Woman : Sex.Man, age });
+    }
+    households.push({ members, dawnsSeen: FORMED_DAWNS_AGO });
+    id += members.length;
+  }
+  return households;
 }
 
 /** The settlement in its later years: the benchmark's living settlers, then `DEAD_ROWS` more who die before the first tick. */
 const LATER_YEARS: Population = {
   ...BENCHMARK_POPULATION,
   villagers: BENCHMARK_POPULATION.villagers + DEAD_ROWS,
-  settlers: [...laterYears(BENCHMARK_POPULATION.villagers, 0), ...laterYears(DEAD_ROWS, BENCHMARK_POPULATION.villagers)],
+  settlers: [...laterYears(BENCHMARK_POPULATION.villagers, 0, true), ...laterYears(DEAD_ROWS, BENCHMARK_POPULATION.villagers, false)],
 };
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
@@ -165,6 +192,12 @@ const HUNTED = ['shots', 'kills', 'hunted', 'huntedIn', 'fromGround', 'hides', '
 const GOOD_NAMES = ['logs', 'stone'] as const;
 /** Every villager makes its dusk or dawn choice within one think cycle, so each turn of the light is measured over this many ticks. */
 const TURN_TICKS = THINK_GROUPS;
+
+function countChildren(sim: Sim): number {
+  let children = 0;
+  for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.child[id] === 1) children++;
+  return children;
+}
 
 const sum = (values: Uint32Array) => values.reduce((total, value) => total + value, 0);
 
@@ -351,6 +384,7 @@ function measure(size: number, run: string): boolean {
   const monsterDraws = sum(sim.monsters.draws);
   const spentBefore = spentRock(sim.map);
   const tallyBefore = { ...sim.tally };
+  const childrenBefore = countChildren(sim);
   const housesBefore = built(sim, Building.House);
   const hutsBefore = built(sim, Building.Hut);
   const barnsBefore = built(sim, Building.Barn);
@@ -374,23 +408,26 @@ function measure(size: number, run: string): boolean {
   const samples = new Float64Array(MEASURED_TICKS);
   const { task, taskTile, destination } = sim.villagers;
   const rows = sim.villagers.count;
-  const heldTask = new Uint8Array(rows);
-  const lastTask = task.slice(0, rows);
+  const heldTask = new Uint8Array(VILLAGER_ROWS);
+  const lastTask = task.slice();
   const { state, workplace, x: villagerX, y: villagerY } = sim.villagers;
-  const lastWorkplace = workplace.slice(0, rows);
-  const lastState = state.slice(0, rows);
+  const lastWorkplace = workplace.slice();
+  const lastState = state.slice();
   const campX = (sim.flow.goal % size) + 0.5;
   const campY = Math.floor(sim.flow.goal / size) + 0.5;
   const deaths = { away: 0, atStore: 0, starvedAway: 0, starvedHome: 0, frozeAway: 0, frozeHome: 0, oldAge: 0, foragers: 0, hunters: 0, farthest: 0 };
   const livingBefore = sim.living;
   let mostLiving = sim.living;
-  const lastMissed = sim.villagers.missedMeals.slice(0, rows);
+  const lastMissed = sim.villagers.missedMeals.slice();
+  const birthsByDawn: number[] = [];
   let mealsByDay = 0;
   const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
   const toStockpile: Trips = { count: 0, length: 0 };
   const toSite: Trips = { count: 0, length: 0 };
   let dayVillagerTicks = 0;
   let dayTaskTicks = 0;
+  let workerTicks = 0;
+  let workerTaskTicks = 0;
   const dayKindTicks = new Float64Array(TASK_KINDS.length + 1);
   let fewestOpen = Infinity;
   const fewestRoom = new Float64Array(GOOD_NAMES.length).fill(Infinity);
@@ -414,10 +451,12 @@ function measure(size: number, run: string): boolean {
     }
     const dawnTick = isDawn(sim.tick);
     const byDay = !isNight(sim.tick) && !dawnTick;
+    const born = sim.tally.births;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
-    for (let id = 0; id < rows; id++) {
+    if (dawnTick) birthsByDawn.push(sim.tally.births - born);
+    for (let id = 0; id < sim.villagers.count; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
         const cause = sim.villagers.cause[id];
         if (cause === Cause.OldAge) deaths.oldAge++;
@@ -458,7 +497,7 @@ function measure(size: number, run: string): boolean {
       midnights[nights++] = atCamp(sim);
     }
     const day = !isNight(sim.tick - 1);
-    for (let id = 0; id < rows; id++) {
+    for (let id = 0; id < sim.villagers.count; id++) {
       const taken = task[id] !== lastTask[id] && taskTile[id]! >= 0;
       if (taken && task[id] === EAT && turn === 'dawn' && turnLeft >= 0) {
         dawnMeals.walks++;
@@ -471,8 +510,11 @@ function measure(size: number, run: string): boolean {
         trip.length += Math.hypot((taskTile[id]! % size) - (destination[id]! % size), Math.floor(taskTile[id]! / size) - Math.floor(destination[id]! / size));
       }
       lastTask[id] = task[id]!;
+      const worker = day && state[id] !== VillagerState.Dead && ageAt(sim.villagers, id, sim.tick) >= WORK_AGE;
+      if (worker) workerTicks++;
       if (task[id] === NO_TASK) continue;
       heldTask[id] = 1;
+      if (worker) workerTaskTicks++;
       if (day) dayTaskTicks++;
       if (day) dayKindTicks[task[id]!]++;
     }
@@ -494,7 +536,7 @@ function measure(size: number, run: string): boolean {
   samples.sort();
   const median = quantile(samples, 0.5);
   const p99 = quantile(samples, 0.99);
-  const busy = dayTaskTicks / dayVillagerTicks;
+  const busy = workerTaskTicks / workerTicks;
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
   const livingLimit = population.mostLiving!;
   const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (workHeld && allWork));
@@ -620,8 +662,13 @@ function measure(size: number, run: string): boolean {
       `carrying tiles set aside as out of reach: ${sim.goods.setAsideCount}`,
   );
   console.log(
-    `  work held through the measured ticks: ${workHeld ? 'PASS' : 'FAIL'}, needs ${percent(LEAST_BUSY, 1)} of daytime villager-ticks on a task, ` +
-      `and a gathering task open and stockpile room for each good at every daytime tick`,
+    `  work held through the measured ticks: ${workHeld ? 'PASS' : 'FAIL'}, needs ${percent(LEAST_BUSY, 1)} of the daytime ticks of the living villagers of ${WORK_AGE} or older on a task, ` +
+      `and a gathering task open and stockpile room for each good at every daytime tick; ` +
+      `the share is ${percent(workerTaskTicks, workerTicks)}, and ${percent(dayTaskTicks, dayVillagerTicks)} by the count before 5.2, which takes every row in use at the start, the dead and children too`,
+  );
+  console.log(
+    `  births in the measured ticks: ${sim.tally.births - tallyBefore.births}, at each measured dawn ${birthsByDawn.join(', ') || 'none'}; ` +
+      `children living at the start ${childrenBefore} and at the end ${countChildren(sim)}`,
   );
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
   console.log(

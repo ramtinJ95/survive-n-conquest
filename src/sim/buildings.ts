@@ -12,6 +12,8 @@ export const Job = { None: 0, Forager: 1, Hunter: 2, Woodcutter: 3, Tailor: 4 } 
 export type Job = (typeof Job)[keyof typeof Job];
 /** Where a rule takes a villager with any job, or with none. */
 export const ANYONE = -1;
+/** The job of a kind of task anyone takes, a child too, as eating. */
+export const EVERYONE = -2;
 
 export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge' | 'woodshed' | 'tailor';
 
