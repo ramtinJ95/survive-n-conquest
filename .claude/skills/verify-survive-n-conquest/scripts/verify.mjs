@@ -544,6 +544,7 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
 function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
   const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
   const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
+  if (!GIF_STEPS.some((step) => step.width <= width)) fail(`no GIF step is ${width} px wide or narrower; the narrowest is ${Math.min(...GIF_STEPS.map((step) => step.width))} px`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
     const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
     const palette = `${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
@@ -7138,7 +7139,7 @@ const BIRTHS_CLOSER = -500;
 /** Pixels from a tunic's middle at which a click can find a child that stands beside an adult, at `BIRTHS_CLOSER`. */
 const CHILD_REACH = 10;
 /** At `BIRTHS_CLOSER` over the house of Merek and Elsi, the house, its doors, and the news log below them. */
-const BIRTHS_CLIP = { crop: { x: 380, y: 150, width: 420, height: 340 }, width: 420, colors: 64 };
+const BIRTHS_CLIP = { crop: { x: 320, y: 150, width: 480, height: 340 }, width: 480, colors: 64 };
 const BIRTH_DAWNS = { first: 3, full: 4, second: 5 };
 
 function birthsDriver(session) {

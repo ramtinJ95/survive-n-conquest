@@ -16,7 +16,7 @@ import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from 
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { STOCKING } from '../src/sim/stocking';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { VillagerState } from '../src/sim/villagerState';
+import { VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
 import { jobCounts, storeTotals } from '../src/ui/stockpiles';
 import { readinessOf } from '../src/sim/readiness';
 
@@ -258,7 +258,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
   const houses: number[] = [];
   const splitBySeason: number[] = [];
   const dusks: Row['dusks'] = [];
-  const cold = Array.from({ length: sim.villagers.count }, () => [] as number[]);
+  const cold = Array.from({ length: VILLAGER_ROWS }, () => [] as number[]);
   const died: string[] = [];
   const arrivals = new Map<number, number>();
   const fires = new Map<number, number>();
@@ -347,7 +347,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
   }
   splitBySeason.push(firewoodSplit(sim));
   if (barnAtEnd < 0) barnAtEnd = goodIn(sim, Good.Food, StoreKind.Common);
-  const coldNights = cold.map((nights, id) => `${nameOfId(sim, id)} ${nights.length > 0 ? nights.join(',') : 'none'}`);
+  const coldNights = cold.slice(0, sim.villagers.count).map((nights, id) => `${nameOfId(sim, id)} ${nights.length > 0 ? nights.join(',') : 'none'}`);
   return {
     sim,
     row: {
