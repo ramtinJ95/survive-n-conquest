@@ -210,6 +210,8 @@ export interface Row {
   readonly missed: number;
   readonly barnAtEnd: number;
   readonly living: number;
+  /** Children born in the year. */
+  readonly born: number;
   readonly felledByAutumn: number;
   readonly felled: number;
   readonly woodcutterIdle: string;
@@ -369,6 +371,7 @@ export function playYear(year: Year, seed = 7): { sim: Sim; row: Row } {
       missed: sim.tally.missed,
       barnAtEnd,
       living: sim.living,
+      born: sim.tally.births,
       felledByAutumn,
       felled: sim.tally.felled,
       shedDoing,
@@ -396,7 +399,7 @@ export function printRow(row: Row): void {
   console.log(`slack, firewood beyond the 2 a house burns: ${slackOf(row).byDusk.join('; ')}; firewood carried into each house from the start of winter to the last cold dusk: ${row.winterArrivals.join(' ')}; nights each house's fire burned: ${row.fires.join(' ')}`);
   console.log(`firewood carried home over the year ${row.unitsHome}, ${row.minutesPerUnitHome} game minutes of walking for each unit`);
   console.log(`clothed at the dusk of day 10: ${row.clothedAtDay10}; cold nights: ${row.coldNights.join('; ')}`);
-  console.log(`died: ${row.died.join('; ') || 'nobody'}; living ${row.living} of 8`);
+  console.log(`died: ${row.died.join('; ') || 'nobody'}; living ${row.living} of the 8 and the ${row.born} born`);
   console.log(`meals: ${row.meals} eaten of ${row.mealsDue} due, ${row.missed} missed; barn at the year's end ${row.barnAtEnd}`);
   console.log(`trees felled by the end of autumn ${row.felledByAutumn}, by the year's end ${row.felled}; woodshed ${row.woodcutterIdle}`);
   console.log(`the woodshed panel's Doing, in daylight ticks after it stood: ${Object.entries(row.shedDoing).map(([k, v]) => `${k} ${v}`).join('; ') || 'no woodshed stood'}`);

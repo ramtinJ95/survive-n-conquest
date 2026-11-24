@@ -22,7 +22,7 @@ import type { Command, Sim } from '../src/sim/sim';
 import { STOCKING } from '../src/sim/stocking';
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
-import { VillagerState } from '../src/sim/villagerState';
+import { VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
 
 const STOCK = TASK_KINDS.indexOf(STOCKING) + 1;
 const SEASON_ENDS = [3, 6, 9, 12];
@@ -68,7 +68,6 @@ interface Night {
 
 function runYear(year: WinterYear) {
   const { sim, lodge, step } = playWinterYear(year);
-  const count = sim.villagers.count;
   const given: { tick: number; commands: readonly Command[] }[] = [{ tick: 0, commands: year.atStart }];
   const finished: string[] = [];
   const builtAt = new Map<number, number>();
@@ -76,15 +75,15 @@ function runYear(year: WinterYear) {
   const readings: string[] = [];
   const food: string[] = [];
   const warmth: string[] = [];
-  const nights = Array.from({ length: count }, () => new Map<number, Night>());
+  const nights = Array.from({ length: VILLAGER_ROWS }, () => new Map<number, Night>());
   const coldBy = new Map<number, { noon: number; beforeDusk: number }>();
   const died: string[] = [];
   const fires: string[] = [];
   const clothing: string[] = [];
   const seasons: string[] = [];
-  const atWinter = Array.from({ length: count }, () => ({ home: '', job: '' }));
-  const stockingTicks = new Float64Array(count);
-  const firewoodHome = new Uint16Array(count);
+  const atWinter = Array.from({ length: VILLAGER_ROWS }, () => ({ home: '', job: '' }));
+  const stockingTicks = new Float64Array(VILLAGER_ROWS);
+  const firewoodHome = new Uint16Array(VILLAGER_ROWS);
   let made = 0;
   let mealsDue = 0;
   const readingRow = (when: string) => {
@@ -95,7 +94,7 @@ function runYear(year: WinterYear) {
   };
   const clothedNow = () => {
     let clothed = 0;
-    for (let id = 0; id < count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) clothed += 1;
+    for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) clothed += 1;
     return clothed;
   };
   const storesRow = (when: string) => {
@@ -112,7 +111,7 @@ function runYear(year: WinterYear) {
   const piecesNow = () => sim.tally.dressed + goodIn(sim, Good.Clothing, StoreKind.Workshop);
   const seasonRow = (day: number) => {
     const names: string[] = [];
-    for (let id = 0; id < count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) names.push(nameOfId(sim, id));
+    for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.state[id] !== VillagerState.Dead && sim.villagers.worn[id] === Good.Clothing) names.push(nameOfId(sim, id));
     seasons.push(
       `| end of day ${day} | ${sim.tally.hides} | ${made} | ${sim.tally.dressed} | ${goodIn(sim, Good.Clothing, StoreKind.Workshop)} | ${names.length} of ${sim.living} | ${names.join(', ') || 'nobody'} |`,
     );
@@ -141,7 +140,7 @@ function runYear(year: WinterYear) {
     if (isDusk(sim.tick + 1) && WINTER_DAYS.includes(day)) coldBy.get(day)!.beforeDusk = readinessOf(sim)!.cold;
     if (isDusk(sim.tick) && WINTER_DAYS.includes(day)) storesRow(`dusk of day ${day}`);
     if (isDusk(sim.tick) && day === WINTER_DAYS[0]) {
-      for (let id = 0; id < count; id++) {
+      for (let id = 0; id < sim.villagers.count; id++) {
         const home = sim.households.home[sim.villagers.household[id]!]!;
         const place = sim.villagers.workplace[id]!;
         atWinter[id] = { home: home < 0 ? 'camp' : `house ${home}`, job: place < 0 ? 'none' : buildingName(sim, place) };
@@ -156,7 +155,7 @@ function runYear(year: WinterYear) {
     const homeFirewood = sim.tally.firewoodHome;
     const pieces = piecesNow();
     const worn = Uint8Array.from(sim.villagers.worn);
-    for (let id = 0; id < count; id++) if (sim.villagers.task[id] === STOCK && sim.villagers.stockGood[id] === Good.Firewood) stockingTicks[id]! += 1;
+    for (let id = 0; id < sim.villagers.count; id++) if (sim.villagers.task[id] === STOCK && sim.villagers.stockGood[id] === Good.Firewood) stockingTicks[id]! += 1;
     const ticked = sim.tick;
     const pending = sim.orders.sites.state[lodge] !== SiteState.Built;
     step();
@@ -166,7 +165,7 @@ function runYear(year: WinterYear) {
       clothing.push(`${clock(ticked)} piece ${made} made`);
     }
     if (sim.tally.firewoodHome > homeFirewood) {
-      for (let id = 0; id < count; id++) {
+      for (let id = 0; id < sim.villagers.count; id++) {
         if (carried[id] === Good.Firewood && sim.villagers.carried[id] === Good.None && toStore[id]! >= 0 && toStore[id] !== CAMP_STORE) firewoodHome[id]! += 1;
       }
     }
@@ -176,7 +175,7 @@ function runYear(year: WinterYear) {
       builtAt.set(slot, ticked);
       finished.push(`${buildingName(sim, slot)} ${clock(ticked)}`);
     }
-    for (let id = 0; id < count; id++) {
+    for (let id = 0; id < sim.villagers.count; id++) {
       const place = sim.villagers.workplace[id]!;
       if (place >= 0 && place !== workplace[id]) hires.push(`${clock(ticked)} ${nameOfId(sim, id)} takes a place at ${buildingName(sim, place)}`);
       if (place < 0 && workplace[id]! >= 0) hires.push(`${clock(ticked)} ${nameOfId(sim, id)} leaves ${buildingName(sim, workplace[id]!)}`);
