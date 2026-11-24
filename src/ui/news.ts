@@ -1,15 +1,17 @@
-import { BUILDINGS, Building } from '../sim/buildings';
+import { BUILDINGS, Building, needOf } from '../sim/buildings';
 import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
+import { isNight } from '../sim/daylight';
 import { type Sex, nameOf } from '../sim/names';
 import { COLD, HUNGER } from '../sim/needs';
 import type { Orders } from '../sim/orders';
 import { VillagerState } from '../sim/villagerState';
+import { Stop } from '../sim/workshops';
 import type { SimFrame } from '../frame';
 import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'states' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'workplaces'>;
+type Seen = Pick<SimFrame, 'tick' | 'states' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -25,6 +27,27 @@ const died = (before: Seen, after: Seen, id: number) => alive(before, id) && !al
 
 /** The kinds of building with places to work in, each with its own lines of who took a place and who left one. */
 const WORKPLACES = (Object.values(Building) as Building[]).filter((building) => BUILDINGS[building].places > 0);
+
+/** The kinds of workshop, each with its own line at dusk for a worker that did none of its work that day for lack of its input. */
+const WORKSHOPS = (Object.values(Building) as Building[]).filter((building) => BUILDINGS[building].recipe !== null);
+
+/**
+ * What a workshop's worker made none of, and why, for each reason a lack of input stops it, kept short enough that
+ * a line naming eight settlers and counting 1,493 more takes no more rows than the longest line before them.
+ */
+const IDLE_DAY_WORDS: Readonly<Partial<Record<Building, { readonly none: string; readonly [Stop.NoInput]: string; readonly [Stop.ForSites]: string }>>> = {
+  [Building.Woodshed]: { none: 'split no firewood', [Stop.NoInput]: 'no log in reach', [Stop.ForSites]: 'sites need the logs' },
+  [Building.Tailor]: { none: 'made no clothing', [Stop.NoInput]: 'no hide in reach', [Stop.ForSites]: 'sites need the hides' },
+};
+
+/** The reasons a lack of input can stop a workshop's worker: the sites only for an input some kind of building needs. */
+const idleReasons = (building: Building): readonly (typeof Stop.ForSites | typeof Stop.NoInput)[] => {
+  const input = BUILDINGS[building].recipe!.input;
+  return Object.values(BUILDINGS).some((kind) => needOf(kind, input) > 0) ? [Stop.ForSites, Stop.NoInput] : [Stop.NoInput];
+};
+
+/** Whether the night began between the two frames, so the day's work is over. */
+const duskFell = (before: Seen, after: Seen) => !isNight(before.tick) && isNight(after.tick);
 
 /** Every kind of news, in the order a frame's lines are made. */
 const EVENTS: readonly NewsEvent[] = [
@@ -49,6 +72,19 @@ const EVENTS: readonly NewsEvent[] = [
       },
     ];
   }),
+  ...WORKSHOPS.flatMap((building) =>
+    idleReasons(building).map((stop): NewsEvent => {
+      const words = IDLE_DAY_WORDS[building]!;
+      return {
+        kind: `no work at ${BUILDING_WORDS[building].noun}, ${words[stop]}`,
+        befell: (before, after, id, orders) => {
+          const slot = after.workplaces[id]!;
+          return duskFell(before, after) && alive(after, id) && slot >= 0 && orders.sites.kind[slot] === building && after.workshopWorked[slot] === 0 && after.workshopStops[slot] === stop;
+        },
+        verb: () => `${words.none}: ${words[stop]}`,
+      };
+    }),
+  ),
 ];
 
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
@@ -96,7 +132,8 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 
 /**
  * The settlement's news: who went hungry, who starved, who ate again, who had
- * a cold night, who froze, who took a place at a workplace, and who left one, found by comparing each
+ * a cold night, who froze, who took a place at a workplace, who left one, and,
+ * at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
  */

@@ -324,9 +324,44 @@ describe('stocking firewood', () => {
     for (let tick = 0; tick < 100; tick++) step(sim);
     expect([sim.workshops.stopped[shed], sim.tally.batches, firewood(sim, shed)]).toEqual([Stop.Full, 0, 40]);
     const house = finished(sim, Building.House, 16, 14);
+    sim.stores.held[FIREWOOD]![CAMP_STORE] = 0;
     runUntil(sim, () => sim.tally.batches > 0, TICKS_PER_DAY / 2);
     expect(firewood(sim, house)).toBeGreaterThanOrEqual(2);
     expect(sim.workshops.stopped[shed]).not.toBe(Stop.Full);
+  });
+});
+
+describe("stocking a home from the camp's firewood", () => {
+  it('takes firewood for a home from the camp while no household sleeps there and the camp is nearer than the woodshed', () => {
+    const sim = createSim(mapFrom(open(40)), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    const house = finished(sim, Building.House, 15, 15);
+    const shed = finished(sim, Building.Woodshed, 34, 34);
+    sim.stores.held[FIREWOOD]![shed] = 20;
+    sim.stores.held[FIREWOOD]![CAMP_STORE] = CAMP_FIREWOOD_LIMIT;
+    expect(sim.households.atCamp).toBe(0);
+    runUntil(sim, () => firewood(sim, house) === HOUSE_FIREWOOD_LIMIT, TICKS_PER_DAY / 2);
+    expect([firewood(sim, CAMP_STORE), firewood(sim, shed)]).toEqual([CAMP_FIREWOOD_LIMIT - HOUSE_FIREWOOD_LIMIT, 20]);
+  });
+
+  it('takes it from the woodshed when the woodshed is nearer, and from the camp once the woodshed is empty', () => {
+    const sim = createSim(mapFrom(open(40)), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    const house = finished(sim, Building.House, 5, 5);
+    const shed = finished(sim, Building.Woodshed, 9, 4);
+    sim.stores.held[FIREWOOD]![shed] = 4;
+    sim.stores.held[FIREWOOD]![CAMP_STORE] = CAMP_FIREWOOD_LIMIT;
+    runUntil(sim, () => firewood(sim, house) === HOUSE_FIREWOOD_LIMIT, TICKS_PER_DAY / 2);
+    expect([firewood(sim, shed), firewood(sim, CAMP_STORE)]).toEqual([0, CAMP_FIREWOOD_LIMIT - 2]);
+  });
+
+  it("leaves the camp's firewood to the camp while a household sleeps there", () => {
+    const sim = createSim(mapFrom(open(40)), { villagers: 4, monsters: 0, campFood: 100, animals: false });
+    const house = finished(sim, Building.House, 15, 15);
+    const shed = finished(sim, Building.Woodshed, 34, 34);
+    sim.stores.held[FIREWOOD]![shed] = 20;
+    sim.stores.held[FIREWOOD]![CAMP_STORE] = CAMP_FIREWOOD_LIMIT;
+    expect(sim.households.atCamp).toBe(2);
+    runUntil(sim, () => firewood(sim, house) === HOUSE_FIREWOOD_LIMIT, TICKS_PER_DAY / 2);
+    expect([firewood(sim, CAMP_STORE), sim.tally.firewoodToCamp]).toEqual([CAMP_FIREWOOD_LIMIT, 0]);
   });
 });
 

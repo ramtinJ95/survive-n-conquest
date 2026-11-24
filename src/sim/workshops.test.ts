@@ -222,6 +222,29 @@ describe('a woodshed', () => {
     expect([firewood(sim, shed), logsOn(sim, 40, 36), sim.workshops.stopped[shed]]).toEqual([0, 5, Stop.ForSites]);
   });
 
+  it('says the building sites need the logs while no stockpile in reach holds one and a site a walk reaches lacks logs', () => {
+    const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 26, y: 26 })).toMatchObject({ ok: true });
+    expect(putDown(sim, at(sim.map, 40, 36), Good.Log, 4)).toBe(true);
+    logPile(sim, 44, 36, 0);
+    const shed = finished(sim, Building.Woodshed, 36, 32);
+    runUntil(sim, () => sim.tick >= TICKS_PER_DAY / 3, TICKS_PER_DAY);
+    expect([firewood(sim, shed), logsOn(sim, 40, 36), sim.workshops.stopped[shed]]).toEqual([0, 4, Stop.ForSites]);
+  });
+
+  it('counts a day as worked from the first work its worker takes, and starts every day unworked', () => {
+    const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
+    logPile(sim, 40, 36, 1);
+    const shed = finished(sim, Building.Woodshed, 36, 32);
+    expect(sim.workshops.worked[shed]).toBe(0);
+    runUntil(sim, () => sim.workshops.worked[shed] === 1, TICKS_PER_DAY / 3);
+    runUntil(sim, () => sim.tally.batches === 1 && isNight(sim.tick), TICKS_PER_DAY);
+    expect(sim.workshops.worked[shed]).toBe(1);
+    runUntil(sim, () => !isNight(sim.tick), TICKS_PER_DAY);
+    runUntil(sim, () => sim.tick % TICKS_PER_DAY === 0, TICKS_PER_DAY);
+    expect([sim.workshops.worked[shed], sim.workshops.stopped[shed]]).toEqual([0, Stop.NoInput]);
+  });
+
   it('stops once the shed holds 40 firewood, and says it is full', () => {
     const sim = createSim(openMap(), { villagers: 1, monsters: 0 });
     logPile(sim, 40, 36, 5);
