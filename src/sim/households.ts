@@ -23,6 +23,9 @@ export interface Households {
   /** The site slots of the finished houses, in the order they were finished. The first `houseCount` hold one. */
   readonly houses: Int16Array;
   houseCount: number;
+  /** The site slots of the finished houses no household lives in, the first `vacantCount` of them, in the order they were emptied. Stocking takes food and firewood out of them. */
+  readonly vacant: Int16Array;
+  vacantCount: number;
   /** The members of each household still alive. */
   readonly living: Uint8Array;
   /** The living members of each household who work, and so can carry for it. */
@@ -49,6 +52,8 @@ export function createHouseholds(): Households {
     householdIn: new Int16Array(MAX_SITES).fill(-1),
     houses: new Int16Array(MAX_SITES),
     houseCount: 0,
+    vacant: new Int16Array(MAX_SITES),
+    vacantCount: 0,
     living: new Uint8Array(MAX_HOUSEHOLDS),
     workers: new Uint8Array(MAX_HOUSEHOLDS),
     man: new Int32Array(MAX_HOUSEHOLDS).fill(NO_VILLAGER),
@@ -96,32 +101,43 @@ export function formHousehold(households: Households, villagers: Villagers, man:
   households.man[h] = man;
   households.woman[h] = woman;
   households.lastBirth[h] = dawn;
-  households.home[h] = home;
-  if (home !== NO_HOME) households.householdIn[home] = h;
+  if (home !== NO_HOME) occupy(households, home, h);
   if (man !== NO_VILLAGER) addMember(households, villagers, h, man);
   if (woman !== NO_VILLAGER) addMember(households, villagers, h, woman);
   return h;
 }
 
+/** Makes the empty house in `slot` the home of household `h`, which had none, with what it holds. */
+function occupy(households: Households, slot: number, h: number): void {
+  const { vacant } = households;
+  households.home[h] = slot;
+  households.householdIn[slot] = h;
+  let at = 0;
+  while (vacant[at] !== slot) at++;
+  vacant.copyWithin(at, at + 1, households.vacantCount);
+  households.vacantCount -= 1;
+}
+
 /**
- * Gives the house in `slot` to the household with the lowest number that has
- * no home and a living member. A house with no such household stays empty.
+ * Gives the empty house in `slot` to the household with the lowest number
+ * that has no home and a living member. A house with no such household stays
+ * empty.
  */
 export function moveInto(households: Households, slot: number): void {
   const { home, living } = households;
   for (let h = 0; h < households.count; h++) {
     if (home[h] !== NO_HOME || living[h] === 0) continue;
-    home[h] = slot;
-    households.householdIn[slot] = h;
+    occupy(households, slot, h);
     households.atCamp -= living[h]!;
     return;
   }
 }
 
-/** Records the house in `slot` as finished, after every house finished before it, and gives it to a household that needs one. */
+/** Records the house in `slot` as finished and empty, after every house finished before it, and gives it to a household that needs one. */
 export function openHouse(households: Households, slot: number): void {
   households.houses[households.houseCount] = slot;
   households.houseCount += 1;
+  households.vacant[households.vacantCount++] = slot;
   moveInto(households, slot);
 }
 
@@ -137,7 +153,8 @@ export function emptyHouse(households: Households): number {
 /**
  * Takes villager `id` out of its household's count, as one that died or one
  * that left it to form a household. When it was the last, its house, with the
- * food and the firewood in it, goes to the next household that needs one.
+ * food and the firewood in it, is empty until the next household that needs
+ * one takes it.
  */
 export function loseMember(households: Households, villagers: Villagers, id: number): void {
   const { home, living } = households;
@@ -151,5 +168,6 @@ export function loseMember(households: Households, villagers: Villagers, id: num
   const slot = home[h]!;
   home[h] = NO_HOME;
   households.householdIn[slot] = -1;
+  households.vacant[households.vacantCount++] = slot;
   moveInto(households, slot);
 }
