@@ -3540,7 +3540,7 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
         'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 15', 'Boy, 15'],
         Household: household,
-        Home: ['None, sleeps at the camp', 'A house'],
+        Home: ['None, sleeps at the camp', "Parents' house", 'A house'],
         'Missed meals': ['2, hungry'],
         'Cold nights': ['2, cold, clothed'],
       },
@@ -7501,14 +7501,30 @@ const PAIRING_FOOD = '200';
 const PAIRING_HOUSES = { first: 3, second: 6, third: 5 };
 /** At `BIRTHS_CLOSER` over the third house, the three houses, the selection panel at the bottom left, and the news log. */
 const PAIRING_CLIP = { crop: { x: 0, y: 100, width: 800, height: 440 }, width: 640, colors: 64, decimate: true };
+/**
+ * Three households, the first two with a child of 14 and the third a couple, so the three houses of `PAIRING_ROOF_ORDERS`
+ * are theirs before the children are 16 at the dawn of day 6, and no house stands empty then. Every woman is 40 or older.
+ */
+const PAIRING_ROOF = 'm44,w42,m14@6;m45,w43,w14@6;m46,w44@6';
+/** `FIREWOOD_YEAR_START` up to its fourth house, and that house with its chop orders, which the roof page gives later. */
+const PAIRING_ROOF_ORDERS = FIREWOOD_YEAR_START.slice(0, FIREWOOD_YEAR_START.findLastIndex(([key]) => key === 'KeyH'));
+const PAIRING_ROOF_LATE = FIREWOOD_YEAR_START.slice(PAIRING_ROOF_ORDERS.length);
+/** The roof page gives the fourth house at this minute, after the dusk of the pairing's day. */
+const PAIRING_ROOF_LATE_AT = { day: 7, time: '08:00' };
+/** The roof page's houses by site slot, as `pairing.ts` gives them with the fourth house held back. */
+const PAIRING_ROOF_HOUSES = { first: 3, second: 5, third: 4, fourth: 6 };
+/** The dusk the roof page records, from before nightfall at 20:24 to after Sten, a hunter far out, goes in at 21:59, and the minute its checks read the night. */
+const PAIRING_ROOF_DUSK = { from: { day: 6, time: '20:10' }, until: { day: 6, time: '22:05' } };
+/** The whole page with the clock and the news log, so the two walking home are in the picture with the minute. */
+const PAIRING_ROOF_CLIP = { width: 640, colors: 64, decimate: true };
 
 SCENARIOS.pairing = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
   const { reads, text, click, uiBoxes, apart, counts, closer, selectTitled, listen } = birthsDriver(session);
   const at = async (page) => clockText(await session.gameMinutes(page));
-  const expected = (settlers, food, dawns) => {
-    const run = spawnSync('bun', [PAIRING_SCRIPT, settlers, food, String(dawns)], { cwd: ROOT, encoding: 'utf8' });
+  const expected = (settlers, food, dawns, late) => {
+    const run = spawnSync('bun', [PAIRING_SCRIPT, settlers, food, String(dawns), ...(late ? [String(late.day), late.time] : [])], { cwd: ROOT, encoding: 'utf8' });
     if (run.status !== 0) fail(`pairing.ts failed: ${run.stderr}`);
     return JSON.parse(run.stdout);
   };
@@ -7684,6 +7700,132 @@ SCENARIOS.pairing = async (session) => {
   );
   await b.context.close();
   seen.push(...b.errors);
+
+  const roof = expected(PAIRING_ROOF, PAIRING_FOOD, 9, PAIRING_ROOF_LATE_AT);
+  const roofDawn = paired(roof);
+  const roofPair = roofDawn?.pairings[0];
+  const fourth = roof.houses[3];
+  const finishedBefore = (finished, dawn) => clockMinutes({ day: Number(finished.split(' ')[1]), time: finished.split(' ')[2] }) < clockMinutes(dawn);
+  session.check(
+    "in src/sim the roof page's 14-year-olds pair at the dawn of day 6, when the three houses are their parents' and the third couple's and none stands empty, and each lives on in its parents' house",
+    roofDawn?.news === 'Day 6, 03:36' && roofDawn.pairings.length === 1 && roofPair.household === 4 && roofPair.slot === -1 &&
+      roofPair.man.livesIn === PAIRING_ROOF_HOUSES.first && roofPair.woman.livesIn === PAIRING_ROOF_HOUSES.second &&
+      roof.houses.slice(0, 3).every((house) => finishedBefore(house.finished, roofDawn.stop)) &&
+      JSON.stringify(roofDawn.households.slice(0, 3).map(({ slot }) => slot)) === JSON.stringify([PAIRING_ROOF_HOUSES.first, PAIRING_ROOF_HOUSES.second, PAIRING_ROOF_HOUSES.third]),
+    JSON.stringify({ houses: roof.houses, pairings: roofDawn?.pairings ?? null, households: roofDawn?.households ?? null }),
+  );
+  session.check(
+    `in src/sim the fourth house, ordered at ${clockText(clockMinutes(PAIRING_ROOF_LATE_AT))}, is finished after the dusk of day 6, and the new household moves into it`,
+    fourth?.slot === PAIRING_ROOF_HOUSES.fourth && !finishedBefore(fourth.finished, PAIRING_ROOF_LATE_AT) && roof.dawns.at(-1).households[3].slot === PAIRING_ROOF_HOUSES.fourth,
+    JSON.stringify({ fourth, last: roof.dawns.at(-1).households }),
+  );
+
+  const c = await session.open(CLIP, { record: true, search: `?seed=7&food=${PAIRING_FOOD}&settlers=${PAIRING_ROOF}`, clock: 'paused' });
+  const r = c.page;
+  await takeForageView(session, r, HIDES_YEAR_VIEW);
+  const wrongC = await giveYearOrders(session, r, PAIRING_ROOF_ORDERS, said);
+  session.check(`at ${await at(r)} the roof page's ${PAIRING_ROOF_ORDERS.length} orders, the year's without its fourth house, are given, each as its status line says`, wrongC.length === 0, wrongC.join(' | ') || 'all said');
+  const [roofMan, roofWoman] = [roofPair.man.name, roofPair.woman.name];
+  const roofCouple = coupleOf(roofPair);
+  const firstParents = roof.dawns.at(-1).households[0].couple;
+  const roofStop = clockMinutes(roofDawn.stop);
+  const roofFrom = clockAt(roofStop - 10);
+  await session.reach(r, roofFrom);
+  await click(r, BIRTH_HOUSES[PAIRING_ROOF_HOUSES.first]);
+  await r.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const roofDawnStart = c.since();
+  const roofHeard = await listen(r, roofFrom, clockAt(roofStop + 3));
+  const roofLine = `${roofDawn.news}. ${roofCouple} formed a household.`;
+  session.check(`with no house empty, the news says "${roofLine}" at the dawn the rule gives`, roofHeard.get(roofLine) === clockText(roofStop), [...roofHeard.entries()].map(([words, when]) => `"${words}" by ${when}`).join('; ') || 'nothing');
+  await session.reach(r, clockAt(roofStop + 20));
+  const roofWatched = await reads(r);
+  session.check(
+    `the house of ${firstParents}, open through the dawn, still counts ${roofMan} among the people who live in it at ${await at(r)}`,
+    roofWatched?.title === 'House' && roofWatched.rows.Household === `${firstParents}, 1 child`,
+    text(roofWatched),
+  );
+  const roofDawnEnd = c.since();
+  await r.keyboard.press('Escape');
+
+  await session.reach(r, { day: 6, time: '09:00' });
+  const roofHouse = await housePanel(r, PAIRING_ROOF_HOUSES.first, 'pairing-roof-house-panel');
+  session.check(
+    `at ${await at(r)} the panel of the house ${roofMan} lives in reads its household with ${roofMan} among its children`,
+    roofHouse?.rows.Household === `${firstParents}, 1 child`,
+    text(roofHouse),
+  );
+  const roofFound = await selectTitled(r, `${roofMan}, son of ${firstParents}`, PAIRING_ROOF_HOUSES.first, 'pairing-roof-settler-aim');
+  const roofRead = roofFound.read;
+  session.check(
+    `at ${await at(r)} the panel of ${roofMan} reads his new household and that he lives in his parents' house until his own is free`,
+    roofRead?.rows.Household === roofCouple && roofRead.rows.Home === "Parents' house",
+    roofRead ? text(roofRead) : `tried ${roofFound.tried.join(', ')}`,
+  );
+  await session.screenshot(r, 'pairing-roof-settler-panel');
+  for (const size of READY_SIZES) {
+    await r.setViewportSize(size);
+    await session.settle(r);
+    await session.still(r);
+    const { ok, detail } = apart(await uiBoxes(r));
+    session.check(`at ${size.width}x${size.height} the panel of a settler who lives in its parents' house covers no other panel`, ok, detail);
+  }
+  await r.setViewportSize(CLIP);
+  await session.settle(r);
+
+  await session.reach(r, PAIRING_ROOF_DUSK.from);
+  const roofDuskStart = c.since();
+  const inside = await session.runUntil(
+    r,
+    async () => {
+      const read = await reads(r);
+      return read?.rows.Doing === 'At home' ? { read, at: await at(r) } : null;
+    },
+    { every: 1, until: PAIRING_ROOF_DUSK.until },
+  );
+  await session.reach(r, PAIRING_ROOF_DUSK.until);
+  await session.screenshot(r, 'pairing-roof-dusk');
+  const roofDuskEnd = c.since();
+  session.check(
+    `at the dusk of day 6 ${roofMan} goes in to his parents' house and eats there`,
+    inside !== null && inside.read.rows.Home === "Parents' house" && inside.read.rows['Missed meals'] === 'None',
+    inside ? `${text(inside.read)} by ${inside.at}` : `never at home by ${clockText(clockMinutes(PAIRING_ROOF_DUSK.until))}; ${text(await reads(r))}`,
+  );
+  await r.keyboard.press('Escape');
+  const campTried = [];
+  let campRead = null;
+  for (const aim of PEOPLE_CAMP_AIMS) {
+    campRead = await click(r, aim);
+    campTried.push(`${aim.x},${aim.y}: ${campRead?.title ?? 'nothing'}`);
+    if (campRead?.title === 'Camp') break;
+  }
+  await r.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(r);
+  await session.screenshot(r, 'pairing-roof-camp-night');
+  session.check(
+    `at ${await at(r)} nobody sleeps at the camp: ${roofMan} and ${roofWoman} are in their parents' houses`,
+    campRead?.title === 'Camp' && campRead.rows['Settlers here'] === '0',
+    campRead?.title === 'Camp' ? text(campRead) : campTried.join('; '),
+  );
+  await r.keyboard.press('Escape');
+
+  await session.reach(r, PAIRING_ROOF_LATE_AT);
+  const wrongLate = await giveYearOrders(session, r, PAIRING_ROOF_LATE, said);
+  session.check(`at ${await at(r)} the fourth house and its ${PAIRING_ROOF_LATE.length - 1} chop orders are given, each as its status line says`, wrongLate.length === 0, wrongLate.join(' | ') || 'all said');
+  const fourthAt = clockMinutes({ day: Number(fourth.finished.split(' ')[1]), time: fourth.finished.split(' ')[2] });
+  await session.reach(r, clockAt(fourthAt - 5));
+  const moveBefore = await housePanel(r, PAIRING_ROOF_HOUSES.first, 'pairing-roof-move-before');
+  await session.reach(r, clockAt(fourthAt + 5));
+  const moveAfter = {
+    first: await housePanel(r, PAIRING_ROOF_HOUSES.first, 'pairing-roof-move-after-parents'),
+    fourth: await housePanel(r, PAIRING_ROOF_HOUSES.fourth, 'pairing-roof-move-after'),
+  };
+  session.check(
+    `5 minutes before the fourth house is finished ${roofMan} still lives in his parents' house, and 5 minutes after it his household has moved into the fourth house and his parents' house counts one fewer`,
+    moveBefore?.rows.Household === `${firstParents}, 1 child` && moveAfter.first?.rows.Household === firstParents && moveAfter.fourth?.title === 'House' && moveAfter.fourth.rows.Household === roofCouple,
+    `${text(moveBefore)} | ${text(moveAfter.first)} | ${text(moveAfter.fourth)}`,
+  );
+  await session.finishClips(c.context, r, [{ label: 'pairing-roof-dawn-to-dusk', spans: [[roofDawnStart, roofDawnEnd], [roofDuskStart, roofDuskEnd]], ...PAIRING_ROOF_CLIP }]);
+  seen.push(...c.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
