@@ -45,6 +45,7 @@ Work times are at 1× speed and are stored as ticks. A winter has 3 nights, so a
 - The camp's fire burns on a winter night when a villager comes home to the camp and the camp holds 4 firewood. It takes the 4 units.
 - A household stocks its home with firewood as it stocks it with food. When the house holds less than 6 firewood, a member carries 1 unit from the nearest woodshed that has some. Food comes first. A villager with a job does it too.
 - Villagers without a job carry firewood from the nearest woodshed to the camp while a household sleeps at the camp and the camp holds less than 12. This follows the rule that #29 added for food.
+- While no household sleeps at the camp, a household also takes firewood for its home from the camp when the camp holds some. It takes the nearer of the camp and the nearest woodshed that has some, and the woodshed when both are equally near. The owner decided on 2026-11-23 that houses take the camp's firewood too. In a measured year on seed 2 the settlers without a job had carried 12 firewood to the camp, it stayed there once every household had a house, two houses never lit a fire, and 4 of 8 settlers froze. With the rule all 8 live. The nearer source is the rule that food follows between the camp and the barns. (#45)
 - A house with a fire shows it on the map at night with a plain sign built in code, so the player sees which houses are warm.
 
 ### The woodshed
@@ -53,6 +54,7 @@ Work times are at 1× speed and are stored as ticks. A winter has 3 nights, so a
 - The woodcutter carries 1 log from the nearest stockpile within 30 tiles to the shed, splits it there, and puts the 2 firewood into the shed's store.
 - The woodcutter stops when the shed is full or no stockpile within reach has a log. Its panel says which.
 - Logs for firewood and logs for building come from the same stockpiles. A building site takes a log before the woodcutter does.
+- The owner decided on 2026-11-23 that this stays the player's management. The woodcutter gets no quota, and no rule changes who takes a log. The game says why no firewood is split instead. While no stockpile within reach holds a log and a building site that a walk reaches has not received all its logs, the woodshed's panel reads that the building sites need the logs. At dusk the news names a woodcutter who split no firewood that day for lack of logs, with the reason. (#45)
 
 ### Hides and clothing
 
@@ -138,6 +140,7 @@ At 8× a day takes 38 seconds and a year 7.5 minutes. What the owner says after 
   - **Wood.** Stage 3's hut, barn, and lodge, a woodshed, and a house for each household. The target is that all 8 come through the winter fed and warm.
   - **Wood and hides.** The same with two houses and a tailor's hut. The target is that the two households in houses are warm by their fires, the two at the camp are warm in clothing by the camp's fire, and all 8 come through.
   - **Nothing for warmth.** Stage 3's hut, barn, and lodge alone. The target is that all 8 are fed and all 8 freeze in the last night of winter.
+  - **What was measured.** #40 found that the year "wood" with these commands splits no firewood, because the building sites take every log, and all 8 freeze. A measurement of 2026-11-23 found a first year on seed 7 that reaches the target under the same rules: 4 houses on the places nearest the camp, ordered at 08:00 on day 1, and a woodshed whose woodcutter starts only when no site lacks a log. The player either orders the woodshed then, or orders it at the start and holds its places at 0 until then. All 8 live with no cold night, eat 96 of 96 meals, and have 33 food in the barn at the year's end. `bun scripts/firewood-years.ts near-houses-late-shed near-houses-shed-places` plays both years, and #45 holds their tables beside the years that fail. The year is not monotone in its delays: putting one order off can lose a year that a longer delay saves.
 - Whether warmth makes the first year tight. 4.5 reports the food in the barn at the year's end in each of the three years, beside the 108 that stage 3 measured without warmth.
 - Whether one woodcutter and one tailor keep up with 8 settlers, and what a household's walk to the woodshed costs.
 - The tick time with 1,500 villagers that keep warm, against the 4 ms limit, and the largest tick at a winter dusk.
