@@ -50,24 +50,52 @@ export function firewoodLacks(sim: Sim, store: number): number {
 
 const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.household[id]!]!;
 
+/** The square of the straight line from a point to the camp center, or to the middle of the building in a site slot. */
+function distanceTo(sim: Sim, store: number, px: number, py: number): number {
+  if (store !== CAMP_STORE) return (siteMidX(sim.orders.sites, store) - px) ** 2 + (siteMidY(sim.orders.sites, store) - py) ** 2;
+  const { size } = sim.map;
+  const camp = sim.flow.goal;
+  return ((camp % size) + 0.5 - px) ** 2 + (Math.floor(camp / size) + 0.5 - py) ** 2;
+}
+
 /**
- * The store a unit of `good` for store `to` comes from, nearest the point
- * (`px`, `py`): a common store for food, which for the camp is a barn, and a
- * workshop for firewood. A home also takes firewood from the camp while no
- * household sleeps there, as nothing else would burn it: the nearer of the camp
- * and the workshop, measured to the camp center and the workshop's middle, and
- * the workshop when they are equally near. Returns -1 when none has a unit no carrier spoke for.
+ * The store of firewood for store `to` nearest the point: a workshop. A home
+ * also takes firewood from the camp while no household sleeps there, as
+ * nothing else would burn it: the nearer of the camp and the workshop, and the
+ * workshop when they are equally near.
  */
-function sourceOf(sim: Sim, good: Unit, to: number, px: number, py: number): number {
-  if (good !== Good.Firewood) return nearestCommonStore(sim, px, py, Wants.Unit, Good.Food, to === CAMP_STORE);
+function firewoodStore(sim: Sim, to: number, px: number, py: number): number {
   const workshop = nearestWorkshopWith(sim, px, py, Good.Firewood);
   if (to === CAMP_STORE || sim.households.atCamp > 0 || free(sim.stores, CAMP_STORE, Good.Firewood) <= 0) return workshop;
   if (workshop < 0) return CAMP_STORE;
-  const { size } = sim.map;
-  const camp = sim.flow.goal;
-  const toCamp = ((camp % size) + 0.5 - px) ** 2 + (Math.floor(camp / size) + 0.5 - py) ** 2;
-  const toWorkshop = (siteMidX(sim.orders.sites, workshop) - px) ** 2 + (siteMidY(sim.orders.sites, workshop) - py) ** 2;
-  return toCamp < toWorkshop ? CAMP_STORE : workshop;
+  return distanceTo(sim, CAMP_STORE, px, py) < distanceTo(sim, workshop, px, py) ? CAMP_STORE : workshop;
+}
+
+/**
+ * The store a unit of `good` for store `to` comes from, nearest the point
+ * (`px`, `py`), measured to the camp center and to a building's middle: a
+ * common store for food, which for the camp is a barn, or a workshop for
+ * firewood, as `firewoodStore` says, or a house no household lives in, which
+ * keeps what its last household left. A house is passed over when no walk
+ * reaches its door, and an equally near store comes before it. Returns -1
+ * when none has a unit no carrier spoke for.
+ */
+function sourceOf(sim: Sim, good: Unit, to: number, px: number, py: number): number {
+  const store = good === Good.Firewood ? firewoodStore(sim, to, px, py) : nearestCommonStore(sim, px, py, Wants.Unit, Good.Food, to === CAMP_STORE);
+  const { vacant, vacantCount } = sim.households;
+  if (vacantCount === 0) return store;
+  const { sites } = sim.orders;
+  let best = store;
+  let bestDistance = store < 0 ? Infinity : distanceTo(sim, store, px, py);
+  for (let i = 0; i < vacantCount; i++) {
+    const slot = vacant[i]!;
+    const distance = distanceTo(sim, slot, px, py);
+    if (distance < bestDistance && free(sim.stores, slot, good) > 0 && nearestDoor(sim, slot, siteMidX(sites, slot), siteMidY(sites, slot)) >= 0) {
+      best = slot;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 /**
@@ -104,17 +132,17 @@ function unattendedHome(sim: Sim, h: number): number {
 /**
  * Sends a villager with empty hands to stock the first store that lacks a
  * unit it can fetch, most urgent first. Food for its household's home comes
- * from the common store nearest the home, then firewood for the home from the
- * woodshed nearest it, or from the camp while nobody sleeps there and it is
- * nearer. A villager without a job then stocks the homes in which nobody can
+ * from the common store or the empty house nearest the home, then firewood for
+ * the home from the woodshed or the empty house nearest it, or from the camp
+ * while nobody sleeps there and it is nearer. A villager without a job then stocks the homes in which nobody can
  * carry: food for each, the household with the lowest number first, then
  * firewood for each in the same order. Then it keeps the camp stocked for the
- * households that sleep there: food from the barn nearest the camp, then
- * firewood from the woodshed nearest it. The house is the home of the
+ * households that sleep there: food from the barn or the empty house nearest
+ * the camp, then firewood from the woodshed or the empty house nearest it. The house is the home of the
  * villager's household, which stays its home while a member lives.
  */
 function take(sim: Sim, id: number): boolean {
-  const { villagers, stores, households, flow } = sim;
+  const { villagers, households, flow } = sim;
   if (villagers.carried[id] !== Good.None) return false;
   const home = homeOf(sim, id);
   const { sites } = sim.orders;
@@ -138,7 +166,7 @@ function take(sim: Sim, id: number): boolean {
   const { size } = sim.map;
   const cx = (flow.goal % size) + 0.5;
   const cy = Math.floor(flow.goal / size) + 0.5;
-  if (stores.barnCount > 0 && campLacks(sim) > 0 && fetchFor(sim, id, Good.Food, CAMP_STORE, cx, cy)) return true;
+  if (campLacks(sim) > 0 && fetchFor(sim, id, Good.Food, CAMP_STORE, cx, cy)) return true;
   return households.atCamp > 0 && firewoodLacks(sim, CAMP_STORE) > 0 && fetchFor(sim, id, Good.Firewood, CAMP_STORE, cx, cy);
 }
 
@@ -146,14 +174,19 @@ function take(sim: Sim, id: number): boolean {
  * The unit still goes to the home of the villager's household, or, while the
  * villager has no job, to the camp or to a home in which nobody can carry. One
  * hired on its way, or bound for a home whose household can carry again or
- * left it, gives the unit up.
+ * left it, gives the unit up. So does one on its way to take a unit out of an
+ * empty house that a household has taken since, which keeps the unit as its
+ * own.
  */
 function holds(sim: Sim, id: number): boolean {
-  const to = sim.villagers.toStore[id]!;
+  const { villagers, households } = sim;
+  const from = villagers.fromStore[id]!;
+  if (villagers.carried[id] === Good.None && from !== CAMP_STORE && households.householdIn[from] !== -1) return false;
+  const to = villagers.toStore[id]!;
   if (to === homeOf(sim, id)) return true;
   if (jobOf(sim, id) !== Job.None) return false;
   if (to === CAMP_STORE) return true;
-  const h = sim.households.householdIn[to]!;
+  const h = households.householdIn[to]!;
   return h >= 0 && unattendedHome(sim, h) === to;
 }
 
