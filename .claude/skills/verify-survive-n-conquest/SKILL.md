@@ -42,6 +42,8 @@ $V stop
 
 `launch` runs `bun run build`, then starts `vite preview` on `127.0.0.1:<port>` with `--strictPort`. It prints `ready at http://127.0.0.1:<port>/` only when the server returns this checkout's `dist/index.html`. It records the instance in `.verify/state/instance.json`, and `vite preview` writes its output to `.verify/state/preview.log`. The proof is of the production build, not of the dev server.
 
+The build revision is the commit, with `-dirty-<hash>` when the working tree has changes, and the hash covers the untracked files too. An untracked repository or worktree inside the checkout counts by its name only, so make every other worktree outside the checkout, as `../pr-media` below is.
+
 Pick a free port for each checkout. Two worktrees can run side by side on different ports. `--strictPort` makes a taken port fail loudly instead of drifting to the next one.
 
 ## Doctor
@@ -66,9 +68,9 @@ To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `fea
 - `labelGone(page, name, { every, until })` is `runUntil` for a site's label: it returns the minute of the first stop without the label named `name`, and fails at `until`.
 - **How a scenario gives its orders.** Give them right after `open`, at 08:00 on day 1 with the clock paused, or at a `reach` stop. A click, a key, or a drag on a paused page lands on the tick the page stands at, so the orders land on the same tick on every run, and so does everything that follows from them. Never give an order or read a check while the clock runs. Where a check needs a settler, a sack, or a deer in a certain place, find the stop where it stands there in `src/sim` terms, with the same commands at the same tick, then take the check at that stop.
 - `still(page)` waits until two screenshots, at least 250 ms and two drawn frames apart, are identical. Use it after every action, because the camera eases into place. It never returns while the clock runs, because the time of day and the light change several times a second.
-- `hold(page, key, ms)` holds a key for `ms` of wall time, and `drag(page, from, to, button)` drags the mouse. The game caps each frame's step at 0.1 s, so on a slow machine a held key moves the camera less far than on a fast one.
+- `hold(page, key, ms)` holds a key for `ms` of wall time and for at least two drawn frames, and `drag(page, from, to, button)` drags the mouse. The game reads a held key only in a drawn frame, so without the two frames a key held while one frame took longer than `ms` moved nothing. At a load average near 18 on rj-firebat, `camera`'s held D, Q, F, and Z keys of 600 ms each read a mean pixel difference of 0.00 that way, as its D key did on infra-testbench. The game caps each frame's step at 0.1 s, so on a slow machine a held key moves the camera less far than on a fast one.
 - `screenshot(page, label)` waits for two drawn frames, then saves `<label>.png`.
-- `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`, `width` caps the GIF's width, and `crop`, a box `{ x, y, width, height }` in page pixels, keeps only that part of the picture, `colors` caps the palette, and `speed` plays the clip that many times as fast as it was recorded, for a run too long to watch at its own pace. Say so wherever the clip is shown. `decimate` drops every frame that repeats the one before and shows each frame left once at 8 a second, so a paused stop passes in one frame and a run plays at the pace SwiftShader drew it, several times its own. With `decimate`, `speed` keeps one of every `speed` frames left. Say that too wherever the clip is shown. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
+- `finishClip(context, page, label, { from, width })` closes the page, converts its video to `<label>.gif`, and checks that the GIF is under 8 MB. `from` cuts the seconds before it, taken from `since()`. Without `from` the clip starts where `open` saw the game's first frames, so it does not open on the blank page of the load. `width` caps the GIF's width, and `crop`, a box `{ x, y, width, height }` in page pixels, keeps only that part of the picture, `colors` caps the palette, and `speed` plays the clip that many times as fast as it was recorded, for a run too long to watch at its own pace. Say so wherever the clip is shown. `decimate` drops every frame that repeats the one before and shows each frame left once at 8 a second, so a paused stop passes in one frame and a run plays at the pace SwiftShader drew it, several times its own. With `decimate`, `speed` keeps one of every `speed` frames left. Say that too wherever the clip is shown. It steps the width and the colors down at 8 frames per second until the GIF fits, and drops to 4 frames per second only when no 8 fps step fits.
 - `finishClips(context, page, cuts)` closes the page once and makes one GIF for each cut of its video, `{ label, from, to, width, crop, colors, speed, decimate }`, with the same steps and check as `finishClip`. `to` ends the cut, in the seconds of `since()`. A cut with `spans`, a list of `[from, to]` pairs in the seconds of `since()`, joins those parts of the video into one GIF in their order and leaves out what lies between them, as the run of the clock from a dawn to its dusk. It needs `decimate`.
 - `expectFillsViewport(page, viewport)` checks the size of the world.
 - `expectChanged(name, before, after)` and `expectUnchanged(name, before, after)` compare two screenshots.
@@ -87,6 +89,8 @@ A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` take
 
 `scripts/births.ts` plays the `births`, `growing-up`, and `people` scenarios' commands in `src/sim` and prints each dawn's draws, births, and starts of work, and the living children, workers, and settlers of 50 or older after it, so a scenario can check the page against the rules.
 
+`scripts/pairing.ts '<settlers>' <food> <dawns>` plays the `settlers` setting, the orders of `bun scripts/firewood-years.ts near-houses-at-minutes` without the woodshed, and the given dawns in `src/sim`, and prints each dawn's new households, the single settlers left, every household's house, and the minute each house was finished. `pairing` runs it before it drives the page.
+
 `scripts/panelRows.ts` prints every kind of selection panel in the game's `PANELS`, with its rows and their buttons and what a site needs of each good, and the names a woman and a man can have. `readiness` and `selecting` fill a copy of the panel with the longest reading of each row and measure it.
 
 ## Evidence
@@ -96,8 +100,10 @@ Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git i
 - Capture the action and the resulting state, not only the final screen. A clip shows the change happening.
 - A check that reads pixels from a screenshot proves what the player sees. Report its detail line next to the image.
 - Report every `FAIL` line. A failed check is a finding, not a reason to loosen the check.
+- Report a scenario's count of checks from the line `<scenario>: <n> of <m> checks passed` that `drive` prints last, which is the count in `result.json`. `run` prints doctor's 7 checks before it, and they are not the scenario's.
+- A clip that shows when something happens keeps the clock panel or a dated news line in its picture. When a `crop` leaves both out, the pull request says that the clip shows no clock and where its times come from. Describe only what the clip's frames show: a panel the crop leaves out is not in the clip.
 - Headless Chromium renders WebGL through SwiftShader on the CPU. Its frame rate says nothing about the game's frame rate. Never report it as performance.
-- `drive frames` is the one scenario that measures frame time. It launches a browser that draws on the machine's GPU, and fails where none does, as in a pylon. `features/frames.md` says what it reports and how to compare two builds.
+- `drive frames` is the one scenario that measures frame time. It launches Playwright's own Chromium on the machine's GPU, and fails where it finds none. It cannot run in a pylon, which has no GPU and cannot install Playwright's Chromium, so there it fails at once with `Executable doesn't exist`. `features/frames.md` says what it reports and how to compare two builds.
 - PR media goes to the `pr-media` branch under `pr-<number>/`. Upload only the files the pull request body embeds. Copy a GIF from the evidence folder as it is. Upload a screenshot as a lossy WebP copy at quality 85, and keep the PNG in the evidence folder, where the pixel checks read it. Never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
 
 ```sh
@@ -181,6 +187,10 @@ Headless Chromium starts the next animation frame before SwiftShader has drawn t
 The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-firebat and on the owner's Mac. On a 2 CPU pylon a held key draws only one or two frames, so the camera stops short and its limit checks can fail for a reason that has nothing to do with the camera. The scenario reaches the nearest zoom with the wheel, which does not depend on the frame time: the world of pull request 2.6 has half again as many triangles, a frame takes longer, and 5 seconds of a held `Z` stopped short of the nearest view of 14 meters.
 
 The scenarios take about 1.2 to 1.4 times as long as before that pull request. On the owner's Mac `camera` took 3 minutes 47 seconds against 2 minutes 38, and `hauling` 7 minutes 38 against 6 minutes 1.
+
+At 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
+
+Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed, because 8 legs of 2.5 s of a held `W` drew too few frames to reach the corner.
 
 ## The frame pacer
 

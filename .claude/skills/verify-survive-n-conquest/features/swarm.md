@@ -5,7 +5,7 @@ The `swarm=on` URL parameter opens the game with the benchmark load on the map: 
 ## Sub-features
 
 - `swarm-on` opens the map with the benchmark load when the URL has `swarm=on`.
-- `swarm-shows` draws every villager and every monster standing on the ground, one instanced mesh for each group.
+- `swarm-shows` draws every villager and every monster standing on the ground: the monsters as one instanced mesh, the villagers as instanced bodies, hoods, arms, and legs, with one more mesh for each good they carry.
 - `swarm-moves` moves the units with the clock, faster at higher speeds.
 - `swarm-holds` keeps every unit in place while the clock is paused.
 - `swarm-off` opens the map with no units when the URL has `swarm=off`.

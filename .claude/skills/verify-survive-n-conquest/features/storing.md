@@ -19,7 +19,7 @@ The barn is the second store of food, so where the food is kept becomes the play
 - Press G and click open ground at the forest's edge for the hut. Press B and click the open ground between the hut and the camp for the barn. Press H and click open ground north of the hut for a house.
 - Run at 8×. The hut stands on day 1, and the barn and the house on day 2 or 3.
 - Click the barn, the camp, and the house to read the food each holds. On day 4 the barn fills while the camp holds the same.
-- To see food go, open `?seed=7&food=8`, mark the same trees, and place four huts. Their eight places take every settler, so nobody carries what the foragers put down at the dusk of day 2.
+- To see food go, open `?seed=7&food=8`, mark the same trees, and place four huts. Their eight places take every settler, so nobody carries what the foragers put down at the dusk of day 3.
 
 ## Driving it with verify.mjs
 

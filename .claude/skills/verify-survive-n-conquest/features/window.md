@@ -22,7 +22,7 @@ Preconditions:
 - **Open the game.** Load the page at 1280 by 720. The scenario runs `open(WIDE, { record: true })`, which pauses the clock at noon, and `still(page)`. The check `world fills 1280x720` passes, and `window-1280x720.png` shows the map.
 - **See the map.** The check `the map fills the 1280x720 window` reads the screenshot and passes when plants cover at least 30% of it.
 - **Shrink the window.** Resize the viewport to 960 by 600. The checks `world fills 960x600` and `the map fills the 960x600 window` pass, and `window-960x600.png` shows the same place at the new size.
-- **Restore the window.** Resize back to 1280 by 720. `window-resize.gif` shows both resizes. The clip starts at noon, after the clock has paused, and is 640 pixels wide at 5 frames per second.
+- **Restore the window.** Resize back to 1280 by 720. `window-resize.gif` shows both resizes. The clip starts at noon, after the clock has paused, and is 640 pixels wide at 8 frames per second.
 - **Proof.** Run `$V run window`. The evidence folder holds two screenshots, one GIF, and `result.json` with every check, including `no page errors`.
 
 ## Gotchas
