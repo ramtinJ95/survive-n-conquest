@@ -93,7 +93,7 @@ The four run one after another. Every pull request that touches the simulation r
 
 - **Behavior.** A sown tile grows at each dawn and is ripe at the fifth. A farmer cuts it, the food lies on the tile, and the farmer and the settlers without a job carry it to a barn or the camp. The news says when the first tile is ripe.
 - **Also in this pull request.** The benchmark's third run, and the first year on seed 7 with a farm, as a script in `scripts/`.
-- **Play it.** Sow a field in spring, run to day 6 at 8×, which takes under 4 minutes, and watch the harvest go into the barn.
+- **Play it.** Sow a field in spring, run to day 6 at 8×, which takes about 3 minutes, and watch the harvest go into the barn.
 - **Proof.** A clip from a dawn at which tiles ripen to the food in the barn, a screenshot of a field in each state, the food cut and carried in on each day of the first year on seed 7, with and without settlers free to carry, and the benchmark output.
 - **Worker.** Claude Code on the default model.
 
@@ -121,7 +121,7 @@ Each pull request is playable when it merges. In the checkout of `main`:
 2. `git -C game-assets pull`
 3. `bun install`, then `bun run dev`, and open the address it prints.
 
-At 8× a day takes 38 seconds. Spring ends 1 minute 53 seconds into a game, the first tile can be ripe at 3 minutes 8 seconds, and the frost falls after 5 to 6 minutes. What the owner says after playing becomes a fix pull request or a changed proposal in this brief.
+At 8× a day takes 38 seconds, and a game starts at 08:00 on day 1. Spring ends 1 minute 40 seconds into it, the first tile can be ripe after 3 minutes, and the frost falls after 5 minutes 18 seconds, or after 4 minutes 40 seconds in a year in which it comes early. What the owner says after playing becomes a fix pull request or a changed proposal in this brief.
 
 ## What the stage decides
 
