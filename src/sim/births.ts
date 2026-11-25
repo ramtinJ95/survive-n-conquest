@@ -87,6 +87,7 @@ function bear(sim: Sim, h: number): number {
   households.lastBirth[h] = sim.dawns;
   sim.living += 1;
   sim.tally.births += 1;
+  sim.thisYear.born += 1;
   const door = nearestDoor(sim, households.home[h]!, villagers.x[mother]!, villagers.y[mother]!);
   if (door >= 0) {
     villagers.x[id] = villagers.targetX[id] = (door % map.size) + 0.5;
