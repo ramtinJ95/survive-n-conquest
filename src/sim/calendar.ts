@@ -43,6 +43,11 @@ export function seasonIndexAt(tick: number): number {
   return Math.floor(((tick + OPENING_TICK_OF_DAY) % TICKS_PER_YEAR) / TICKS_PER_SEASON);
 }
 
+/** Whether `tick` is the first tick of a calendar year, the midnight that opens its first day. */
+export function startsYear(tick: number): boolean {
+  return (tick + OPENING_TICK_OF_DAY) % TICKS_PER_YEAR === 0;
+}
+
 export function seasonAt(tick: number): Season {
   return SEASONS[seasonIndexAt(tick)]!;
 }

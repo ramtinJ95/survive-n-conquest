@@ -710,6 +710,7 @@ export function die(sim: Sim, id: number, cause: Cause): void {
   villagers.cause[id] = cause;
   villagers.diedAt[id] = sim.tick;
   sim.tally.died += 1;
+  sim.thisYear.died += 1;
   sim.living -= 1;
   loseWorker(sim, id);
   loseMember(sim.households, villagers, id);
