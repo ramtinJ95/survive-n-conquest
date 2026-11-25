@@ -145,7 +145,21 @@ GIT_INDEX_FILE=$index git read-tree "$old"
 GIT_INDEX_FILE=$index git rm -r -q --cached --ignore-unmatch pr-<a> pr-<b>
 new=$(git commit-tree "$(GIT_INDEX_FILE=$index git write-tree)" -m "media: close stage <n>, pruned from $old")
 rm "$index"
-git push --force-with-lease=refs/heads/pr-media:"$old" origin "$new":refs/heads/pr-media
+```
+
+Push the new commit from a shallow clone of `pr-media`, never from the checkout. The new commit shares no history with `$old`, so a push from the full checkout counts none of the kept media as already on the server and sends all of it. At stage 5's close that pack was 70,579,597 bytes and GitHub refused it with `HTTP 413`, while a shallow push packs the same commit in 236 bytes. In a pylon the push prints `fatal: expected 'acknowledgments', received 'packfile'` and `warning: push negotiation failed; proceeding anyway with push`. Both come from `push.negotiate` in `/etc/gitconfig` and are expected.
+
+```sh
+(
+  set -e
+  shallow=$(mktemp -d)
+  trap 'rm -rf "$shallow"' EXIT
+  git -C "$shallow" init -q
+  git -C "$shallow" remote add origin "$(git remote get-url origin)"
+  git -C "$shallow" fetch -q --depth=1 origin pr-media
+  git -C "$shallow" fetch -q "$(git rev-parse --show-toplevel)" "$new"
+  git -C "$shallow" push --force-with-lease=refs/heads/pr-media:"$old" origin "$new":refs/heads/pr-media
+)
 ```
 
 Report `$old`. GitHub keeps the pruned media reachable by that commit for a while.
