@@ -80,6 +80,12 @@ describe('a house nobody lives in', () => {
     expect([food(sim, empty), food(sim, CAMP_STORE)]).toEqual([10, 18]);
   });
 
+  it('comes after the camp when the two are equally near the home', () => {
+    const { sim, house, empty } = emptied([31, 23], [31, 15], 10);
+    runUntil(sim, () => food(sim, house) === 6, TICKS_PER_DAY);
+    expect([food(sim, empty), food(sim, CAMP_STORE)]).toEqual([10, 18]);
+  });
+
   it('is passed over when it holds no food, and the home is stocked from the camp', () => {
     const { sim, house, empty } = emptied([8, 13], [8, 8], 0);
     runUntil(sim, () => food(sim, house) === 6, TICKS_PER_DAY);
@@ -106,6 +112,9 @@ describe('a house nobody lives in', () => {
     expect([sim.households.home[formed], vacant(sim)]).toEqual([empty, [third]]);
     step(sim);
     expect([sim.villagers.fromStore[id] === empty && sim.villagers.task[id] === STOCK, sim.stores.outbound[Good.Food - 1]![empty], food(sim, empty)]).toEqual([false, 0, 10]);
+    let bound = 0;
+    for (let v = 0; v < sim.villagers.count; v++) if (sim.villagers.task[v] === STOCK && sim.villagers.toStore[v] === house && sim.villagers.stockGood[v] === Good.Food) bound++;
+    expect([sim.stores.inbound[Good.Food - 1]![house], sim.stores.inbound[Good.Food - 1]![empty]]).toEqual([bound, 0]);
     runUntil(sim, () => food(sim, house) === 6, TICKS_PER_DAY);
     expect(food(sim, empty)).toBe(10);
   });
