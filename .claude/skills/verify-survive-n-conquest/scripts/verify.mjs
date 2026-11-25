@@ -88,6 +88,7 @@ function paceFramesToTheGpu() {
     for (const [gl, fence] of fences) gl.deleteSync(fence);
     running = callbacks;
     callbacks = new Map();
+    const callsBefore = window.drawsSent?.calls;
     for (const [id, callback] of running) {
       running.delete(id);
       try {
@@ -96,7 +97,7 @@ function paceFramesToTheGpu() {
         reportError(error);
       }
     }
-    window.firstFrameAt ??= Date.now();
+    if (window.drawsSent?.calls > callsBefore) window.firstFrameAt ??= Date.now();
     fences = [...contexts].map((gl) => [gl, gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)]);
     for (const [gl] of fences) gl.flush();
     if (callbacks.size) schedule();
@@ -582,7 +583,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
     evidence.files.push(file);
     return join(dir, file);
   };
-  // The seconds of each page's video at which its first frame ran, where a clip cut with no `from` starts.
+  // The seconds of each page's video at which the game drew its first frame, where a clip cut with no `from` starts.
   const firstDrawn = new WeakMap();
   return {
     check,
@@ -616,7 +617,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       await page.goto(url.href);
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
-      firstDrawn.set(page, ((await page.evaluate(() => window.firstFrameAt ?? Date.now())) - created) / 1000);
+      if (!gpu) firstDrawn.set(page, ((await (await page.waitForFunction(() => window.firstFrameAt)).jsonValue()) - created) / 1000);
       if (clock !== 'player') {
         await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
         const opened = await this.gameMinutes(page);
@@ -3314,7 +3315,7 @@ const CAMP_TRIES = 6;
 const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
 const SELECT_TURN = 300;
-const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64, decimate: true };
+const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
 /**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
