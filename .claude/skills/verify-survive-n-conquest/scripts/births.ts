@@ -4,7 +4,8 @@
 // that `firewood-year` gives through the page at 08:00 on day 1, `near-houses-at-minutes` without its woodshed. For each
 // of the first `<dawns>` dawns it prints the minute the page stops at after it, each household's house slot, living
 // members, members with a missed meal or a cold night, the woman's age, and whether its draw falls under the chance,
-// the children born there with their names and sexes, and the children who started to work there.
+// the children born there with their names and sexes, the children who started to work there, and, after it, the living
+// children, the living who work, the living of 50 or older, and the births and deaths since the start.
 import { ageAt } from '../../../../src/sim/aging';
 import { BIRTH_CHANCE, birthDraw } from '../../../../src/sim/births';
 import { dateAt } from '../../../../src/sim/calendar';
@@ -22,6 +23,17 @@ const sim = createSim(generateMap(7), populationFor(null, food === '-' ? null : 
 const pending = ordersOf(PLANS['near-houses-at-minutes']!).filter((order) => !order.label.startsWith('woodshed'));
 const dawns: unknown[] = [];
 const pad = (value: number) => String(value).padStart(2, '0');
+const people = () => {
+  const { villagers, tally } = sim;
+  const living = Array.from({ length: villagers.count }, (_, id) => id).filter((id) => villagers.state[id] !== VillagerState.Dead);
+  return {
+    children: living.filter((id) => villagers.child[id] === 1).length,
+    workers: living.filter((id) => villagers.child[id] === 0).length,
+    older: living.filter((id) => ageAt(villagers, id, sim.tick) >= 50).length,
+    born: tally.births,
+    died: tally.died,
+  };
+};
 while (dawns.length < Number(dawnsText) && !sim.over) {
   for (let i = 0; i < pending.length; ) {
     if (!pending[i]!.when.ready(sim)) i++;
@@ -63,6 +75,7 @@ while (dawns.length < Number(dawnsText) && !sim.over) {
     started: Array.from(children.keys())
       .filter((id) => children[id] === 1 && villagers.child[id] === 0)
       .map((id) => ({ id, household: villagers.household[id]! + 1, name: nameOf(villagers.sex[id] as Sex, villagers.name[id]!), girl: villagers.sex[id] === 0 })),
+    people: people(),
   });
 }
 console.log(JSON.stringify(dawns));
