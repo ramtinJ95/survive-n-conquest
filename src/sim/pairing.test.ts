@@ -3,7 +3,7 @@ import { GROWN_AGE } from './aging';
 import { BIRTH_CHANCE, BIRTH_GAP, birthDraw } from './births';
 import { finishBuilding } from './building';
 import { Building } from './buildings';
-import { dateAt } from './calendar';
+import { TICKS_PER_DAY, dateAt } from './calendar';
 import { DAWN } from './dawn';
 import { isColdNight, isDawn } from './daylight';
 import { Good } from './goods';
@@ -291,6 +291,26 @@ describe('a new household while no house stands empty', () => {
     die(sim, 1, Cause.OldAge);
     expect(Array.from(households.home.subarray(0, 4))).toEqual([NO_HOME, other, NO_HOME, parents]);
     expect([households.lodgers[parents], households.atCamp, sim.villagers.lodging[2]]).toEqual([0, 2, NO_HOME]);
+  });
+
+  it("carries food for its parents' house when it is the only one living there who can, and nobody else stocks that house", () => {
+    const sim = settlement([[man(40), woman(38), man(20), woman(6)], [...PARENTS, woman(21)]]);
+    const parents = house(sim, 0);
+    house(sim, 1);
+    const son = 2;
+    pairSettlers(sim);
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    const { households, villagers, stores } = sim;
+    expect([households.home[0], households.workers[0], households.lodgers[parents], households.unattended]).toEqual([parents, 0, 1, 0]);
+    stores.held[FOOD]![parents] = 0;
+    const carriers = new Set<number>();
+    const end = sim.tick + 2 * TICKS_PER_DAY;
+    while (stores.held[FOOD]![parents]! < 6 && sim.tick < end) {
+      for (let id = 0; id < villagers.count; id++) if (villagers.toStore[id] === parents) carriers.add(id);
+      step(sim);
+    }
+    expect([stores.held[FOOD]![parents]! >= 6, [...carriers]]).toEqual([true, [son]]);
   });
 
   it("eats from its parents' house and keeps three days of food there for each who lives in it, while one of its two from the camp eats at the camp", () => {
