@@ -75,6 +75,8 @@ export interface Facts {
     | 'worn'
     | 'causes'
     | 'ages'
+    | 'bornThisYear'
+    | 'diedThisYear'
     | 'storeFood'
     | 'campFoodLimit'
     | 'storeInbound'
@@ -392,6 +394,23 @@ const settlersAtCamp = ({ map, camp, frame }: Facts) => {
   return count;
 };
 
+/** The camp's panel counts the settlers of this age in whole years or older. It is a reading, and no rule of the simulation asks it. */
+export const OLDER_AGE = 50;
+
+/** How many living settlers are children, how many work, and how many are `OLDER_AGE` or older, at the ages the panels show. */
+export function peopleOf({ states, children, ages }: Pick<SimFrame, 'states' | 'children' | 'ages'>): { readonly children: number; readonly workers: number; readonly older: number } {
+  let young = 0;
+  let workers = 0;
+  let older = 0;
+  for (let id = 0; id < states.length; id++) {
+    if (states[id] === VillagerState.Dead) continue;
+    if (children[id] === 1) young++;
+    else workers++;
+    if (ages[id]! >= OLDER_AGE) older++;
+  }
+  return { children: young, workers, older };
+}
+
 const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
 /** The sex of a settler younger than `GROWN_AGE`, who works from `WORK_AGE` on. */
 const YOUNG_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
@@ -591,6 +610,15 @@ export const PANELS: Panels = {
       { label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) },
       { label: 'Food', read: ({ frame }) => `${frame.storeFood[CAMP_STORE]} of ${frame.campFoodLimit}` },
       { label: 'Firewood', read: ({ frame }) => `${frame.storeFirewood[CAMP_STORE]} of ${CAMP_FIREWOOD_LIMIT}` },
+      {
+        label: 'People',
+        read: ({ frame }) => {
+          const { children, workers } = peopleOf(frame);
+          return `${counted(children, 'child', 'children')}, ${counted(workers, 'worker', 'workers')}`;
+        },
+      },
+      { label: `${OLDER_AGE} or older`, read: ({ frame }) => String(peopleOf(frame).older) },
+      { label: 'This year', read: ({ frame }) => `${frame.bornThisYear} born, ${frame.diedThisYear} died` },
     ],
   },
 };

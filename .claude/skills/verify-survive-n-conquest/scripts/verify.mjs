@@ -3509,7 +3509,10 @@ const DOING_LONGEST = [
  * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
  * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
  * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
- * its dead with two digits. A child's title names its parents. A site's goods read what it
+ * its dead with two digits. A child's title names its parents. The camp's people split the 1,500 living between
+ * children and workers with four digits on one side, the other in the plural or the singular. Its year counts each birth
+ * and each death in a row of the villagers table's 4,096, one of which at least holds a settler the map started with, so
+ * a year has at most 4,095 births and 4,096 deaths. A site's goods read what it
  * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
  */
 const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
@@ -3538,7 +3541,16 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
     woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
     tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
     barn: { rows: { Food: ['120 of 120'] } },
-    camp: { rows: { 'Settlers here': settlers, Food: ['65535 of 65535'], Firewood: ['12 of 12'] } },
+    camp: {
+      rows: {
+        'Settlers here': settlers,
+        Food: ['65535 of 65535'],
+        Firewood: ['12 of 12'],
+        People: ['1000 children, 500 workers', '500 children, 1000 workers', '1 child, 1499 workers', '1499 children, 1 worker'],
+        '50 or older': [String(mostSettlers)],
+        'This year': ['4095 born, 4096 died'],
+      },
+    },
     site,
   };
 };
