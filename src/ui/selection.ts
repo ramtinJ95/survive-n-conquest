@@ -610,13 +610,8 @@ export const PANELS: Panels = {
       { label: 'Settlers here', read: (facts) => String(settlersAtCamp(facts)) },
       { label: 'Food', read: ({ frame }) => `${frame.storeFood[CAMP_STORE]} of ${frame.campFoodLimit}` },
       { label: 'Firewood', read: ({ frame }) => `${frame.storeFirewood[CAMP_STORE]} of ${CAMP_FIREWOOD_LIMIT}` },
-      {
-        label: 'People',
-        read: ({ frame }) => {
-          const { children, workers } = peopleOf(frame);
-          return `${counted(children, 'child', 'children')}, ${counted(workers, 'worker', 'workers')}`;
-        },
-      },
+      { label: 'Children', read: ({ frame }) => String(peopleOf(frame).children) },
+      { label: 'Workers', read: ({ frame }) => String(peopleOf(frame).workers) },
       { label: `${OLDER_AGE} or older`, read: ({ frame }) => String(peopleOf(frame).older) },
       { label: 'This year', read: ({ frame }) => `${frame.bornThisYear} born, ${frame.diedThisYear} died` },
     ],

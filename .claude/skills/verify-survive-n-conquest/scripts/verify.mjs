@@ -3546,7 +3546,8 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         'Settlers here': settlers,
         Food: ['65535 of 65535'],
         Firewood: ['12 of 12'],
-        People: ['1000 children, 500 workers', '500 children, 1000 workers', '1 child, 1499 workers', '1499 children, 1 worker'],
+        Children: [String(mostSettlers)],
+        Workers: [String(mostSettlers)],
         '50 or older': [String(mostSettlers)],
         'This year': ['4095 born, 4096 died'],
       },
@@ -7830,7 +7831,7 @@ SCENARIOS['clothing-reason'] = async (session) => {
  */
 const PEOPLE_SETTLERS = `${BIRTHS_SETTLERS};m60:60,w55`;
 /** What the setting states: 3 children younger than 10, 10 settlers of 10 or older, and the man of 60 and the woman of 55. */
-const PEOPLE_OPENING = { People: '3 children, 10 workers', '50 or older': '2', 'This year': '0 born, 0 died' };
+const PEOPLE_OPENING = { Children: '3', Workers: '10', '50 or older': '2', 'This year': '0 born, 0 died' };
 const PEOPLE_DAWNS = { death: 1, birth: 3 };
 /** Points 0.6 m over the camp's tents at `HIDES_YEAR_VIEW`, by `aim.ts`, around the camp's center tile (127, 127). */
 const PEOPLE_CAMP_AIMS = [{ x: 526, y: 288 }, { x: 490, y: 271 }, { x: 518, y: 268 }, { x: 528, y: 277 }, { x: 502, y: 264 }, { x: 487, y: 282 }];
@@ -7839,7 +7840,8 @@ const PEOPLE_CLIP = { crop: { x: 0, y: 290, width: 800, height: 210 }, width: 80
 
 /** The camp panel's people rows for the counts `births.ts` prints. */
 const peopleReading = ({ children, workers, older, born, died }) => ({
-  People: `${children} ${children === 1 ? 'child' : 'children'}, ${workers} ${workers === 1 ? 'worker' : 'workers'}`,
+  Children: String(children),
+  Workers: String(workers),
   '50 or older': String(older),
   'This year': `${born} born, ${died} died`,
 });
@@ -7910,9 +7912,9 @@ SCENARIOS.people = async (session) => {
   const after = peopleReading(birth.people);
   const turned = stops.findIndex(({ read }) => sameReading(read, after));
   session.check(
-    `stepping a minute at a time across the dawn of day 4, the panel reads "${before.People}" and "${before['This year']}" until the stop of ${clockText(birthStop)}, and from there "${after.People}" and "${after['This year']}"`,
+    `stepping a minute at a time across the dawn of day 4, the panel reads ${before.Children} children and "${before['This year']}" until the stop of ${clockText(birthStop)}, and from there ${after.Children} and "${after['This year']}"`,
     turned > 0 && stops[turned].minute === birthStop && stops.slice(0, turned).every(({ read }) => sameReading(read, before)) && stops.slice(turned).every(({ read }) => sameReading(read, after)),
-    stops.map(({ minute, read }) => `${clockText(minute)}: ${read?.rows.People} / ${read?.rows['This year']}`).join('; '),
+    stops.map(({ minute, read }) => `${clockText(minute)}: ${read?.rows.Children} children / ${read?.rows['This year']}`).join('; '),
   );
   const bornLine = `${birth.news}. ${child.name} was born to Merek and Elsi.`;
   session.check(`the news says "${bornLine}" at the same stop`, heard.get(bornLine) === clockText(birthStop), [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing');
@@ -7927,17 +7929,23 @@ SCENARIOS.people = async (session) => {
     const { ok, detail } = apart(boxes);
     session.check(`at ${where} every reading of the camp's panel is above 0 and as src/sim gives it, and the panel covers no other panel`, ok && sameReading(read, after), `${text(read)}; ${detail}`);
     await session.screenshot(page, `people-camp-panel-${where}`);
+    const settler = (await measurePanels(page, ['villager'])).find(({ kind }) => kind === 'villager');
     const [longest] = await measurePanels(page, ['camp'], true);
     const wrapped = await page.evaluate(() =>
       [...document.querySelectorAll('[data-panel-copy] dd > span')].map((value) => ({ label: value.parentElement.previousElementSibling.textContent, text: value.textContent, lines: value.getClientRects().length })),
     );
-    if (size === CLIP) await session.screenshot(page, `people-camp-longest-${where}`);
+    await session.screenshot(page, `people-camp-longest-${where}`);
     await dropPanelCopies(page);
     const end = boxes.stockpiles ? boxes.stockpiles.y + boxes.stockpiles.height : null;
     session.check(
       `at ${where} the camp's panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row`,
       end !== null && longest.box.y >= end && showsEveryRow(longest),
       `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} of ${longest.shown} px; the Stockpiles panel ends at y ${end?.toFixed(0) ?? 'missing'}`,
+    );
+    session.check(
+      `at ${where} the camp's panel at its longest readings is no taller than the settler's panel at its longest`,
+      longest.box.height <= settler.box.height,
+      `camp ${longest.box.height.toFixed(0)} px of ${longest.rows} rows, settler ${settler.box.height.toFixed(0)} px of ${settler.rows} rows`,
     );
     session.check(
       `at ${where} each row of the camp's panel reads on one line at its longest reading`,

@@ -831,7 +831,8 @@ describe('a building panel', () => {
         { label: 'Settlers here', value: '3' },
         { label: 'Food', value: '24 of 40' },
         { label: 'Firewood', value: '0 of 12' },
-        { label: 'People', value: '0 children, 5 workers' },
+        { label: 'Children', value: '0' },
+        { label: 'Workers', value: '5' },
         { label: '50 or older', value: '0' },
         { label: 'This year', value: '0 born, 0 died' },
       ],
@@ -1031,7 +1032,7 @@ describe("the camp's panel of the settlement's people", () => {
   const man = (age: number, span?: number): StartingSettler => (span === undefined ? { sex: Sex.Man, age } : { sex: Sex.Man, age, span });
   const woman = (age: number): StartingSettler => ({ sex: Sex.Woman, age });
   const people = (sim: Sim) => Object.fromEntries(readPanel({ kind: 'camp' }, factsOf(sim)).rows.slice(3).map(({ label, value }) => [label, value]));
-  const reading = (children: string, older: string, year: string) => ({ People: children, '50 or older': older, 'This year': year });
+  const reading = (children: number, workers: number, older: number, year: string) => ({ Children: String(children), Workers: String(workers), '50 or older': String(older), 'This year': year });
   /** Households of stated members on an open map of `seed` with food at the camp and no animals, none of them in a house. */
   const settlers = (households: readonly (readonly StartingSettler[])[], seed = SEED) =>
     createSim(mapFrom(open(32), seed), { villagers: households.flat().length, monsters: 0, campFood: 200, animals: false, settlers: households.map((members) => ({ members, dawnsSeen: BIRTH_GAP })) });
@@ -1042,8 +1043,8 @@ describe("the camp's panel of the settlement's people", () => {
   it(`reads the children, the workers, and the settlers of ${OLDER_AGE} or older of a page's settlers setting, after its stores, with no birth or death yet`, () => {
     const stated = parseSettlers('m60:60,w52;m30,w28,w5,m2,w9');
     const sim = createSim(mapFrom(open(32), SEED), populationFor(null, '200', null, stated));
-    expect(readPanel({ kind: 'camp' }, factsOf(sim)).rows.map(({ label }) => label)).toEqual(['Settlers here', 'Food', 'Firewood', 'People', '50 or older', 'This year']);
-    expect(people(sim)).toEqual(reading('3 children, 4 workers', '2', '0 born, 0 died'));
+    expect(readPanel({ kind: 'camp' }, factsOf(sim)).rows.map(({ label }) => label)).toEqual(['Settlers here', 'Food', 'Firewood', 'Children', 'Workers', '50 or older', 'This year']);
+    expect(people(sim)).toEqual(reading(3, 4, 2, '0 born, 0 died'));
   });
 
   it('counts a birth and a death at the dawn they come, the newborn among the children and the dead in no count', () => {
@@ -1055,18 +1056,18 @@ describe("the camp's panel of the settlement's people", () => {
     finishBuilding(sim, house);
     sim.stores.held[Good.Food - 1]![house] = 16;
     toDawn(sim, 2);
-    expect(people(sim)).toEqual(reading('0 children, 4 workers', '2', '0 born, 0 died'));
+    expect(people(sim)).toEqual(reading(0, 4, 2, '0 born, 0 died'));
     step(sim);
     expect([sim.villagers.cause[2], sim.villagers.child[4]]).toEqual([Cause.OldAge, 1]);
-    expect(people(sim)).toEqual(reading('1 child, 3 workers', '1', '1 born, 1 died'));
+    expect(people(sim)).toEqual(reading(1, 3, 1, '1 born, 1 died'));
   });
 
   it('moves a child who starts to work from the children to the workers at its dawn', () => {
     const sim = settlers([[man(30), woman(28), man(9)]]);
     toDawn(sim, 4);
-    expect(people(sim).People).toBe('1 child, 2 workers');
+    expect([people(sim).Children, people(sim).Workers]).toEqual(['1', '2']);
     step(sim);
-    expect(people(sim).People).toBe('0 children, 3 workers');
+    expect([people(sim).Children, people(sim).Workers]).toEqual(['0', '3']);
   });
 
   it(`counts a settler among the ${OLDER_AGE} or older from the tick it turns ${OLDER_AGE}, the age its panel shows`, () => {
@@ -1077,13 +1078,13 @@ describe("the camp's panel of the settlement's people", () => {
     expect([people(sim)['50 or older'], readPanel({ kind: 'villager', id: 0 }, factsOf(sim)).rows.find(({ label }) => label === 'Sex and age')!.value]).toEqual(['1', 'Man, 50']);
   });
 
-  it('reads one child and one worker in the singular, and nobody once the settlement has died out', () => {
+  it('reads the dead in no count, and nobody once the settlement has died out', () => {
     const sim = settlers([[man(30), woman(52), man(5)]]);
     die(sim, 1, Cause.Hunger);
-    expect(people(sim)).toEqual(reading('1 child, 1 worker', '0', '0 born, 1 died'));
+    expect(people(sim)).toEqual(reading(1, 1, 0, '0 born, 1 died'));
     die(sim, 0, Cause.Cold);
     die(sim, 2, Cause.Hunger);
     expect(sim.over).toBe(true);
-    expect(people(sim)).toEqual(reading('0 children, 0 workers', '0', '0 born, 3 died'));
+    expect(people(sim)).toEqual(reading(0, 0, 0, '0 born, 3 died'));
   });
 });
