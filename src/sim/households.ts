@@ -74,6 +74,15 @@ export function addMember(households: Households, villagers: Villagers, h: numbe
   households.unattended += Number(isUnattended(households, h)) - Number(was);
 }
 
+/** Villager `id`, a child of its household, starts to work, and its household counts it among its workers. */
+export function startWorking(households: Households, villagers: Villagers, id: number): void {
+  const h = villagers.household[id]!;
+  const was = isUnattended(households, h);
+  villagers.child[id] = 0;
+  households.workers[h] = households.workers[h]! + 1;
+  households.unattended += Number(isUnattended(households, h)) - Number(was);
+}
+
 /**
  * Forms a household of the couple `man` and `woman`, either of which may be
  * `NO_VILLAGER`, with its house `home` or NO_HOME, at the dawn `dawn`, and

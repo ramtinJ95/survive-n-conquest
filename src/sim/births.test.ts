@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lifeSpan } from './aging';
+import { WORK_AGE, lifeSpan } from './aging';
 import { BEARING_AGES, BIRTH_CHANCE, BIRTH_GAP, FULL_HOUSE, birthDraw, sexAtBirth } from './births';
 import { finishBuilding } from './building';
 import { Building, EVERYONE, nearestDoor } from './buildings';
@@ -10,7 +10,7 @@ import { Good } from './goods';
 import { NO_HOME } from './households';
 import { works } from './jobs';
 import { NAMES, Sex } from './names';
-import { type Population, type Sim, type StartingSettler, WORK_AGE, applyCommand, createSim, parseSettlers, step } from './sim';
+import { type Population, type Sim, type StartingSettler, applyCommand, createSim, parseSettlers, step } from './sim';
 import { CAMP_STORE } from './stores';
 import { STOCKING } from './stocking';
 import { TASK_KINDS, takeTask } from './tasks';
@@ -218,7 +218,7 @@ describe('a birth', () => {
   });
 
   it('follows the deaths of old age at a dawn: a death frees a place in a house of 5, and the child is born at the same dawn', () => {
-    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'pairSettlers', 'bearChildren']);
+    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren']);
     const { sim } = settlement([[...COUPLE, woman(6), man(4), woman(5, 5)]]);
     toDawn(sim, 1);
     expect(sim.households.living[0]).toBe(FULL_HOUSE);

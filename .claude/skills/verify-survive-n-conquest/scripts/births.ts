@@ -4,7 +4,7 @@
 // that `firewood-year` gives through the page at 08:00 on day 1, `near-houses-at-minutes` without its woodshed. For each
 // of the first `<dawns>` dawns it prints the minute the page stops at after it, each household's house slot, living
 // members, members with a missed meal or a cold night, the woman's age, and whether its draw falls under the chance,
-// and the children born there with their names and sexes.
+// the children born there with their names and sexes, and the children who started to work there.
 import { ageAt } from '../../../../src/sim/aging';
 import { BIRTH_CHANCE, birthDraw } from '../../../../src/sim/births';
 import { dateAt } from '../../../../src/sim/calendar';
@@ -30,6 +30,7 @@ while (dawns.length < Number(dawnsText) && !sim.over) {
   const dawn = isDawn(sim.tick);
   const tick = sim.tick;
   const before = sim.villagers.count;
+  const children = sim.villagers.child.slice(0, before);
   step(sim);
   if (!dawn) continue;
   const { villagers, households } = sim;
@@ -59,6 +60,9 @@ while (dawns.length < Number(dawnsText) && !sim.over) {
       const id = before + at;
       return { id, household: villagers.household[id]! + 1, name: nameOf(villagers.sex[id] as Sex, villagers.name[id]!), girl: villagers.sex[id] === 0 };
     }),
+    started: Array.from(children.keys())
+      .filter((id) => children[id] === 1 && villagers.child[id] === 0)
+      .map((id) => ({ id, household: villagers.household[id]! + 1, name: nameOf(villagers.sex[id] as Sex, villagers.name[id]!), girl: villagers.sex[id] === 0 })),
   });
 }
 console.log(JSON.stringify(dawns));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GROWN_AGE } from './aging';
 import { BIRTH_CHANCE, BIRTH_GAP, birthDraw } from './births';
 import { finishBuilding } from './building';
 import { Building } from './buildings';
@@ -6,7 +7,7 @@ import { DAWN } from './dawn';
 import { Good } from './goods';
 import { NO_HOME } from './households';
 import { Sex } from './names';
-import { GROWN, isSingle, pairSettlers } from './pairing';
+import { isSingle, pairSettlers } from './pairing';
 import { type Sim, type StartingSettler, applyCommand, createSim, step } from './sim';
 import { at, mapFrom } from './testMaps';
 import { Cause } from './villagerState';
@@ -78,8 +79,8 @@ function throughDawn(sim: Sim, dawn: number, each: () => void = () => {}): void 
 }
 
 describe('a single settler', () => {
-  it(`is ${GROWN} or older`, () => {
-    expect(GROWN).toBe(16);
+  it(`is ${GROWN_AGE} or older`, () => {
+    expect(GROWN_AGE).toBe(16);
     const sim = settlement([
       [...PARENTS, man(16)],
       [...PARENTS, woman(15)],
@@ -253,7 +254,7 @@ describe('the order of a dawn', () => {
   };
 
   it('pairs before the births: a daughter who leaves a house of 5 makes room for a child at the same dawn', () => {
-    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'pairSettlers', 'bearChildren']);
+    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren']);
     const born = (suitor: number) => {
       const sim = settlement([[man(40), woman(38), woman(16), man(8), woman(6)], [...PARENTS, man(suitor)]], { seed: seedFor(0, [1]), seen: BIRTH_GAP });
       house(sim, 0);
@@ -262,6 +263,38 @@ describe('the order of a dawn', () => {
     };
     expect(born(17)).toEqual({ paired: 1, births: 1, child: 0, living: 5 });
     expect(born(15)).toEqual({ paired: 0, births: 0, child: 1, living: 5 });
+  });
+
+  it('runs a death of old age, a start of work, a pairing, and a birth at one dawn, in that order', () => {
+    const lucky = 3;
+    const sim = settlement(
+      [
+        [man(32), woman(30), man(9)],
+        [{ sex: Sex.Man, age: 69, span: 70 }, woman(48), woman(15)],
+        [...PARENTS, man(18)],
+      ],
+      { seed: seedFor(0, [lucky]), seen: BIRTH_GAP + 1 - lucky },
+    );
+    const [boy, old, daughter, son] = [2, 3, 5, 8];
+    house(sim, 0);
+    throughDawn(sim, lucky - 1);
+    expect([sim.tally.oldAge, sim.tally.startedWork, sim.tally.paired, sim.tally.births]).toEqual([0, 0, 0, 0]);
+    expect([sim.villagers.child[boy], sim.households.workers[0]]).toEqual([1, 2]);
+    throughDawn(sim, lucky);
+    expect([sim.tally.oldAge, sim.tally.startedWork, sim.tally.paired, sim.tally.births]).toEqual([1, 1, 1, 1]);
+    expect(sim.villagers.cause[old]).toBe(Cause.OldAge);
+    expect([sim.villagers.child[boy], sim.households.workers[0]]).toEqual([0, 3]);
+    expect([sim.households.man[3], sim.households.woman[3], sim.households.living[1], sim.households.living[2]]).toEqual([son, daughter, 1, 2]);
+    expect([sim.villagers.household[sim.villagers.count - 1], sim.households.living[0]]).toEqual([0, 4]);
+  });
+
+  it('pairs a working child stated at 15 at the dawn after it turns 16, and takes it out of its parents\' workers', () => {
+    const sim = settlement([[...PARENTS, woman(15)], [...PARENTS, man(17)]]);
+    const daughter = 2;
+    throughDawn(sim, 2);
+    expect([isSingle(sim, daughter), sim.villagers.child[daughter], sim.households.workers[0], sim.households.count]).toEqual([false, 0, 3, 2]);
+    throughDawn(sim, 3);
+    expect([sim.villagers.household[daughter], sim.households.woman[2], sim.households.workers[0], sim.households.workers[2]]).toEqual([2, daughter, 2, 2]);
   });
 
   it(`gives a new household no birth before it has seen more than ${BIRTH_GAP} dawns, though its draws fall under the chance`, () => {

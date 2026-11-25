@@ -10,10 +10,7 @@ import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<
-  SimFrame,
-  'tick' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'
->;
+type Seen = Pick<SimFrame, 'tick' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -74,6 +71,7 @@ const EVENTS: readonly NewsEvent[] = [
   { kind: 'cold', befell: (before, after, id) => alive(after, id) && after.coldNights[id]! > before.coldNights[id]!, verb: () => 'had a cold night' },
   { kind: 'froze', befell: diedOf(Cause.Cold), verb: () => 'froze' },
   { kind: 'old age', befell: diedOf(Cause.OldAge), verb: () => 'died of old age' },
+  { kind: 'started work', befell: (before, after, id) => alive(after, id) && before.children[id] === 1 && after.children[id] === 0, verb: () => 'started to work' },
   ...WORKPLACES.flatMap((building): NewsEvent[] => {
     const job = JOB_WORDS[BUILDINGS[building].job];
     const at = (frame: Seen, id: number, orders: Orders) => frame.workplaces[id]! >= 0 && orders.sites.kind[frame.workplaces[id]!] === building;
@@ -188,7 +186,7 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 
 /**
  * The settlement's news: who was born and to whom, who formed a household, who went hungry, who starved, who ate again, who had
- * a cold night, who froze, who died of old age, who took a place at a
+ * a cold night, who froze, who died of old age, who started to work, who took a place at a
  * workplace, who left one, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
@@ -240,7 +238,7 @@ export function createNews(orders: Orders) {
   };
 }
 
-/** The log that tells the player who was born and to whom, who formed a household, who went hungry, who starved, who ate again, who had a cold night, who froze, who died of old age, and who took or left a place at a workplace, by name. */
+/** The log that tells the player who was born and to whom, who formed a household, who went hungry, who starved, who ate again, who had a cold night, who froze, who died of old age, who started to work, and who took or left a place at a workplace, by name. */
 export function mountNews(root: HTMLElement, orders: Orders) {
   const panel = document.createElement('section');
   panel.className = 'news';

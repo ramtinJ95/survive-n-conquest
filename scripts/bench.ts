@@ -17,14 +17,14 @@ import { campTile } from '../src/sim/camp';
 import { generateMap } from '../src/sim/mapgen';
 import { Claim, MAX_SITES, SiteState } from '../src/sim/orders';
 import { type Readiness, readinessOf } from '../src/sim/readiness';
-import { BENCHMARK_POPULATION, type Population, type Sim, type StartingHousehold, type StartingSettler, type Tally, WORK_AGE, applyCommand, createSim, step } from '../src/sim/sim';
+import { BENCHMARK_POPULATION, type Population, type Sim, type StartingHousehold, type StartingSettler, type Tally, applyCommand, createSim, step } from '../src/sim/sim';
 import { SUPPLYING } from '../src/sim/supplying';
 import { NO_HOME } from '../src/sim/households';
 import { STOCKING } from '../src/sim/stocking';
 import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
 import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
-import { ageAt } from '../src/sim/aging';
+import { WORK_AGE, ageAt } from '../src/sim/aging';
 import { isSingle } from '../src/sim/pairing';
 import { Sex } from '../src/sim/names';
 import { die } from '../src/sim/villagers';
@@ -121,9 +121,11 @@ const DEAD_ROWS = process.argv.includes('--dead-rows') ? 1_500 : 0;
 /**
  * Of the households whose woman is from `CHILDREN.fromAge` to `CHILDREN.toAge`, household `h` has `h % 3` children at
  * home under 10, and every `CHILDREN.fullEvery`th one 3, so that some houses hold 5. A child is a year or more younger
- * than the one before it, and no child is older than its mother less 16.
+ * than the one before it, no child is older than its mother less 16, and the eldest is at most `CHILDREN.oldest`. A
+ * child of 9 starts to work at the dawn of day 4, in the spring run's measured ticks, and one of 6 at the dawn of day 11,
+ * in the winter run's.
  */
-const CHILDREN = { fromAge: 18, toAge: 45, fullEvery: 7 };
+const CHILDREN = { fromAge: 18, toAge: 45, fullEvery: 7, oldest: 9 };
 /**
  * Of the households whose woman is from `GROWN_CHILD.fromAge` to `GROWN_CHILD.toAge`, each has one single child at home.
  * An even-numbered household has a son of 16 to 20, grown at the start. An odd-numbered one has a daughter of 15, who is
@@ -165,7 +167,7 @@ function laterYears(count: number, first: number, children: boolean): StartingHo
     else if (grown) members.push({ sex: Sex.Woman, age: h % 4 === 1 ? GROWN_CHILD.springDaughters : GROWN_CHILD.winterDaughters });
     const room = first + count - id - members.length;
     for (let child = 0; child < Math.min(wanted, room); child++) {
-      const age = Math.max(0, Math.min(9, woman - 16) - 1 - 3 * child - (h % 2));
+      const age = Math.max(0, Math.min(CHILDREN.oldest, woman - 16) - 3 * child - (h % 2));
       members.push({ sex: (h + child) % 2 === 0 ? Sex.Woman : Sex.Man, age });
     }
     households.push({ members, dawnsSeen: FORMED_DAWNS_AGO });
@@ -440,6 +442,7 @@ function measure(size: number, run: string): boolean {
   const lastMissed = sim.villagers.missedMeals.slice();
   const birthsByDawn: number[] = [];
   const pairedByDawn: number[] = [];
+  const startedByDawn: number[] = [];
   let mealsByDay = 0;
   const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
   const toStockpile: Trips = { count: 0, length: 0 };
@@ -473,11 +476,13 @@ function measure(size: number, run: string): boolean {
     const byDay = !isNight(sim.tick) && !dawnTick;
     const born = sim.tally.births;
     const paired = sim.tally.paired;
+    const started = sim.tally.startedWork;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
     if (dawnTick) birthsByDawn.push(sim.tally.births - born);
     if (dawnTick) pairedByDawn.push(sim.tally.paired - paired);
+    if (dawnTick) startedByDawn.push(sim.tally.startedWork - started);
     for (let id = 0; id < sim.villagers.count; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
         const cause = sim.villagers.cause[id];
@@ -696,6 +701,7 @@ function measure(size: number, run: string): boolean {
     `  households formed in the measured ticks: ${sim.tally.paired - tallyBefore.paired}, at each measured dawn ${pairedByDawn.join(', ') || 'none'}; ` +
       `single settlers living at the start ${singleBefore} and at the end ${countSingle(sim)}`,
   );
+  console.log(`  children who started to work in the measured ticks: ${sim.tally.startedWork - tallyBefore.startedWork}, at each measured dawn ${startedByDawn.join(', ') || 'none'}`);
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
   console.log(
     `  villagers inside their house at each measured midnight: ${insideAtMidnight.subarray(0, nights).join(', ')}; ` +

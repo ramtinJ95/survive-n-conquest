@@ -3525,7 +3525,7 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         Doing: [...DOING_LONGEST, 'Playing by the house', 'Playing at the camp'],
         Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
         Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
-        'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 9', 'Boy, 9'],
+        'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 15', 'Boy, 15'],
         Household: household,
         Home: ['None, sleeps at the camp', 'A house'],
         'Missed meals': ['2, hungry'],
@@ -7338,6 +7338,121 @@ SCENARIOS.births = async (session) => {
   await session.screenshot(b.page, 'births-hungry-house');
   await b.context.close();
   seen.push(...b.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The growing-up scenario. On seed 7 the `settlers` setting states four households, each a couple and a child of 9, fed
+ * with `?food=200`, and the page gives `firewood-year`'s orders at 08:00 on day 1. Every child turns 10 at 17:36 on day 3
+ * and starts to work at the dawn of day 4. The house of Merek and Elsi stands on day 3, so their son plays by its door
+ * that evening, and the houses of the others stand on day 4. No household has seen a dawn before the first tick, so no
+ * child is born before the dawn of day 8. `scripts/births.ts` plays the same commands in `src/sim` and prints who starts
+ * to work at each dawn.
+ */
+const GROWING_SETTLERS = 'm30,w28,m9;m32,w30,w9;m33,w31,m9;m29,w27,w9';
+const GROWING_DAWN = 3;
+const GROWING_STOPS = { before: { day: 3, time: '15:00' }, tree: { day: 4, time: '12:00' }, autumn: { day: 7, time: '09:00' } };
+/**
+ * The clip's view: from `HIDES_YEAR_VIEW` a drag of `pan` brings the point midway between the house of Merek and Elsi on
+ * tile (129, 122) and the tree their son chops on day 4 on tile (145, 119) to the middle, and the wheel takes it closer.
+ * `aim.ts` puts the two tiles at (366, 246) and (627, 285) there, clear of the panels.
+ */
+const GROWING_VIEW = { pan: { x: -148, y: -3 }, wheel: -300 };
+/** The whole page, so the clip holds the top-left counts, the son's panel, and the news log beside the house and the tree, with one frame of every 6 the run drew. */
+const GROWING_CLIP = { width: 640, colors: 64, decimate: true, speed: 6 };
+/** The names of a news line, as the game lists up to eight: `Sten`, `Sten and Tilde`, `Sten, Tilde and Tobin`. */
+const namesInNews = (names) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
+SCENARIOS['growing-up'] = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, uiBoxes, apart, counts, closer, selectTitled, listen } = birthsDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const run = spawnSync('bun', [BIRTHS_SCRIPT, GROWING_SETTLERS, BIRTHS_FED, String(GROWING_DAWN)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`births.ts failed: ${run.stderr}`);
+  const dawn = JSON.parse(run.stdout).find((entry) => entry.dawn === GROWING_DAWN);
+  const son = dawn.started.find((child) => child.household === 1);
+  session.check(
+    'in src/sim the four children of 9 start to work at the dawn of day 4, when only the house of Merek and Elsi stands, and nobody is born',
+    dawn.news === 'Day 4, 03:36' && dawn.started.length === 4 && Boolean(son) && !son.girl && dawn.households[0].slot === 6 &&
+      dawn.households.slice(1).every((household) => household.slot === -1) && dawn.born.length === 0,
+    JSON.stringify(dawn),
+  );
+  const title = `${son.name}, son of Merek and Elsi`;
+  const startedLine = `${dawn.news}. ${namesInNews(dawn.started.map((child) => child.name))} started to work.`;
+
+  const a = await session.open(CLIP, { record: true, search: `?seed=7&food=${BIRTHS_FED}&settlers=${GROWING_SETTLERS}`, clock: 'paused' });
+  const { page } = a;
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const opening = await counts(page);
+  session.check('the settlers setting opens the map with 8 settlers and 4 children of 9', opening.children === '4' && opening.adults === 8, JSON.stringify(opening));
+  const wrong = await giveYearOrders(session, page, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(page)} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrong.length === 0, wrong.join(' | ') || 'all said');
+
+  await session.reach(page, GROWING_STOPS.before);
+  await closer(page, 6, BIRTHS_CLOSER);
+  const found = await selectTitled(page, title, 6, 'growing-up-before-aim');
+  const before = found.read;
+  session.check(
+    `at ${await at(page)} on the day before, the son of Merek and Elsi plays by their house's door: a child who works at 10, a boy of 9`,
+    before?.rows.Job === 'Child, works at 10' && before.rows['Sex and age'] === 'Boy, 9' && before.rows.Doing === 'Playing by the house' && before.rows.Home === 'A house',
+    before ? text(before) : `tried ${found.tried.join(', ')}`,
+  );
+  await session.screenshot(page, 'growing-up-before-panel');
+  await closer(page, 6, -BIRTHS_CLOSER);
+  const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
+  const panFrom = { x: middle.x - GROWING_VIEW.pan.x / 2, y: middle.y - GROWING_VIEW.pan.y / 2 };
+  await session.drag(page, panFrom, { x: panFrom.x + GROWING_VIEW.pan.x, y: panFrom.y + GROWING_VIEW.pan.y }, 'left');
+  await session.still(page);
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.wheel(0, GROWING_VIEW.wheel);
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  await session.still(page);
+  const from = a.since();
+
+  const dawnStop = clockMinutes(dawn.stop);
+  const heard = await listen(page, clockAt(dawnStop - 2), clockAt(dawnStop + 1));
+  session.check(`the news says "${startedLine}" at the dawn of day 4`, heard.get(startedLine) === clockText(dawnStop), [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing');
+  const afterDawn = await counts(page);
+  session.check(`at ${await at(page)} the top-left panel counts 0 children and 12 settlers with a job or without one`, afterDawn.children === '0' && afterDawn.adults === 12, JSON.stringify(afterDawn));
+  const started = await reads(page);
+  session.check(
+    `at ${await at(page)} his panel keeps his parents in its title, has no job, and reads a boy of 10`,
+    started?.title === title && started.rows.Job === 'None' && started.rows['Sex and age'] === 'Boy, 10',
+    text(started),
+  );
+  const atTree = await session.runUntil(
+    page,
+    async () => {
+      const read = await reads(page);
+      return read?.rows.Doing === 'Chopping a tree' ? read : null;
+    },
+    { every: 5, until: GROWING_STOPS.tree },
+  );
+  session.check(`on the day after, by ${await at(page)}, he chops a tree marked for the houses`, atTree?.title === title, atTree ? text(atTree) : 'not by the stop');
+  await session.screenshot(page, 'growing-up-at-tree');
+  const to = a.since();
+  await session.screenshot(page, 'growing-up-after-panel');
+  for (const size of READY_SIZES) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    await session.still(page);
+    const { ok, detail } = apart(await uiBoxes(page));
+    session.check(`at ${size.width}x${size.height} his panel covers no other panel`, ok, detail);
+    await session.screenshot(page, `growing-up-after-panel-${size.width}x${size.height}`);
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+
+  await session.reach(page, GROWING_STOPS.autumn);
+  const readiness = await page.getByRole('status', { name: 'Winter readiness', includeHidden: true }).evaluate((node) => {
+    const rows = {};
+    for (const name of node.querySelectorAll('dt')) rows[name.textContent.trim()] = name.nextElementSibling?.textContent.trim() ?? '';
+    return { shown: !node.hidden, rows };
+  });
+  session.check(`at ${await at(page)}, the first autumn, the readiness panel counts the 12 who work among the settlers who can wear clothing`, readiness.shown && /^\d+ of 12$/.test(readiness.rows['Settlers in clothing'] ?? ''), JSON.stringify(readiness));
+  await session.finishClips(a.context, page, [{ label: 'growing-up', from, to, ...GROWING_CLIP }]);
+  seen.push(...a.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 

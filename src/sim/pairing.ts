@@ -1,12 +1,9 @@
-import { ageAt } from './aging';
+import { GROWN_AGE, ageAt } from './aging';
 import { MAX_HOUSEHOLDS, NO_VILLAGER, emptyHouse, formHousehold, loseMember } from './households';
 import { Sex } from './names';
 import type { Sim } from './sim';
 import { VILLAGER_ROWS, VillagerState } from './villagerState';
 import type { Villagers } from './villagers';
-
-/** A settler of this age or older who has never had a partner is single, and can pair. */
-export const GROWN = 16;
 
 /** A living villager's age in whole years runs below this, as no life span passes 99. */
 const AGES = 128;
@@ -16,13 +13,13 @@ const firstOfAge = new Int32Array(2 * AGES);
 const nextOfAge = new Int32Array(VILLAGER_ROWS);
 
 /**
- * Whether villager `id` is single at this tick: alive, `GROWN` or older, and
+ * Whether villager `id` is single at this tick: alive, `GROWN_AGE` or older, and
  * never a partner. A settler is partnered when it is one of its household's
  * couple and the other place is held, though its partner died since.
  */
 export function isSingle(sim: Sim, id: number): boolean {
   const { villagers, households } = sim;
-  if (villagers.state[id] === VillagerState.Dead || ageAt(villagers, id, sim.tick) < GROWN) return false;
+  if (villagers.state[id] === VillagerState.Dead || ageAt(villagers, id, sim.tick) < GROWN_AGE) return false;
   const h = villagers.household[id]!;
   if (households.man[h] === id) return households.woman[h] === NO_VILLAGER;
   if (households.woman[h] === id) return households.man[h] === NO_VILLAGER;
@@ -55,10 +52,10 @@ function takeManOfAge(villagers: Villagers, woman: number, age: number): number 
 
 /** The single man nearest woman `woman` of age `age` in age whom she can pair with, the older when two are as near, then the lower id, taken out of his list, or -1. */
 function takeNearestMan(villagers: Villagers, woman: number, age: number): number {
-  for (let apart = 0; age + apart < AGES || age - apart >= GROWN; apart++) {
+  for (let apart = 0; age + apart < AGES || age - apart >= GROWN_AGE; apart++) {
     const older = age + apart < AGES ? takeManOfAge(villagers, woman, age + apart) : -1;
     if (older >= 0) return older;
-    const younger = apart > 0 && age - apart >= GROWN ? takeManOfAge(villagers, woman, age - apart) : -1;
+    const younger = apart > 0 && age - apart >= GROWN_AGE ? takeManOfAge(villagers, woman, age - apart) : -1;
     if (younger >= 0) return younger;
   }
   return -1;
@@ -81,7 +78,7 @@ export function pairSettlers(sim: Sim): void {
     nextOfAge[id] = firstOfAge[at]!;
     firstOfAge[at] = id;
   }
-  for (let age = AGES - 1; age >= GROWN; age--) {
+  for (let age = AGES - 1; age >= GROWN_AGE; age--) {
     for (let woman = firstOfAge[Sex.Woman * AGES + age]!; woman >= 0; woman = nextOfAge[woman]!) {
       const man = takeNearestMan(villagers, woman, age);
       if (man < 0) continue;
