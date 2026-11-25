@@ -19,4 +19,14 @@ describe('settlement years', () => {
     expect(second.rows).toEqual(first.rows);
     expect(second.camp).toEqual(first.camp);
   });
+
+  it('turns births off from year 3 in its own run only', () => {
+    const control = play({ hour: 8, ticks: yearsEnd(3) });
+    const off = play({ hour: 8, ticks: yearsEnd(3), birthsOffFrom: 3 });
+    const after = play({ hour: 8, ticks: yearsEnd(3) });
+    expect(off.rows.slice(0, 2)).toEqual(control.rows.slice(0, 2));
+    expect(control.rows[2]!.born).toBeGreaterThan(0);
+    expect(off.rows[2]!.born).toBe(0);
+    expect(after.rows).toEqual(control.rows);
+  });
 });
