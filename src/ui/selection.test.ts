@@ -1059,6 +1059,31 @@ describe('the panels of a new household while no house stands empty', () => {
   });
 });
 
+describe("the panel of a house that a lodging household inherited", () => {
+  it('reads a sibling still lodging there as kin of the new couple, not as their child', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const settlers = [
+      { members: [{ sex: Sex.Man, age: 50 }, { sex: Sex.Woman, age: 48 }, { sex: Sex.Man, age: 20 }, { sex: Sex.Woman, age: 19 }] },
+      { members: [{ sex: Sex.Man, age: 51 }, { sex: Sex.Woman, age: 49 }, { sex: Sex.Woman, age: 20 }] },
+      { members: [{ sex: Sex.Man, age: 52 }, { sex: Sex.Woman, age: 50 }, { sex: Sex.Man, age: 19 }] },
+    ];
+    const sim = createSim(map, { villagers: 10, monsters: 0, campFood: 100, animals: false, settlers });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 6 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, 6, 6)]!;
+    finishBuilding(sim, house);
+    const [son, daughter, wife, husband] = [2, 3, 6, 9];
+    const panel = () => readPanel({ kind: 'building', slot: house, anchor: 0 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value;
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    while (sim.tally.paired < 2) step(sim);
+    expect([sim.households.man[3], sim.households.woman[3], sim.households.man[4], sim.households.woman[4]]).toEqual([son, wife, husband, daughter]);
+    expect(panel()).toBe(`${name(0)} and ${name(1)}, 2 children`);
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    expect([sim.households.home[3], sim.villagers.lodging[daughter]]).toEqual([house, house]);
+    expect(panel()).toBe(`${name(son)} and ${name(wife)}, 1 kin`);
+  });
+});
+
 describe("the camp's panel of the settlement's people", () => {
   const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
   const man = (age: number, span?: number): StartingSettler => (span === undefined ? { sex: Sex.Man, age } : { sex: Sex.Man, age, span });

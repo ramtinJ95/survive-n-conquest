@@ -3528,7 +3528,7 @@ const DOING_LONGEST = [
 const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
   const settlers = [String(mostSettlers)];
   const couple = `${man} and ${woman}`;
-  const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`];
+  const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`, `${couple}, 3 kin, 12 died`];
   const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
   const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
   return {

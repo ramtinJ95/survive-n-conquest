@@ -437,8 +437,11 @@ const counted = (count: number, one: string, many: string) => `${count} ${count 
  * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. The dead are
  * counted and not named, so a widow reads as `Ysa, 3 children, 1 died`, and
  * children whose couple both died as `3 children, 2 died`. Read for the house
- * in `house`, it counts among the children those who lodge there: grown
- * children of the household who paired while no house stood empty.
+ * in `house`, it counts those who lodge there too: grown children of its
+ * couple who paired while no house stood empty, among the children. A house
+ * that a lodging household inherited can keep a sibling of that couple
+ * lodging in it, who is no child of theirs. Then everyone beyond the couple
+ * counts as kin, as `Sten and Tilde, 1 kin`, which is true of all of them.
  */
 function householdLine(facts: Facts, household: number, house = NO_HOME): string {
   const { frame } = facts;
@@ -448,14 +451,19 @@ function householdLine(facts: Facts, household: number, house = NO_HOME): string
   const couple = [man, woman].filter(alive).map((id) => nameOfSettler(facts, id));
   let children = 0;
   let died = 0;
+  let kin = false;
   frame.households.forEach((of, id) => {
-    if (house !== NO_HOME && frame.lodgings[id] === house) children++;
+    if (house !== NO_HOME && frame.lodgings[id] === house) {
+      children++;
+      const parent = (p: number) => p >= 0 && (p === man || p === woman);
+      if (!parent(frame.mothers[id]!) && !parent(frame.fathers[id]!)) kin = true;
+    }
     if (of !== household) return;
     if (frame.states[id] === VillagerState.Dead) died++;
     else if (id !== man && id !== woman) children++;
   });
   const parts = couple.length > 0 ? [couple.join(' and ')] : [];
-  if (children > 0) parts.push(counted(children, 'child', 'children'));
+  if (children > 0) parts.push(kin ? `${children} kin` : counted(children, 'child', 'children'));
   if (died > 0) parts.push(`${died} died`);
   return parts.join(', ');
 }
