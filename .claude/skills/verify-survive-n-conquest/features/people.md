@@ -11,7 +11,7 @@ The camp's panel reads the settlement's people as a whole, below its `Settlers h
 
 ## How to get to it (user POV)
 
-- Click the camp with no tool active, and read the last three rows of its panel. Play five years at 8×, which takes 38 minutes, and read how they changed.
+- Click the camp with no tool active, and read the last four rows of its panel. Play five years at 8×, which takes 38 minutes, and read how they changed.
 - On a verification page the `settlers` setting states the children, the workers, and the old a map starts with, and a span such as `m60:60` that ends at the first dawn.
 
 ## Driving it with verify.mjs
