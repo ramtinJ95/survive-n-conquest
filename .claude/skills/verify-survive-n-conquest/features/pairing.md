@@ -18,7 +18,7 @@ A settler is single when it is 16 or older and has never had a partner. Two sing
 - Mark trees and rock, a stockpile, and three houses near the camp. The first two houses go to the two couples, the third stands empty.
 - At the dawn of day 6, a little under 3 minutes in at 8×, the son and the daughter are 16 and pair. The news names them, they take the third house at once, and at dusk they go in to it. Click the parents' houses and the third house to read their households.
 - With `m17` and `w16` in place of the 14-year-olds, they pair at the first dawn and live at the camp until the third house is finished.
-- With a third couple, `settlers=m44,w42,m14@6;m45,w43,w14@6;m46,w44@6`, and the fourth house ordered only on day 7, the three houses are the three couples' when Sten and Tilde pair at the dawn of day 6. Sten's panel reads `Home` `Parents' house`, his parents' house reads `Merek and Elsi, 1 child`, and at dusk each goes in to its parents' house. They move into the fourth house when it is finished.
+- With a third couple, `settlers=m44,w42,m14@6;m45,w43,w14@6;m46,w44@6`, and the fourth house ordered only on day 7, the three houses are the three couples' when Sten and Tilde pair at the dawn of day 6. Tilde's panel reads `Home` `Parents' house`, her parents' house reads `Ulvar and Ysa, 1 child`, and at dusk each goes in to its parents' house. They move into the fourth house when it is finished.
 
 ## Driving it with verify.mjs
 
@@ -39,11 +39,12 @@ Preconditions:
 - **The camp page.** It has the camp page's setting, `?food=200`, and the same orders. The news names the pair at the dawn of day 2, and 5 minutes after the third house is finished its panel reads their couple. It takes `pairing-camp-house.png`.
 
 - **The roof page.** It records video with `?food=200&settlers=m44,w42,m14@6;m45,w43,w14@6;m46,w44@6` and gives `FIREWOOD_YEAR_START` without its fourth house at 08:00 on day 1.
-  - From 03:26 on day 6 it holds the panel of Merek and Elsi's house open and steps the clock a minute at a time to 03:40. The news line comes at the stop of 03:37, and at 03:56 the panel still reads `Merek and Elsi, 1 child`.
-  - At 09:00 it takes `pairing-roof-house-panel.png` with that panel, then clicks the tunics nearest the house until Sten's panel opens, which reads `Household` `Sten and Tilde` and `Home` `Parents' house`. It takes `pairing-roof-settler-panel.png` and checks the layout at the three sizes.
-  - With his panel still open from 09:00, from 20:10 it steps the clock a minute at a time until his panel reads `At home` with `Missed meals: None`, at 21:59 because he hunts far out, then on to 22:05 and `pairing-roof-dusk.png`. There the camp's panel reads `Settlers here: 0`, in `pairing-roof-camp-night.png`.
-  - At 08:00 on day 7 it gives the fourth house and its chop orders. 5 minutes before the house is finished Merek and Elsi's house still reads `Merek and Elsi, 1 child`, in `pairing-roof-move-before.png`. 5 minutes after, it reads `Merek and Elsi`, in `pairing-roof-move-after-parents.png`, and the fourth house reads `Sten and Tilde`, in `pairing-roof-move-after.png`.
+  - From 03:26 on day 6 it holds the panel of Ulvar and Ysa's house open and steps the clock a minute at a time to 03:40. The news line comes at the stop of 03:37, and at 03:56 the panel still reads `Ulvar and Ysa, 1 child`.
+  - At 09:00 it takes `pairing-roof-house-panel.png` with that panel, then clicks the tunics nearest Merek and Elsi's house until Tilde's panel opens, which reads `Household` `Sten and Tilde` and `Home` `Parents' house`. At 09:00 she stands on the same tile on `main` and at this change, so the page finds her on both. It takes `pairing-roof-settler-panel.png` and checks the layout at the three sizes.
+  - With her panel still open, from 20:10 it steps the clock a minute at a time until her panel reads `At home` with `Missed meals: None`, at 20:59, then on to 22:05 and `pairing-roof-dusk.png`. There the camp's panel reads `Settlers here: 0`, in `pairing-roof-camp-night.png`.
+  - At 08:00 on day 7 it gives the fourth house and its chop orders. 5 minutes before the house is finished Ulvar and Ysa's house still reads `Ulvar and Ysa, 1 child`, in `pairing-roof-move-before.png`. 5 minutes after, it reads `Ulvar and Ysa`, in `pairing-roof-move-after-parents.png`, and the fourth house reads `Sten and Tilde`, in `pairing-roof-move-after.png`.
   - `pairing-roof-dawn-to-dusk.gif` joins the dawn, from 03:26 to 03:56, and the dusk, from 20:10 to 22:05, with every repeated frame dropped. It shows the whole page with the clock and the news log.
+  - A second roof page, not recorded, with the same setting and orders, selects Sten at 09:00 on day 6, whose panel reads `Household` `Sten and Tilde` and `Home` `Parents' house`, and keeps his panel open from 20:10 until it reads `At home` with `Missed meals: None`, at 21:59, because he hunts far out, in `pairing-roof-his-dusk.png`. The camp's `Settlers here: 0` alone would pass with one of the two stranded outside every house.
 
 ## Gotchas
 
