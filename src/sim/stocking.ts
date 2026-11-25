@@ -1,6 +1,6 @@
 import { ANYONE, Job, nearestDoor, siteMidX, siteMidY } from './buildings';
 import { Good, type Unit, putDownHeld } from './goods';
-import { NO_HOME, isUnattended } from './households';
+import { NO_HOME, houseOf, isUnattended, peopleIn } from './households';
 import { jobOf } from './jobs';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -19,14 +19,14 @@ import {
 import type { TaskKind } from './tasks';
 
 /**
- * The units of food a household's home lacks to hold its living members'
- * meals for `DAYS_KEPT_AT_HOME`, up to what the house holds, counting the units
- * on their way in. A household must have a home.
+ * The units of food a household's home lacks to hold the meals of the people
+ * who live in it for `DAYS_KEPT_AT_HOME`, up to what the house holds, counting
+ * the units on their way in. A household must have a home.
  */
 export function lacks(sim: Sim, household: number): number {
   const { households, stores } = sim;
   const home = households.home[household]!;
-  const wanted = Math.min(DAYS_KEPT_AT_HOME * MEALS_PER_DAY * households.living[household]!, limitOf(sim.orders, stores.campLimit, home, Good.Food));
+  const wanted = Math.min(DAYS_KEPT_AT_HOME * MEALS_PER_DAY * peopleIn(households, home), limitOf(sim.orders, stores.campLimit, home, Good.Food));
   return wanted - stores.held[Good.Food - 1]![home]! - stores.inbound[Good.Food - 1]![home]!;
 }
 
@@ -48,7 +48,7 @@ export function firewoodLacks(sim: Sim, store: number): number {
   return limitOf(sim.orders, stores.campLimit, store, Good.Firewood) - stores.held[index]![store]! - stores.inbound[index]![store]!;
 }
 
-const homeOf = (sim: Sim, id: number) => sim.households.home[sim.villagers.household[id]!]!;
+const homeOf = (sim: Sim, id: number) => houseOf(sim.households, sim.villagers, id);
 
 /**
  * The store a unit of `good` for store `to` comes from, nearest the point
@@ -110,8 +110,8 @@ function unattendedHome(sim: Sim, h: number): number {
  * carry: food for each, the household with the lowest number first, then
  * firewood for each in the same order. Then it keeps the camp stocked for the
  * households that sleep there: food from the barn nearest the camp, then
- * firewood from the woodshed nearest it. The house is the home of the
- * villager's household, which stays its home while a member lives.
+ * firewood from the woodshed nearest it. The house is the one the villager
+ * lives in, its household's or the one it lodges in.
  */
 function take(sim: Sim, id: number): boolean {
   const { villagers, stores, households, flow } = sim;
@@ -121,7 +121,7 @@ function take(sim: Sim, id: number): boolean {
   if (home !== NO_HOME) {
     const hx = siteMidX(sites, home);
     const hy = siteMidY(sites, home);
-    if (lacks(sim, villagers.household[id]!) > 0 && fetchFor(sim, id, Good.Food, home, hx, hy)) return true;
+    if (lacks(sim, households.householdIn[home]!) > 0 && fetchFor(sim, id, Good.Food, home, hx, hy)) return true;
     if (firewoodLacks(sim, home) > 0 && fetchFor(sim, id, Good.Firewood, home, hx, hy)) return true;
   }
   if (jobOf(sim, id) !== Job.None) return false;
@@ -143,7 +143,7 @@ function take(sim: Sim, id: number): boolean {
 }
 
 /**
- * The unit still goes to the home of the villager's household, or, while the
+ * The unit still goes to the house the villager lives in, or, while the
  * villager has no job, to the camp or to a home in which nobody can carry. One
  * hired on its way, or bound for a home whose household can carry again or
  * left it, gives the unit up.
