@@ -74,6 +74,18 @@ describe('the settlement news', () => {
     expect(said).toEqual(['Day 4, 03:36. Ulvar died of old age.']);
   });
 
+  it('names the children who started to work at the dawn they started, in one line', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [{ members: [{ sex: Sex.Man, age: 30 }, { sex: Sex.Woman, age: 28 }, { sex: Sex.Man, age: 9 }, { sex: Sex.Woman, age: 9 }, { sex: Sex.Man, age: 8 }] }];
+    const sim = createSim(map, { villagers: 5, monsters: 0, campFood: 200, animals: false, settlers, mostLiving: 5 });
+    const [boy, girl] = [2, 3].map((id) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!));
+    const { said } = listen(sim, 3000 * 4);
+    expect(said).toEqual([`Day 4, 03:36. ${boy} and ${girl} started to work.`]);
+    expect(lineWords('started work', 0, ['Merek', 'Elsi', 'Ulvar', 'Ysa', 'Jorrin', 'Fenna', 'Dorran', ...Array(1493).fill('Nella')])).toBe(
+      'Day 1, 08:00. Merek, Elsi, Ulvar, Ysa, Jorrin, Fenna, Dorran and 1,493 others started to work.',
+    );
+  });
+
   it('says on seed 7 with no orders who went hungry on day 4 and who starved on day 6, one line for each dusk', () => {
     const { said } = listen(createSim(generateMap(7), SETTLERS), 3000 * 7);
     expect(said).toEqual([
@@ -96,6 +108,7 @@ describe('the settlement news', () => {
   it('shows at most four lines, keeps a fifth waiting until one has shown long enough, and then shows it for as long', () => {
     const news = createNews(createOrders(mapFrom(Array.from({ length: 8 }, () => '.'.repeat(8)))));
     const frame = (tick: number, missedMeals: number[]) => ({
+      children: new Uint8Array(missedMeals.length),
       tick,
       states: new Uint8Array(missedMeals.length),
       causes: new Uint8Array(missedMeals.length),
