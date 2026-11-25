@@ -1051,7 +1051,7 @@ describe('the panels of a new household while no house stands empty', () => {
     expect(sim.households.man[3]).toBe(son);
     expect(sim.households.woman[3]).toBe(daughter);
     const couple = `${name(son)} and ${name(daughter)}`;
-    expect([row(son, 'Household'), row(son, 'Home'), row(daughter, 'Household'), row(daughter, 'Home')]).toEqual([couple, "Parents' house, for now", couple, 'None, sleeps at the camp']);
+    expect([row(son, 'Household'), row(son, 'Home'), row(daughter, 'Household'), row(daughter, 'Home')]).toEqual([couple, "Parents' house", couple, 'None, sleeps at the camp']);
     expect([row(0, 'Household'), house(first), house(second)]).toEqual([`${name(0)} and ${name(1)}`, `${name(0)} and ${name(1)}, 1 child`, `${name(3)} and ${name(4)}, 1 child`]);
     const forTheCamp = build(20);
     const forThePair = build(28);

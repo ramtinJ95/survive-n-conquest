@@ -552,7 +552,7 @@ export const PANELS: Panels = {
         label: 'Home',
         read: ({ frame }, { id }) => {
           if (frame.homes[frame.households[id]!] !== NO_HOME) return 'A house';
-          return frame.lodgings[id] === NO_HOME ? 'None, sleeps at the camp' : "Parents' house, for now";
+          return frame.lodgings[id] === NO_HOME ? 'None, sleeps at the camp' : "Parents' house";
         },
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
