@@ -7,7 +7,7 @@
 import { ageAt } from '../src/sim/aging';
 import { arrived } from '../src/sim/building';
 import { BEARING_AGES, BIRTH_CHANCE, BIRTH_GAP, FULL_HOUSE, bearChildren, birthDraw } from '../src/sim/births';
-import { BUILDINGS, Building, type BuildingName, withinReach } from '../src/sim/buildings';
+import { BUILDINGS, Building, type BuildingName, footprintStart, withinReach } from '../src/sim/buildings';
 import { DAYS_PER_YEAR, TICKS_PER_DAY, TICKS_PER_YEAR, dateAt } from '../src/sim/calendar';
 import { Claim } from '../src/sim/claims';
 import { DAWN } from '../src/sim/dawn';
@@ -21,7 +21,7 @@ import { SiteState } from '../src/sim/orders';
 import { isSingle } from '../src/sim/pairing';
 import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from '../src/sim/sim';
 import { BARN_FOOD_LIMIT, CAMP_FIREWOOD_LIMIT, CAMP_FOOD_LIMIT, HOUSE_FIREWOOD_LIMIT, StoreKind } from '../src/sim/stores';
-import { Cause, VillagerState } from '../src/sim/villagerState';
+import { Cause, VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
 import { jobCounts, stockpileTotals, storeTotals } from '../src/ui/stockpiles';
 import { NEAR_HOUSES_LATE_SHED, nearestAnchor, nearestTrees, ordersOf, quarryNearest } from './firewood-years';
 
@@ -127,10 +127,15 @@ function workplaces(sim: Sim, kind: Building): number[] {
 const SPLIT = BUILDINGS[Building.Woodshed].recipe!;
 const FIREWOOD_PER_LOG = SPLIT.outputs / SPLIT.inputs;
 const HUT_PLACES = BUILDINGS[Building.Hut].places;
+const HUT_REACH = BUILDINGS[Building.Hut].reach;
 const treesFor = (logs: number) => Math.ceil(logs / LOGS_PER_TREE);
 
-/** Chop orders on the `n` standing unmarked trees nearest the camp center that a walk reaches and that lie outside the reach of every hut that stands or is ordered. */
-function chop(sim: Sim, n: number): Command[] {
+/**
+ * Chop orders on the `n` standing unmarked trees nearest the camp center that a settler can walk to, as the map shows
+ * land joined to the camp, and that lie outside the reach of every hut that stands or is ordered, `hut` too: the
+ * middle of a hut ordered with these trees.
+ */
+function chop(sim: Sim, n: number, hut?: readonly [number, number]): Command[] {
   const { map, orders, flow } = sim;
   const { size } = map;
   const { sites } = orders;
@@ -143,6 +148,7 @@ function chop(sim: Sim, n: number): Command[] {
     const y = Math.floor(t / size) + 0.5;
     let inHutReach = false;
     for (let s = 0; s < sites.used && !inHutReach; s++) inHutReach = sites.kind[s] === Building.Hut && sites.state[s] !== SiteState.Free && withinReach(sites, s, x, y);
+    if (hut) inHutReach ||= (x - hut[0]) ** 2 + (y - hut[1]) ** 2 <= HUT_REACH * HUT_REACH;
     if (!inHutReach) found.push({ t, d: (x - cx) ** 2 + (y - cy) ** 2 });
   }
   found.sort((a, b) => a.d - b.d || a.t - b.t);
@@ -152,8 +158,9 @@ function chop(sim: Sim, n: number): Command[] {
 /** A building on the nearest place the rules accept to `to`, the camp by default, with the trees and the rock for what it needs. */
 function build(sim: Sim, building: Building, to?: readonly [number, number]): Command[] {
   const [x, y] = nearestAnchor(sim, building, to);
-  const needs = BUILDINGS[building].needs;
-  return [{ kind: 'place', building, x, y }, ...chop(sim, treesFor(needs[Good.Log] ?? 0)), ...quarryNearest((needs[Good.Stone] ?? 0) > 0 ? 1 : 0)(sim)];
+  const { needs, side } = BUILDINGS[building];
+  const middle = [footprintStart(x, side) + side / 2, footprintStart(y, side) + side / 2] as const;
+  return [{ kind: 'place', building, x, y }, ...chop(sim, treesFor(needs[Good.Log] ?? 0), building === Building.Hut ? middle : undefined), ...quarryNearest((needs[Good.Stone] ?? 0) > 0 ? 1 : 0)(sim)];
 }
 
 /**
@@ -279,7 +286,7 @@ function countBrakes(sim: Sim, brakes: Record<Brake, number>): void {
     else if (wanting[h] === 1) brake = 'wanting';
     else if (sim.dawns - households.lastBirth[h]! <= BIRTH_GAP) brake = 'gap';
     else if (birthDraw(sim.seed, h, sim.dawns) >= BIRTH_CHANCE) brake = 'drawn';
-    else if (sim.living + born >= sim.mostLiving) brake = 'cap';
+    else if (sim.living + born >= sim.mostLiving || villagers.count + born >= VILLAGER_ROWS) brake = 'cap';
     else {
       brake = 'born';
       born += 1;
