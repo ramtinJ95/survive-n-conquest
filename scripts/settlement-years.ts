@@ -44,7 +44,7 @@ interface Reading {
   readonly living: number;
   readonly withoutJob: number;
   readonly households: number;
-  /** Households without a house, which sleep at the camp. */
+  /** Households without a house of their own. Their couples sleep at the camp, or in their parents' houses while no house stands empty. */
   readonly homeless: number;
   /** Food in barns and at the camp, and in homes. */
   readonly commonFood: number;
