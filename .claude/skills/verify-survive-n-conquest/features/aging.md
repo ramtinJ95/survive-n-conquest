@@ -34,11 +34,11 @@ Preconditions:
   - It selects the man of 70 at noon, reaches 04:40 on day 2, and steps a minute at a time, reading the news at each stop. `... dies of old age at the first dawn, 04:48 on day 2, and the first stop after it shows it` needs `Died of old age at 70` and `Man, 70` at 04:49. The dawn tick is 2,600, and a stop at 04:48 stands before it.
   - `the news says "Day 2, 04:48. <name> died of old age." at the dawn it happens`.
   - At 04:52 it takes `aging-died-of-old-age.png`, and at each of the three window sizes `aging-dead-panel-<size>.png` with `the panel of the settler who died of old age covers no other panel`. The page cuts `aging-dies-of-old-age.gif` from 04:40 to 04:52.
-- `readiness` and `selecting` measure every panel with the longest readings of `panelReadings`, which hold `Woman, 80`, `Man, 80`, and `Died of old age at 80`.
+- `readiness` and `selecting` measure every panel with the longest readings of `panelReadings`, which hold `Woman, 80`, `Man, 80`, `Girl, 15`, and `Boy, 15`, with `Died of old age at 80` as the longest `Doing`.
 
 ## Gotchas
 
 - A stop at a minute stands on that minute's first tick, before the step that runs it. A dawn at 04:48 shows at the stop of 04:49, and the news dates it 04:48.
 - The setting works only with `clock=paused`, which `open` adds to every page except `clock: 'player'`.
-- In 5.1 each household of the setting is a man and then a woman, as the starting households are: `m70:70,w66` is Household 1 with a man of 70 whose span is 70 and a woman of 66 whose span the seed draws. Households are separated by `;`.
+- Each household of the setting is a man and then a woman, as the starting households are, and then its children: `m70:70,w66` is Household 1 with a man of 70 whose span is 70 and a woman of 66 whose span the seed draws, and `m32,w30,w8,m6` adds a girl of 8 and a boy of 6. Ages run from 0 to 99. A household ending in `@<n>` has seen `n` dawns, as `births` uses. Households are separated by `;`.
 - At 08:00 the 8 settlers stand bunched at the camp, and clicks find only one or two of them.

@@ -37,7 +37,7 @@ Preconditions:
   - `quarried rock leaves stone in front of the rock face` counts `GOOD_COLORS.stone` in the box before the drag and at the last stop.
   - `by ... on day 2 rock tiles are spent and lose their mark` needs a quarter fewer pixels in `QUARRY_TINT`, the violet that the mark mixes into each marked tile, at the last stop than on the morning of day 2. The outline of the marks does not shrink when the front row goes, so the check counts the tint.
   - `by ... the settlers stand on the spent tiles to quarry the rock behind them` needs the settlers' pixels at the face to move up the screen, toward the rock, between those two stops.
-- **Proof.** Run `$V run gathering`. The evidence folder holds `gathering-grove.gif`, `gathering-dusk.gif`, `gathering-dawn.gif`, `gathering-quarry.gif`, eleven screenshots, and `result.json` with every check, including `no page errors`. The clips are cut to `GATHER_CLIP`, the clock, the camp, and the work at full size, in 64 colors.
+- **Proof.** Run `$V run gathering`. The evidence folder holds `gathering-grove.gif`, `gathering-dusk.gif`, `gathering-dawn.gif`, `gathering-quarry.gif`, ten screenshots, and `result.json` with every check, including `no page errors`. The clips are cut to `GATHER_CLIP`, the clock, the camp, and the work at full size, in 64 colors.
 
 ## Gotchas
 

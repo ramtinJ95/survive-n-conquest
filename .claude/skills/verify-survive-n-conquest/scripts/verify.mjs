@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -96,6 +96,7 @@ function paceFramesToTheGpu() {
         reportError(error);
       }
     }
+    window.firstFrameAt ??= Date.now();
     fences = [...contexts].map((gl) => [gl, gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)]);
     for (const [gl] of fences) gl.flush();
     if (callbacks.size) schedule();
@@ -186,8 +187,11 @@ function revision() {
   const sha = git('rev-parse', '--short', 'HEAD');
   if (!git('status', '--porcelain')) return sha;
   const changes = createHash('sha256').update(git('diff', 'HEAD', '--binary'));
+  // git lists an untracked repository or worktree inside the checkout as `dir/`, and a symlink as a file.
   for (const file of git('ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean)) {
-    changes.update(file).update(readFileSync(join(ROOT, file)));
+    const path = join(ROOT, file);
+    const entry = lstatSync(path);
+    changes.update(file).update(entry.isSymbolicLink() ? readlinkSync(path) : entry.isDirectory() ? '' : readFileSync(path));
   }
   return `${sha}-dirty-${changes.digest('hex').slice(0, 8)}`;
 }
@@ -578,6 +582,8 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
     evidence.files.push(file);
     return join(dir, file);
   };
+  // The seconds of each page's video at which its first frame ran, where a clip cut with no `from` starts.
+  const firstDrawn = new WeakMap();
   return {
     check,
 
@@ -610,6 +616,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       await page.goto(url.href);
       await this.settle(page);
       await page.getByRole('status', { name: 'Date' }).filter({ hasText: /^Day / }).waitFor();
+      firstDrawn.set(page, ((await page.evaluate(() => window.firstFrameAt ?? Date.now())) - created) / 1000);
       if (clock !== 'player') {
         await page.getByRole('button', { name: 'Pause', exact: true, pressed: true }).waitFor();
         const opened = await this.gameMinutes(page);
@@ -733,7 +740,8 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
 
     async hold(page, key, ms) {
       await page.keyboard.down(key);
-      await page.waitForTimeout(ms);
+      // The game reads a held key only in a drawn frame, and under load one frame can take longer than `ms`.
+      await Promise.all([page.waitForTimeout(ms), this.settle(page)]);
       await page.keyboard.up(key);
     },
 
@@ -754,7 +762,7 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       const video = await page.video().path();
       for (const { label, ...cut } of cuts) {
         const gif = capture(`${label}.gif`);
-        toGif(video, gif, cut);
+        toGif(video, gif, { from: firstDrawn.get(page), ...cut });
         const bytes = statSync(gif).size;
         check(`${label}.gif stays under 8 MB`, bytes <= GIF_BYTE_LIMIT, `${(bytes / 1e6).toFixed(1)} MB`);
       }
@@ -2449,8 +2457,9 @@ const REFUSED_AT_LEAST = { rock: 60, forest: 50 };
 
 /**
  * Two house sites go down at 08:15 on day 1, above and left of the camp, with 26 trees and 136 rock tiles marked and a
- * 4-tile stockpile, so that the settlers have the 24 logs and 12 stone the two need. In the pylon both stood at 14:44
- * and 14:45 on day 2, so households 0 and 1 have homes at the dusk of day 2 and households 2 and 3 do not.
+ * 4-tile stockpile, so that the settlers have the 24 logs and 12 stone the two need. On rj-firebat at 483188b the last
+ * label was gone at the stop at 16:35 on day 2, so households 0 and 1 have homes at the dusk of day 2 and households 2
+ * and 3 do not.
  */
 const HOME_ORDERS = [
   ['KeyC', /^26 trees marked for felling/, { x: 590, y: 220 }, { x: 730, y: 360 }],
@@ -3305,7 +3314,7 @@ const CAMP_TRIES = 6;
 const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 /** A turn of the camera by a right drag, so picking is tried at another camera yaw. */
 const SELECT_TURN = 300;
-const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
+const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64, decimate: true };
 /**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
@@ -7986,6 +7995,7 @@ async function drive(name) {
   }
   writeFileSync(join(dir, 'result.json'), `${JSON.stringify(evidence, null, 2)}\n`);
   const passed = printChecks(evidence.checks);
+  console.log(`${name}: ${evidence.checks.filter((check) => check.ok).length} of ${evidence.checks.length} checks passed`);
   console.log(`evidence: ${dir}`);
   return passed;
 }

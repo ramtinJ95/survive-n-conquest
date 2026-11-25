@@ -1,6 +1,6 @@
 # Firewood year
 
-On seed 7 a player can bring all 8 settlers through the first winter fed and warm under the rules of stage 4. They order #30's hut, barn, and lodge, 4.2's stockpile, and four houses on the places nearest the camp at the start, and the woodshed only once no building site lacks a log. The scenario gives the year "near houses, late woodshed" of `bun scripts/firewood-years.ts near-houses-at-minutes` through the toolbar at the same game minutes as the script. It reads the winter readiness reading on day 10 and the Stockpiles panel after the last winter night, against the numbers `src/sim` gives for the same commands at the same ticks.
+On seed 7 a player can bring all 8 settlers through the first winter fed and warm under the rules of stage 4, with the aging and the births of stage 5, which give it 4 children by the year's end. They order #30's hut, barn, and lodge, 4.2's stockpile, and four houses on the places nearest the camp at the start, and the woodshed only once no building site lacks a log. The scenario gives the year "near houses, late woodshed" of `bun scripts/firewood-years.ts near-houses-at-minutes` through the toolbar at the same game minutes as the script. It reads the winter readiness reading on day 10 and the Stockpiles panel after the last winter night, against the numbers `src/sim` gives for the same commands at the same ticks.
 
 ## Sub-features
 
