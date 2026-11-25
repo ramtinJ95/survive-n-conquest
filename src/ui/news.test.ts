@@ -65,6 +65,31 @@ describe('the news of a birth', () => {
   });
 });
 
+describe('the news of a new household', () => {
+  it('names one couple, two, and counts the rest, the man of each first', () => {
+    const tick = 2600;
+    expect(lineWords('formed', tick, ['Merek and Elsi'])).toBe('Day 2, 04:48. Merek and Elsi formed a household.');
+    expect(lineWords('formed', tick, ['Merek and Elsi', 'Ulvar and Ysa'])).toBe('Day 2, 04:48. Merek and Elsi formed a household, and so did Ulvar and Ysa.');
+    expect(lineWords('formed', tick, ['Merek and Elsi', 'Ulvar and Ysa', 'Jorrin and Fenna'])).toBe('Day 2, 04:48. Merek and Elsi formed a household, and so did Ulvar and Ysa and 1 other couple.');
+    expect(lineWords('formed', tick, ['Merek and Elsi', 'Ulvar and Ysa', 'Jorrin and Fenna', 'Dorran and Nella', 'Bodo and Tova'])).toBe(
+      'Day 2, 04:48. Merek and Elsi formed a household, and so did Ulvar and Ysa and 3 other couples.',
+    );
+  });
+
+  it('says who formed a household once, at the dawn of the pairing, by the frames', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const parents = [{ sex: Sex.Man, age: 50 }, { sex: Sex.Woman, age: 48 }];
+    const settlers = [{ members: [...parents, { sex: Sex.Man, age: 20 }] }, { members: [...parents, { sex: Sex.Woman, age: 19 }] }];
+    const sim = createSim(map, { villagers: 6, monsters: 0, campFood: 200, animals: false, settlers });
+    const { said } = listen(sim, 3000 * 3);
+    const formed = said.filter((line) => line.includes('household'));
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    expect([sim.households.man[2], sim.households.woman[2]]).toEqual([2, 5]);
+    expect(formed).toHaveLength(1);
+    expect(formed[0]).toMatch(new RegExp(`^Day 2, \\d\\d:\\d\\d\\. ${name(2)} and ${name(5)} formed a household\\.$`));
+  });
+});
+
 describe('the settlement news', () => {
   it('names a settler that died of old age at the dawn it died', () => {
     const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
@@ -118,6 +143,8 @@ describe('the settlement news', () => {
       sexes: new Uint8Array(missedMeals.length),
       mothers: new Int32Array(missedMeals.length).fill(-1),
       fathers: new Int32Array(missedMeals.length).fill(-1),
+      households: new Int16Array(missedMeals.length),
+      couples: new Int32Array(0),
       workplaces: new Int16Array(missedMeals.length).fill(-1),
       workshopStops: new Uint8Array(0),
       workshopWorked: new Uint8Array(0),

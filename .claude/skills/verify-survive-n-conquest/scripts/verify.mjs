@@ -541,14 +541,17 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
  * palette of every step. `decimate` drops every frame that repeats the one before and shows each frame that is left
  * once, so a paused stop passes in one frame. With `decimate`, `speed` keeps one of every `speed` frames that are left.
  */
-function toGif(video, gif, { from = 0, to, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
-  const span = to === undefined ? [] : ['-t', (to - from).toFixed(2)];
+function toGif(video, gif, { from = 0, to, spans, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
+  if (spans && !decimate) fail('a clip of several spans needs decimate, which closes the gaps between them');
+  const span = to === undefined || spans ? [] : ['-t', (to - from).toFixed(2)];
+  const start = spans ? [] : ['-ss', from.toFixed(2)];
+  const pick = spans ? `select='${spans.map(([a, b]) => `between(t,${a.toFixed(2)},${b.toFixed(2)})`).join('+')}',` : '';
   const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
   if (!GIF_STEPS.some((step) => step.width <= width)) fail(`no GIF step is ${width} px wide or narrower; the narrowest is ${Math.min(...GIF_STEPS.map((step) => step.width))} px`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
     const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
-    const palette = `${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
-    ffmpeg(['-ss', from.toFixed(2), ...span, '-i', video, '-vf', palette, gif]);
+    const palette = `${pick}${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
+    ffmpeg([...start, ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
   }
 }
@@ -7450,6 +7453,214 @@ SCENARIOS['growing-up'] = async (session) => {
   session.check(`at ${await at(page)}, the first autumn, the readiness panel counts the 12 who work among the settlers who can wear clothing`, readiness.shown && /^\d+ of 12$/.test(readiness.rows['Settlers in clothing'] ?? ''), JSON.stringify(readiness));
   await session.finishClips(a.context, page, [{ label: 'growing-up', from, to, ...GROWING_CLIP }]);
   seen.push(...a.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+const PAIRING_SCRIPT = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/pairing.ts');
+/** Two households whose children are 14, so they turn 16 at 03:12 on day 6 and pair at its dawn, when the third house stands empty. Every woman is 40 or older, so no child is born. */
+const PAIRING_MOVE = 'm44,w42,m14@6;m45,w43,w14@6';
+/** The same households with children of 17 and 16, who pair at the first dawn, at the camp, before any house stands. */
+const PAIRING_CAMP = 'm44,w42,m17@6;m45,w43,w16@6';
+/**
+ * Six single settlers in three households, each household's couple their parents: a daughter of 18 and a son of 18, a
+ * daughter of 18 and a son of 19, and a daughter of 16 and a son of 17. Ids 2, 3, 6, 7, 10, and 11.
+ */
+const PAIRING_SIX = 'm50,w48,w18,m18@6;m51,w49,w18,m19@6;m52,w50,w16,m17@6';
+/**
+ * The pairings the rule gives the six, by id, worked by hand. The women of 18, ids 2 and 6, go first, the lower id
+ * first. Id 2's brother, 3, is nearest her in age and cannot pair with her; 7, of 19, and 11, of 17, are as near, and
+ * the older, 7, is hers. Id 6 takes 3, of 18. Id 10, of 16, is left only her brother, 11, and stays single.
+ */
+const PAIRING_SIX_RULE = [{ woman: 2, man: 7 }, { woman: 6, man: 3 }];
+const PAIRING_SIX_SINGLE = [10, 11];
+const PAIRING_FOOD = '200';
+/** The house slots of the move page, by the order they stand: Merek and Elsi's, Ulvar and Ysa's, and the third. */
+const PAIRING_HOUSES = { first: 3, second: 6, third: 5 };
+/** At `BIRTHS_CLOSER` over the third house, the three houses, the selection panel at the bottom left, and the news log. */
+const PAIRING_CLIP = { crop: { x: 0, y: 100, width: 800, height: 440 }, width: 640, colors: 64, decimate: true };
+
+SCENARIOS.pairing = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes, apart, counts, closer, selectTitled, listen } = birthsDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const expected = (settlers, food, dawns) => {
+    const run = spawnSync('bun', [PAIRING_SCRIPT, settlers, food, String(dawns)], { cwd: ROOT, encoding: 'utf8' });
+    if (run.status !== 0) fail(`pairing.ts failed: ${run.stderr}`);
+    return JSON.parse(run.stdout);
+  };
+  const paired = (run) => run.dawns.find((dawn) => dawn.pairings.length > 0);
+  const coupleOf = ({ man, woman }) => `${man.name} and ${woman.name}`;
+  /** Selects the house in `slot`, saves the page with its panel as `label`, and returns the panel. */
+  const housePanel = async (page, slot, label) => {
+    const read = await click(page, BIRTH_HOUSES[slot]);
+    await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+    await session.still(page);
+    await session.screenshot(page, label);
+    await page.keyboard.press('Escape');
+    return read;
+  };
+
+  const six = expected(PAIRING_SIX, '-', 2);
+  const sixDawn = paired(six);
+  const byRule = sixDawn?.pairings.map(({ woman, man }) => ({ woman: woman.id, man: man.id }));
+  session.check(
+    'in src/sim the six single settlers pair at the first dawn as the rule gives: the women of 18 by the lower id first, the older of two men as near, never a brother, and the woman of 16 left single with only her brother',
+    JSON.stringify(byRule) === JSON.stringify(PAIRING_SIX_RULE) && JSON.stringify(sixDawn.singles.map(({ id }) => id)) === JSON.stringify(PAIRING_SIX_SINGLE) && sixDawn.dawn === 1 && sixDawn.pairings.every(({ household }, at) => household === 4 + at),
+    JSON.stringify({ pairings: sixDawn?.pairings ?? null, singles: sixDawn?.singles ?? null }),
+  );
+  const move = expected(PAIRING_MOVE, PAIRING_FOOD, 6);
+  const moveDawn = paired(move);
+  const pair = moveDawn?.pairings[0];
+  const third = move.houses[2];
+  session.check(
+    "in src/sim the move page's 14-year-olds pair at the dawn of day 6 and take at once the third house, which stands empty since day 5",
+    moveDawn?.news === 'Day 6, 03:36' && moveDawn.pairings.length === 1 && pair.household === 3 && pair.slot === PAIRING_HOUSES.third && third?.slot === PAIRING_HOUSES.third &&
+      move.houses[0].slot === PAIRING_HOUSES.first && move.houses[1].slot === PAIRING_HOUSES.second,
+    JSON.stringify({ houses: move.houses, pairings: moveDawn?.pairings ?? null }),
+  );
+  const camp = expected(PAIRING_CAMP, PAIRING_FOOD, 5);
+  const campDawn = paired(camp);
+  session.check(
+    "in src/sim the camp page's children of 17 and 16 pair at the first dawn with no house standing, and move into the third house when it is finished",
+    campDawn?.dawn === 1 && campDawn.pairings[0].slot === -1 && camp.dawns.at(-1).households[2].slot === camp.houses[2]?.slot,
+    JSON.stringify({ houses: camp.houses, pairings: campDawn?.pairings ?? null, last: camp.dawns.at(-1).households }),
+  );
+
+  const player = await session.open(CLIP, { search: `?seed=7&food=${PAIRING_FOOD}&settlers=${PAIRING_SIX}`, clock: 'player' });
+  await session.pause(player.page);
+  const playerCounts = await counts(player.page);
+  session.check("a player's page, without clock=paused, ignores the settlers setting: it opens with the seed's 8 settlers", playerCounts.children === '0' && playerCounts.adults === 8, JSON.stringify(playerCounts));
+  await player.context.close();
+  seen.push(...player.errors);
+
+  const sixPage = await session.open(CLIP, { search: `?seed=7&settlers=${PAIRING_SIX}`, clock: 'paused' });
+  await takeForageView(session, sixPage.page, HIDES_YEAR_VIEW);
+  const sixHeard = await listen(sixPage.page, clockAt(clockMinutes(sixDawn.stop) - 3), clockAt(clockMinutes(sixDawn.stop) + 2));
+  const sixLine = `${sixDawn.news}. ${coupleOf(sixDawn.pairings[0])} formed a household, and so did ${coupleOf(sixDawn.pairings[1])}.`;
+  session.check(
+    `the page's news names the couples in the order of the rule: "${sixLine}"`,
+    sixHeard.get(sixLine) === clockText(clockMinutes(sixDawn.stop)) && [...sixHeard.keys()].filter((line) => line.includes('formed')).length === 1,
+    [...sixHeard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing',
+  );
+  await session.still(sixPage.page);
+  await session.screenshot(sixPage.page, 'pairing-six-news');
+  await sixPage.context.close();
+  seen.push(...sixPage.errors);
+
+  const a = await session.open(CLIP, { record: true, search: `?seed=7&food=${PAIRING_FOOD}&settlers=${PAIRING_MOVE}`, clock: 'paused' });
+  const { page } = a;
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const opening = await counts(page);
+  session.check('the settlers setting opens the map with its 6 settlers, the 14-year-olds among the settlers with a job or without one, and no child', opening.children === '0' && opening.adults === 6, JSON.stringify(opening));
+  const wrong = await giveYearOrders(session, page, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(page)} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrong.length === 0, wrong.join(' | ') || 'all said');
+
+  await session.reach(page, { day: 5, time: '22:00' });
+  const parents = move.dawns.at(-1).households;
+  const [firstCouple, secondCouple] = [parents[0].couple, parents[1].couple];
+  const before = {
+    first: await housePanel(page, PAIRING_HOUSES.first, 'pairing-first-house-before'),
+    second: await housePanel(page, PAIRING_HOUSES.second, 'pairing-second-house-before'),
+    third: await housePanel(page, PAIRING_HOUSES.third, 'pairing-third-house-before'),
+  };
+  session.check(
+    `at ${await at(page)}, the night before the pairing, each parents' house counts its single child among its people, and the third house stands empty`,
+    before.first?.rows.Household === `${firstCouple}, 1 child` && before.second?.rows.Household === `${secondCouple}, 1 child` && before.third?.title === 'House' && before.third.rows.Household === 'Nobody',
+    `${text(before.first)} | ${text(before.second)} | ${text(before.third)}`,
+  );
+
+  const stop = clockMinutes(moveDawn.stop);
+  const dawnFrom = clockAt(stop - 10);
+  await session.reach(page, dawnFrom);
+  await click(page, BIRTH_HOUSES[PAIRING_HOUSES.third]);
+  await closer(page, PAIRING_HOUSES.third, BIRTHS_CLOSER);
+  const dawnStart = a.since();
+  const heard = await listen(page, dawnFrom, clockAt(stop + 3));
+  const line = `${moveDawn.news}. ${coupleOf(pair)} formed a household.`;
+  session.check(`the news says "${line}" at the dawn the rule gives`, heard.get(line) === clockText(stop), [...heard.entries()].map(([words, when]) => `"${words}" by ${when}`).join('; ') || 'nothing');
+  await session.reach(page, clockAt(stop + 20));
+  const watched = await reads(page);
+  session.check(
+    `the third house's panel, open through the dawn, reads the new household at ${await at(page)}`,
+    watched?.title === 'House' && watched.rows.Household === coupleOf(pair),
+    text(watched),
+  );
+  const dawnEnd = a.since();
+  await page.keyboard.press('Escape');
+  await closer(page, PAIRING_HOUSES.third, -BIRTHS_CLOSER);
+  const after = {
+    first: await housePanel(page, PAIRING_HOUSES.first, 'pairing-first-house-after'),
+    second: await housePanel(page, PAIRING_HOUSES.second, 'pairing-second-house-after'),
+    third: await housePanel(page, PAIRING_HOUSES.third, 'pairing-third-house-after'),
+  };
+  session.check(
+    `at ${await at(page)} the parents' houses count one member fewer, and the third house reads the new household by its couple`,
+    after.first?.rows.Household === firstCouple && after.second?.rows.Household === secondCouple && after.third?.rows.Household === coupleOf(pair),
+    `${text(after.first)} | ${text(after.second)} | ${text(after.third)}`,
+  );
+
+  await session.reach(page, { day: 6, time: '09:00' });
+  const manTitle = `${pair.man.name}, son of ${firstCouple}`;
+  const found = await selectTitled(page, manTitle, PAIRING_HOUSES.third, 'pairing-settler-aim');
+  const man = found.read;
+  session.check(
+    `at ${await at(page)} the panel of ${pair.man.name} keeps his parents in its title and reads his new household and its house`,
+    man?.rows.Household === coupleOf(pair) && man.rows.Home === 'A house' && man.rows['Sex and age'] === 'Man, 16',
+    man ? text(man) : `tried ${found.tried.join(', ')}`,
+  );
+  await session.screenshot(page, 'pairing-settler-panel');
+  for (const size of READY_SIZES) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    await session.still(page);
+    const { ok, detail } = apart(await uiBoxes(page));
+    session.check(`at ${size.width}x${size.height} the panel of a settler of a new household covers no other panel`, ok, detail);
+    await session.screenshot(page, `pairing-settler-panel-${size.width}x${size.height}`);
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+
+  await session.reach(page, { day: 6, time: '20:10' });
+  await closer(page, PAIRING_HOUSES.third, BIRTHS_CLOSER);
+  const duskStart = a.since();
+  const home = await session.runUntil(
+    page,
+    async () => {
+      const read = await reads(page);
+      return read?.rows.Doing === 'At home' ? { read, at: await at(page) } : null;
+    },
+    { every: 1, until: { day: 6, time: '21:30' } },
+  );
+  await session.reach(page, clockAt(clockMinutes({ day: 6, time: '21:30' })));
+  await session.screenshot(page, 'pairing-dusk');
+  const duskEnd = a.since();
+  session.check(
+    `at the dusk of day 6 ${pair.man.name} goes in to the third house, his household's own, and eats there`,
+    home !== null && home.read.rows['Missed meals'] === 'None',
+    home ? `${text(home.read)} by ${home.at}` : 'never at home by 21:30',
+  );
+  await session.finishClips(a.context, page, [{ label: 'pairing-dawn-to-dusk', spans: [[dawnStart, dawnEnd], [duskStart, duskEnd]], ...PAIRING_CLIP }]);
+  seen.push(...a.errors);
+
+  const b = await session.open(CLIP, { search: `?seed=7&food=${PAIRING_FOOD}&settlers=${PAIRING_CAMP}`, clock: 'paused' });
+  await takeForageView(session, b.page, HIDES_YEAR_VIEW);
+  const wrongB = await giveYearOrders(session, b.page, FIREWOOD_YEAR_START, said);
+  if (wrongB.length > 0) fail(`the orders of the camp page went wrong: ${wrongB.join(' | ')}`);
+  const campPair = campDawn.pairings[0];
+  const campHeard = await listen(b.page, clockAt(clockMinutes(campDawn.stop) - 2), clockAt(clockMinutes(campDawn.stop) + 1));
+  const campLine = `${campDawn.news}. ${coupleOf(campPair)} formed a household.`;
+  session.check(`with no house standing, "${campLine}"`, campHeard.has(campLine), [...campHeard.keys()].join('; ') || 'nothing');
+  const [day, time] = camp.houses[2].finished.replace('day ', '').split(' ');
+  await session.reach(b.page, clockAt(clockMinutes({ day: Number(day), time }) + 5));
+  const moved = await housePanel(b.page, camp.houses[2].slot, 'pairing-camp-house');
+  session.check(
+    `at ${await at(b.page)}, the third house finished, the household that lived at the camp has moved into it`,
+    moved?.rows.Household === coupleOf(campPair),
+    text(moved),
+  );
+  await b.context.close();
+  seen.push(...b.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 

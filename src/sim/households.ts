@@ -20,6 +20,9 @@ export interface Households {
   readonly home: Int16Array;
   /** The household living in each site slot's house, or -1. */
   readonly householdIn: Int16Array;
+  /** The site slots of the finished houses, in the order they were finished. The first `houseCount` hold one. */
+  readonly houses: Int16Array;
+  houseCount: number;
   /** The members of each household still alive. */
   readonly living: Uint8Array;
   /** The living members of each household who work, and so can carry for it. */
@@ -44,6 +47,8 @@ export function createHouseholds(): Households {
     count: 0,
     home: new Int16Array(MAX_HOUSEHOLDS).fill(NO_HOME),
     householdIn: new Int16Array(MAX_SITES).fill(-1),
+    houses: new Int16Array(MAX_SITES),
+    houseCount: 0,
     living: new Uint8Array(MAX_HOUSEHOLDS),
     workers: new Uint8Array(MAX_HOUSEHOLDS),
     man: new Int32Array(MAX_HOUSEHOLDS).fill(NO_VILLAGER),
@@ -113,7 +118,27 @@ export function moveInto(households: Households, slot: number): void {
   }
 }
 
-/** Counts villager `id` of its household dead. When it was the last, its house, with the food in it, goes to the next household that needs one. */
+/** Records the house in `slot` as finished, after every house finished before it, and gives it to a household that needs one. */
+export function openHouse(households: Households, slot: number): void {
+  households.houses[households.houseCount] = slot;
+  households.houseCount += 1;
+  moveInto(households, slot);
+}
+
+/** The site slot of the empty house that was finished first, or NO_HOME when every house has its household. */
+export function emptyHouse(households: Households): number {
+  for (let at = 0; at < households.houseCount; at++) {
+    const slot = households.houses[at]!;
+    if (households.householdIn[slot] === -1) return slot;
+  }
+  return NO_HOME;
+}
+
+/**
+ * Takes villager `id` out of its household's count, as one that died or one
+ * that left it to form a household. When it was the last, its house, with the
+ * food and the firewood in it, goes to the next household that needs one.
+ */
 export function loseMember(households: Households, villagers: Villagers, id: number): void {
   const { home, living } = households;
   const h = villagers.household[id]!;

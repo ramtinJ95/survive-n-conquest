@@ -25,6 +25,7 @@ import { CAMP_STORE, StoreKind, storeKind } from '../src/sim/stores';
 import { TASK_KINDS } from '../src/sim/tasks';
 import { Cause, NO_TASK, THINK_GROUPS, VILLAGER_ROWS, VillagerState } from '../src/sim/villagerState';
 import { WORK_AGE, ageAt } from '../src/sim/aging';
+import { isSingle } from '../src/sim/pairing';
 import { Sex } from '../src/sim/names';
 import { die } from '../src/sim/villagers';
 import { WEARING } from '../src/sim/wearing';
@@ -125,6 +126,14 @@ const DEAD_ROWS = process.argv.includes('--dead-rows') ? 1_500 : 0;
  * in the winter run's.
  */
 const CHILDREN = { fromAge: 18, toAge: 45, fullEvery: 7, oldest: 9 };
+/**
+ * Of the households whose woman is from `GROWN_CHILD.fromAge` to `GROWN_CHILD.toAge`, each has one single child at home.
+ * An even-numbered household has a son of 16 to 20, grown at the start. An odd-numbered one has a daughter of 15, who is
+ * 16 from tick 7,200 and pairs at the dawn of day 4, in the spring run's measured ticks, or every other one a daughter
+ * of 12, who is 16 from tick 28,800 and pairs at the dawn of day 11, in the winter run's. No single woman is grown
+ * before then, so no household forms in the warm-up ticks of the spring run.
+ */
+const GROWN_CHILD = { fromAge: 46, toAge: 60, sons: 16, springDaughters: 15, winterDaughters: 12 };
 /** Household `h`'s man is `AGES.youngest + (h * AGE_STEP) % range` years old, so the ages of the low-numbered households, which get the houses first, spread over the whole range. */
 const AGE_STEP = 37;
 /** Every household formed this many dawns before the map's first tick, so a household with a house draws for a birth at every dawn it qualifies. */
@@ -153,6 +162,9 @@ function laterYears(count: number, first: number, children: boolean): StartingHo
     ];
     const mothers = children && woman >= CHILDREN.fromAge && woman <= CHILDREN.toAge;
     const wanted = !mothers ? 0 : h % CHILDREN.fullEvery === 0 ? 3 : h % 3;
+    const grown = children && woman >= GROWN_CHILD.fromAge && woman <= GROWN_CHILD.toAge && first + count - id > members.length;
+    if (grown && h % 2 === 0) members.push({ sex: Sex.Man, age: GROWN_CHILD.sons + (h % 5) });
+    else if (grown) members.push({ sex: Sex.Woman, age: h % 4 === 1 ? GROWN_CHILD.springDaughters : GROWN_CHILD.winterDaughters });
     const room = first + count - id - members.length;
     for (let child = 0; child < Math.min(wanted, room); child++) {
       const age = Math.max(0, Math.min(CHILDREN.oldest, woman - 16) - 3 * child - (h % 2));
@@ -194,6 +206,12 @@ const HUNTED = ['shots', 'kills', 'hunted', 'huntedIn', 'fromGround', 'hides', '
 const GOOD_NAMES = ['logs', 'stone'] as const;
 /** Every villager makes its dusk or dawn choice within one think cycle, so each turn of the light is measured over this many ticks. */
 const TURN_TICKS = THINK_GROUPS;
+
+function countSingle(sim: Sim): number {
+  let single = 0;
+  for (let id = 0; id < sim.villagers.count; id++) if (isSingle(sim, id)) single++;
+  return single;
+}
 
 function countChildren(sim: Sim): number {
   let children = 0;
@@ -387,6 +405,7 @@ function measure(size: number, run: string): boolean {
   const spentBefore = spentRock(sim.map);
   const tallyBefore = { ...sim.tally };
   const childrenBefore = countChildren(sim);
+  const singleBefore = countSingle(sim);
   const housesBefore = built(sim, Building.House);
   const hutsBefore = built(sim, Building.Hut);
   const barnsBefore = built(sim, Building.Barn);
@@ -422,6 +441,7 @@ function measure(size: number, run: string): boolean {
   let mostLiving = sim.living;
   const lastMissed = sim.villagers.missedMeals.slice();
   const birthsByDawn: number[] = [];
+  const pairedByDawn: number[] = [];
   const startedByDawn: number[] = [];
   let mealsByDay = 0;
   const dawnMeals = { walks: 0, length: 0, byDawn: [] as number[] };
@@ -455,11 +475,13 @@ function measure(size: number, run: string): boolean {
     const dawnTick = isDawn(sim.tick);
     const byDay = !isNight(sim.tick) && !dawnTick;
     const born = sim.tally.births;
+    const paired = sim.tally.paired;
     const started = sim.tally.startedWork;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
     if (dawnTick) birthsByDawn.push(sim.tally.births - born);
+    if (dawnTick) pairedByDawn.push(sim.tally.paired - paired);
     if (dawnTick) startedByDawn.push(sim.tally.startedWork - started);
     for (let id = 0; id < sim.villagers.count; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
@@ -675,6 +697,10 @@ function measure(size: number, run: string): boolean {
     `  births in the measured ticks: ${sim.tally.births - tallyBefore.births}, at each measured dawn ${birthsByDawn.join(', ') || 'none'}; ` +
       `children living at the start ${childrenBefore} and at the end ${countChildren(sim)}`,
   );
+  console.log(
+    `  households formed in the measured ticks: ${sim.tally.paired - tallyBefore.paired}, at each measured dawn ${pairedByDawn.join(', ') || 'none'}; ` +
+      `single settlers living at the start ${singleBefore} and at the end ${countSingle(sim)}`,
+  );
   console.log(`  children who started to work in the measured ticks: ${sim.tally.startedWork - tallyBefore.startedWork}, at each measured dawn ${startedByDawn.join(', ') || 'none'}`);
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
   console.log(
@@ -695,7 +721,7 @@ console.log(
     `${platform()} ${arch()}, bun ${Bun.version}, load average ${loadavg().map((load) => load.toFixed(2)).join(' ')}`,
 );
 console.log(
-  `load: ${BENCHMARK_POPULATION.villagers} villagers in couples of every age from ${AGES.youngest} to ${AGES.oldest}, one in ${NEAR_END.every} of those of ${NEAR_END.fromAge} or older ${NEAR_END.springYears} year from its span and another ${NEAR_END.winterYears}, ` +
+  `load: ${BENCHMARK_POPULATION.villagers} villagers in couples of every age from ${AGES.youngest} to ${AGES.oldest}, with their children and a single grown child at home in the households whose woman is ${GROWN_CHILD.fromAge} to ${GROWN_CHILD.toAge}, one in ${NEAR_END.every} of those of ${NEAR_END.fromAge} or older ${NEAR_END.springYears} year from its span and another ${NEAR_END.winterYears}, ` +
     `${DEAD_ROWS ? `${DEAD_ROWS} dead rows after them, ` : ''}and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
     `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, and ${TAILOR_GRID * TAILOR_GRID} tailor's hut sites, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks in the spring run and ${WINTER.warmupTicks} in the winter run, then ${MEASURED_TICKS} measured ticks`,

@@ -218,7 +218,7 @@ describe('a birth', () => {
   });
 
   it('follows the deaths of old age at a dawn: a death frees a place in a house of 5, and the child is born at the same dawn', () => {
-    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'bearChildren']);
+    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren']);
     const { sim } = settlement([[...COUPLE, woman(6), man(4), woman(5, 5)]]);
     toDawn(sim, 1);
     expect(sim.households.living[0]).toBe(FULL_HOUSE);
