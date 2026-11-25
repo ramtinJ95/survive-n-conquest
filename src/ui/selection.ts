@@ -398,7 +398,7 @@ const settlersAtCamp = ({ map, camp, frame }: Facts) => {
 export const OLDER_AGE = 50;
 
 /** How many living settlers are children, how many work, and how many are `OLDER_AGE` or older, at the ages the panels show. */
-export function peopleOf({ states, children, ages }: Pick<SimFrame, 'states' | 'children' | 'ages'>): { readonly children: number; readonly workers: number; readonly older: number } {
+function peopleOf({ states, children, ages }: Pick<SimFrame, 'states' | 'children' | 'ages'>): { readonly children: number; readonly workers: number; readonly older: number } {
   let young = 0;
   let workers = 0;
   let older = 0;

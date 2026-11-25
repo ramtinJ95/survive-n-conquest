@@ -7917,7 +7917,6 @@ SCENARIOS.people = async (session) => {
   const bornLine = `${birth.news}. ${child.name} was born to Merek and Elsi.`;
   session.check(`the news says "${bornLine}" at the same stop`, heard.get(bornLine) === clockText(birthStop), [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing');
 
-  const stockpilesEnd = (boxes) => (boxes.stockpiles ? boxes.stockpiles.y + boxes.stockpiles.height : null);
   for (const size of READY_SIZES) {
     const where = `${size.width}x${size.height}`;
     await page.setViewportSize(size);
@@ -7934,7 +7933,7 @@ SCENARIOS.people = async (session) => {
     );
     if (size === CLIP) await session.screenshot(page, `people-camp-longest-${where}`);
     await dropPanelCopies(page);
-    const end = stockpilesEnd(boxes);
+    const end = boxes.stockpiles ? boxes.stockpiles.y + boxes.stockpiles.height : null;
     session.check(
       `at ${where} the camp's panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row`,
       end !== null && longest.box.y >= end && showsEveryRow(longest),

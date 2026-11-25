@@ -3,7 +3,7 @@ import { frameOf } from '../frame';
 import { BIRTH_CHANCE, BIRTH_GAP, birthDraw } from './births';
 import { finishBuilding } from './building';
 import { Building } from './buildings';
-import { TICKS_PER_YEAR, dateAt, startsYear } from './calendar';
+import { MINUTES_PER_DAY, OPENING_MINUTE, TICKS_PER_DAY, TICKS_PER_YEAR, dateAt, startsYear } from './calendar';
 import { Good } from './goods';
 import { Sex } from './names';
 import { type Sim, type StartingSettler, applyCommand, createSim, step } from './sim';
@@ -23,8 +23,8 @@ const SEED = (() => {
   return seed;
 })();
 
-/** The first tick of calendar year 2. */
-const YEAR_TWO = TICKS_PER_YEAR - 1000;
+/** The first tick of calendar year 2: a year from the midnight before the opening minute of day 1. */
+const YEAR_TWO = TICKS_PER_YEAR - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY;
 
 /**
  * Three households on an open map of `SEED` with food at the camp and no
