@@ -62,6 +62,7 @@ export interface Facts {
     | 'names'
     | 'sexes'
     | 'households'
+    | 'lodgings'
     | 'children'
     | 'mothers'
     | 'fathers'
@@ -435,9 +436,11 @@ const counted = (count: number, one: string, many: string) => `${count} ${count 
  * A household in words: its couple by name, then its other living members
  * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. The dead are
  * counted and not named, so a widow reads as `Ysa, 3 children, 1 died`, and
- * children whose couple both died as `3 children, 2 died`.
+ * children whose couple both died as `3 children, 2 died`. Read for the house
+ * in `house`, it counts among the children those who lodge there: grown
+ * children of the household who paired while no house stood empty.
  */
-function householdLine(facts: Facts, household: number): string {
+function householdLine(facts: Facts, household: number, house = NO_HOME): string {
   const { frame } = facts;
   const man = frame.couples[household * 2]!;
   const woman = frame.couples[household * 2 + 1]!;
@@ -446,6 +449,7 @@ function householdLine(facts: Facts, household: number): string {
   let children = 0;
   let died = 0;
   frame.households.forEach((of, id) => {
+    if (house !== NO_HOME && frame.lodgings[id] === house) children++;
     if (of !== household) return;
     if (frame.states[id] === VillagerState.Dead) died++;
     else if (id !== man && id !== woman) children++;
@@ -458,7 +462,7 @@ function householdLine(facts: Facts, household: number): string {
 
 function livingIn(facts: Facts, slot: number): string {
   const household = facts.frame.homes.indexOf(slot);
-  return household < 0 ? 'Nobody' : householdLine(facts, household);
+  return household < 0 ? 'Nobody' : householdLine(facts, household, slot);
 }
 
 /** The names of the workers at a workplace in the order they came, or Nobody. */
@@ -546,7 +550,10 @@ export const PANELS: Panels = {
       { label: 'Household', read: (facts, { id }) => householdLine(facts, facts.frame.households[id]!) },
       {
         label: 'Home',
-        read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
+        read: ({ frame }, { id }) => {
+          if (frame.homes[frame.households[id]!] !== NO_HOME) return 'A house';
+          return frame.lodgings[id] === NO_HOME ? 'None, sleeps at the camp' : "Parents' house, for now";
+        },
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
       { label: 'Cold nights', read: (facts, { id }) => coldNights(facts, id) },

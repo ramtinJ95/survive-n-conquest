@@ -134,6 +134,7 @@ describe("a settler's panel", () => {
         names: Uint16Array.of(0),
         sexes: Uint8Array.of(Sex.Man),
         households: Int16Array.of(0),
+        lodgings: Int16Array.of(NO_HOME),
         children: Uint8Array.of(0),
         mothers: Int32Array.of(-1),
         fathers: Int32Array.of(-1),
@@ -486,6 +487,7 @@ function siteFacts() {
     names: new Uint16Array(tasks.length),
     sexes: new Uint8Array(tasks.length),
     households: Int16Array.from(tasks, (_, id) => id >> 1),
+    lodgings: new Int16Array(tasks.length).fill(NO_HOME),
     children: new Uint8Array(tasks.length),
     mothers: new Int32Array(tasks.length).fill(-1),
     fathers: new Int32Array(tasks.length).fill(-1),
@@ -1024,6 +1026,36 @@ describe("a child's panel and the household line", () => {
     expect([row(sim, 1, 'Household'), housePanel()]).toEqual(Array(2).fill('Elsi, 1 child, 2 died'));
     die(sim, 1, Cause.Cold);
     expect([row(sim, 2, 'Household'), housePanel()], 'the dead are counted and not named').toEqual(Array(2).fill('1 child, 3 died'));
+  });
+});
+
+describe('the panels of a new household while no house stands empty', () => {
+  it("read each of its two as living in its parents' house, counted among that house's children, or at the camp, until it moves into its own", () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const parents = (child: StartingSettler) => ({ members: [{ sex: Sex.Man, age: 50 }, { sex: Sex.Woman, age: 48 }, child] });
+    const settlers = [parents({ sex: Sex.Man, age: 20 }), parents({ sex: Sex.Woman, age: 21 }), parents({ sex: Sex.Woman, age: 22 })];
+    const sim = createSim(map, { villagers: 9, monsters: 0, campFood: 100, animals: false, settlers });
+    const build = (x: number) => {
+      expect(applyCommand(sim, { kind: 'place', building: Building.House, x, y: 6 })).toMatchObject({ ok: true });
+      const slot = sim.orders.siteOf[at(sim.map, x, 6)]!;
+      finishBuilding(sim, slot);
+      return slot;
+    };
+    const [first, second] = [build(4), build(12)];
+    const row = (id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+    const house = (slot: number) => readPanel({ kind: 'building', slot, anchor: 0 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value;
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    const [son, daughter] = [2, 8];
+    expect([row(son, 'Home'), house(first)]).toEqual(['A house', `${name(0)} and ${name(1)}, 1 child`]);
+    while (sim.tally.paired === 0) step(sim);
+    expect(sim.households.man[3]).toBe(son);
+    expect(sim.households.woman[3]).toBe(daughter);
+    const couple = `${name(son)} and ${name(daughter)}`;
+    expect([row(son, 'Household'), row(son, 'Home'), row(daughter, 'Household'), row(daughter, 'Home')]).toEqual([couple, "Parents' house, for now", couple, 'None, sleeps at the camp']);
+    expect([row(0, 'Household'), house(first), house(second)]).toEqual([`${name(0)} and ${name(1)}`, `${name(0)} and ${name(1)}, 1 child`, `${name(3)} and ${name(4)}, 1 child`]);
+    const forTheCamp = build(20);
+    const forThePair = build(28);
+    expect([house(forTheCamp), house(forThePair), row(son, 'Home'), row(daughter, 'Home'), house(first)]).toEqual([`${name(6)} and ${name(7)}`, couple, 'A house', 'A house', `${name(0)} and ${name(1)}`]);
   });
 });
 
