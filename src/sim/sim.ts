@@ -1,7 +1,7 @@
 import { WORK_AGE, bornAt, lifeSpan, startingAge } from './aging';
 import { type Animals, createAnimals, moveAnimals } from './animals';
 import { type SiteTasks, createSiteTasks, resetSite } from './building';
-import { TICKS_PER_SECOND } from './calendar';
+import { TICKS_PER_SECOND, startsYear } from './calendar';
 import { campTile } from './camp';
 import { isDawn, isNight } from './daylight';
 import { DAWN } from './dawn';
@@ -225,6 +225,8 @@ export interface Sim {
   /** Scratch for `fillPlaces`: the workers it counts at each site slot. Not part of the simulation's state. */
   readonly workers: Uint8Array;
   readonly tally: Tally;
+  /** The births and the deaths of every cause since the first tick of the calendar year the clock is in. */
+  readonly thisYear: { born: number; died: number };
   tick: number;
   /** Dawns passed since the start. */
   dawns: number;
@@ -320,6 +322,7 @@ export function createSim(source: TileMap, population: Population): Sim {
       paired: 0,
       startedWork: 0,
     },
+    thisYear: { born: 0, died: 0 },
     tick: 0,
     dawns: 0,
     hires: 0,
@@ -374,7 +377,9 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
  * every fire goes out, kept as last night's, every workshop's day of work starts anew, the food on open ground whose day has come is gone, and
  * tasks set aside as out of reach open again, as they do after a tick in
  * which land gained walks to the camp, and then the steps of `DAWN` run in
- * their order. Once the settlement has died out, nothing runs.
+ * their order. A step whose tick ends on the first tick of a calendar year
+ * starts the year's births and deaths from 0, so what ran in it counts in the
+ * year before. Once the settlement has died out, nothing runs.
  */
 export function step(sim: Sim): void {
   if (sim.over) return;
@@ -394,6 +399,10 @@ export function step(sim: Sim): void {
   moveAnimals(sim, dawn);
   moveMonsters(sim.map, sim.flow, sim.monsters);
   sim.tick += 1;
+  if (startsYear(sim.tick)) {
+    sim.thisYear.born = 0;
+    sim.thisYear.died = 0;
+  }
 }
 
 export function ticksPerSecond(sim: Sim): number {

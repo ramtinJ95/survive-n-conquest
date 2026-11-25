@@ -3509,7 +3509,10 @@ const DOING_LONGEST = [
  * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
  * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
  * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
- * its dead with two digits. A child's title names its parents. A site's goods read what it
+ * its dead with two digits. A child's title names its parents. The camp's people split the 1,500 living between
+ * children and workers with four digits on one side, the other in the plural or the singular. Its year counts each birth
+ * and each death in a row of the villagers table's 4,096, one of which at least holds a settler the map started with, so
+ * a year has at most 4,095 births and 4,096 deaths. A site's goods read what it
  * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
  */
 const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
@@ -3538,7 +3541,17 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
     woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
     tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
     barn: { rows: { Food: ['120 of 120'] } },
-    camp: { rows: { 'Settlers here': settlers, Food: ['65535 of 65535'], Firewood: ['12 of 12'] } },
+    camp: {
+      rows: {
+        'Settlers here': settlers,
+        Food: ['65535 of 65535'],
+        Firewood: ['12 of 12'],
+        Children: [String(mostSettlers)],
+        Workers: [String(mostSettlers)],
+        '50 or older': [String(mostSettlers)],
+        'This year': ['4095 born, 4096 died'],
+      },
+    },
     site,
   };
 };
@@ -7809,6 +7822,141 @@ SCENARIOS['clothing-reason'] = async (session) => {
     heard ? `"${heard.line}" by ${heard.at}` : `no such line by ${await at()}; the news reads ${JSON.stringify(await lines(page))}`,
   );
   session.check('no page errors', errors.length === 0, errors.join(' | ') || 'none');
+};
+
+/**
+ * The `people` page is the `births` page with one household more at the camp, a man of 60 whose span ends at 60 and a
+ * woman of 55, on seed 7 with 200 food, given `FIREWOOD_YEAR_START` at 08:00 on day 1. `births.ts` plays it in
+ * `src/sim`: the man dies of old age at the first dawn, and a child is born to Merek and Elsi at the dawn of day 4.
+ */
+const PEOPLE_SETTLERS = `${BIRTHS_SETTLERS};m60:60,w55`;
+/** What the setting states: 3 children younger than 10, 10 settlers of 10 or older, and the man of 60 and the woman of 55. */
+const PEOPLE_OPENING = { Children: '3', Workers: '10', '50 or older': '2', 'This year': '0 born, 0 died' };
+const PEOPLE_DAWNS = { death: 1, birth: 3 };
+/** Points 0.6 m over the camp's tents at `HIDES_YEAR_VIEW`, by `aim.ts`, around the camp's center tile (127, 127). */
+const PEOPLE_CAMP_AIMS = [{ x: 526, y: 288 }, { x: 490, y: 271 }, { x: 518, y: 268 }, { x: 528, y: 277 }, { x: 502, y: 264 }, { x: 487, y: 282 }];
+/** The selection panel at the bottom left and the news log right of it. */
+const PEOPLE_CLIP = { crop: { x: 0, y: 290, width: 800, height: 210 }, width: 800, colors: 64 };
+
+/** The camp panel's people rows for the counts `births.ts` prints. */
+const peopleReading = ({ children, workers, older, born, died }) => ({
+  Children: String(children),
+  Workers: String(workers),
+  '50 or older': String(older),
+  'This year': `${born} born, ${died} died`,
+});
+const peopleRows = (read) => Object.fromEntries(Object.keys(PEOPLE_OPENING).map((label) => [label, read?.rows[label]]));
+const sameReading = (read, reading) => read?.title === 'Camp' && JSON.stringify(peopleRows(read)) === JSON.stringify(reading);
+
+SCENARIOS.people = async (session) => {
+  const { said } = siteDriver(session);
+  const { panel, reads, text, click, uiBoxes, apart } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const run = spawnSync('bun', [BIRTHS_SCRIPT, PEOPLE_SETTLERS, BIRTHS_FED, String(PEOPLE_DAWNS.birth)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`births.ts failed: ${run.stderr}`);
+  const dawns = JSON.parse(run.stdout);
+  const death = dawns.find((entry) => entry.dawn === PEOPLE_DAWNS.death);
+  const birth = dawns.find((entry) => entry.dawn === PEOPLE_DAWNS.birth);
+  const child = birth.born.find((born) => born.household === 1);
+  session.check(
+    'in src/sim the man of 60 dies of old age at the first dawn, nobody is born before the dawn of day 4, and a child is born to Merek and Elsi there, after which every count is above 0',
+    death.people.died === 1 && dawns.every((entry) => entry === birth || entry.born.length === 0) && birth.born.length === 1 && Boolean(child) && Object.values(birth.people).every((count) => count > 0),
+    JSON.stringify(dawns.map(({ news, born, people }) => ({ news, born: born.map(({ name }) => name), people }))),
+  );
+
+  const a = await session.open(CLIP, { record: true, search: `?seed=7&food=${BIRTHS_FED}&settlers=${PEOPLE_SETTLERS}`, clock: 'paused' });
+  const { page } = a;
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const wrong = await giveYearOrders(session, page, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(page)} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrong.length === 0, wrong.join(' | ') || 'all said');
+  const tried = [];
+  for (const aim of PEOPLE_CAMP_AIMS) {
+    const read = await click(page, aim);
+    tried.push(`${aim.x},${aim.y}: ${read?.title ?? 'nothing'}`);
+    if (read?.title === 'Camp') break;
+  }
+  await page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const opening = await reads(page);
+  session.check(
+    `at ${await at(page)} a click on the camp selects it, and its panel reads the children, the workers, and the settlers of 50 or older that the settlers setting states, and no birth or death`,
+    sameReading(opening, PEOPLE_OPENING),
+    `${tried.join('; ')}; the panel reads "${text(opening)}"`,
+  );
+  const buttons = await panel(page).getByRole('button').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label') ?? node.textContent));
+  session.check("the camp's panel holds no button but its close button", JSON.stringify(buttons) === JSON.stringify(['Close selection']), JSON.stringify(buttons));
+
+  await session.reach(page, death.stop);
+  const afterDeath = await reads(page);
+  session.check(`at ${await at(page)}, after the first dawn, the panel counts the death of old age and one settler of 50 or older fewer`, sameReading(afterDeath, peopleReading(death.people)), text(afterDeath));
+
+  const birthStop = clockMinutes(birth.stop);
+  await session.reach(page, clockAt(birthStop - 5));
+  const from = a.since();
+  const stops = [];
+  const heard = new Map();
+  await session.runUntil(
+    page,
+    async () => {
+      const minute = await session.gameMinutes(page);
+      stops.push({ minute, read: await reads(page) });
+      for (const line of await lines(page)) if (!heard.has(line)) heard.set(line, clockText(minute));
+      return null;
+    },
+    { every: 1, until: clockAt(birthStop + 3) },
+  );
+  await session.still(page);
+  await session.screenshot(page, 'people-dawn');
+  const to = a.since() + 1;
+  const before = peopleReading({ ...birth.people, children: birth.people.children - 1, born: birth.people.born - 1 });
+  const after = peopleReading(birth.people);
+  const turned = stops.findIndex(({ read }) => sameReading(read, after));
+  session.check(
+    `stepping a minute at a time across the dawn of day 4, the panel reads ${before.Children} children and "${before['This year']}" until the stop of ${clockText(birthStop)}, and from there ${after.Children} and "${after['This year']}"`,
+    turned > 0 && stops[turned].minute === birthStop && stops.slice(0, turned).every(({ read }) => sameReading(read, before)) && stops.slice(turned).every(({ read }) => sameReading(read, after)),
+    stops.map(({ minute, read }) => `${clockText(minute)}: ${read?.rows.Children} children / ${read?.rows['This year']}`).join('; '),
+  );
+  const bornLine = `${birth.news}. ${child.name} was born to Merek and Elsi.`;
+  session.check(`the news says "${bornLine}" at the same stop`, heard.get(bornLine) === clockText(birthStop), [...heard.entries()].map(([line, when]) => `"${line}" by ${when}`).join('; ') || 'nothing');
+
+  for (const size of READY_SIZES) {
+    const where = `${size.width}x${size.height}`;
+    await page.setViewportSize(size);
+    await session.settle(page);
+    await session.still(page);
+    const read = await reads(page);
+    const boxes = await uiBoxes(page);
+    const { ok, detail } = apart(boxes);
+    session.check(`at ${where} every reading of the camp's panel is above 0 and as src/sim gives it, and the panel covers no other panel`, ok && sameReading(read, after), `${text(read)}; ${detail}`);
+    await session.screenshot(page, `people-camp-panel-${where}`);
+    const settler = (await measurePanels(page, ['villager'])).find(({ kind }) => kind === 'villager');
+    const [longest] = await measurePanels(page, ['camp'], true);
+    const wrapped = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-panel-copy] dd > span')].map((value) => ({ label: value.parentElement.previousElementSibling.textContent, text: value.textContent, lines: value.getClientRects().length })),
+    );
+    await session.screenshot(page, `people-camp-longest-${where}`);
+    await dropPanelCopies(page);
+    const end = boxes.stockpiles ? boxes.stockpiles.y + boxes.stockpiles.height : null;
+    session.check(
+      `at ${where} the camp's panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row`,
+      end !== null && longest.box.y >= end && showsEveryRow(longest),
+      `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} of ${longest.shown} px; the Stockpiles panel ends at y ${end?.toFixed(0) ?? 'missing'}`,
+    );
+    session.check(
+      `at ${where} the camp's panel at its longest readings is no taller than the settler's panel at its longest`,
+      longest.box.height <= settler.box.height,
+      `camp ${longest.box.height.toFixed(0)} px of ${longest.rows} rows, settler ${settler.box.height.toFixed(0)} px of ${settler.rows} rows`,
+    );
+    session.check(
+      `at ${where} each row of the camp's panel reads on one line at its longest reading`,
+      wrapped.length === longest.rows && wrapped.every(({ lines }) => lines === 1),
+      wrapped.map(({ label, text, lines }) => `${label}: "${text}" on ${lines} line${lines === 1 ? '' : 's'}`).join('; '),
+    );
+  }
+  await page.setViewportSize(CLIP);
+  await session.settle(page);
+  await session.finishClips(a.context, page, [{ label: 'people-dawn', from, to, ...PEOPLE_CLIP }]);
+  session.check('no page errors', a.errors.length === 0, a.errors.join(' | ') || 'none');
 };
 
 function scenarioNamed(name) {
