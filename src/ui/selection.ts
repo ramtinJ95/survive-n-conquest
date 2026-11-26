@@ -173,7 +173,7 @@ function winterNightsEnded(tick: number): number {
   return Math.max(0, Math.floor(tickOfSeason(ran) / TICKS_PER_DAY) - Number(beforeDawn));
 }
 
-const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
+export const GOOD_NAMES: Readonly<Record<Good, string>> = { [Good.None]: 'goods', [Good.Log]: 'a log', [Good.Stone]: 'stone', [Good.Food]: 'food', [Good.Firewood]: 'firewood', [Good.Hide]: 'a hide', [Good.Clothing]: 'clothing' };
 
 /** What the worker at each kind of workshop does, in words: on its way to a unit of input, carrying it in, on its way to a batch that waits, and at work on a batch, and what it says, idle, of each reason it stopped. */
 interface WorkshopWords {
@@ -184,7 +184,7 @@ interface WorkshopWords {
   readonly stops: Readonly<Record<Stop, string>>;
 }
 
-const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
+export const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
   [Building.Woodshed]: {
     fetching: 'Walking to a stockpile for a log',
     carrying: 'Carrying a log to the woodshed',
@@ -216,53 +216,160 @@ const WORKSHOP_WORDS: Readonly<Partial<Record<Building, WorkshopWords>>> = {
 /** The words of the workshop in `slot`. */
 const workshopWords = ({ orders }: Facts, slot: number): WorkshopWords => WORKSHOP_WORDS[orders.sites.kind[slot] as Building]!;
 
+/** Where a settler takes goods to or fetches them from: the camp, a barn, or a woodshed. */
+export const STORE_WORDS = { camp: 'the camp', barn: 'a barn', woodshed: 'a woodshed' } as const;
+
+/** The noun of a site whose kind a task no longer finds, beside the nouns of `BUILDING_WORDS`. */
+export const ANY_SITE = 'building';
+
+/** The parts that a word of what a settler does can name, each from the table of its kind. */
+export interface DoingParts {
+  readonly good: string;
+  readonly store: string;
+  readonly site: string;
+  readonly cause: string;
+  readonly age: string;
+}
+
+/** Words of what a settler does, each fixed or built from some of `DoingParts`. */
+export type DoingWords = Readonly<Record<string, string | ((parts: DoingParts) => string)>>;
+
+const carryingTo = ({ good, store }: Pick<DoingParts, 'good' | 'store'>) => `Carrying ${good} to ${store}`;
+
+/**
+ * What a settler does, in words, by who does it: every settler, whatever its job; a settler with no job, at the felling,
+ * quarrying, hauling, and building it takes; a forager, a hunter, and a farmer at their work and idle; a child; and the
+ * dead. The night's words are `STATE_WORDS`, and a workshop's are `WORKSHOP_WORDS`.
+ */
+export const DOING_WORDS = {
+  anyone: {
+    eating: 'Eating',
+    toEatAtCamp: 'Walking to the camp to eat',
+    toEatAtHome: 'Walking home to eat',
+    wearing: 'Putting on clothing',
+    toClothing: "Walking to the tailor's hut for clothing",
+    toStock: ({ store, good }: Pick<DoingParts, 'store' | 'good'>) => `Walking to ${store} for ${good}`,
+    stockingAtCamp: ({ good }: Pick<DoingParts, 'good'>) => carryingTo({ good, store: STORE_WORDS.camp }),
+    stockingAtHome: ({ good }: Pick<DoingParts, 'good'>) => `Carrying ${good} home`,
+  },
+  labor: {
+    idle: 'Idle',
+    quarrying: 'Quarrying stone',
+    toRock: 'Walking to the rock',
+    chopping: 'Chopping a tree',
+    toTree: 'Walking to a tree',
+    toPickUp: ({ good }: Pick<DoingParts, 'good'>) => `Walking to pick up ${good}`,
+    toStockpile: ({ good }: Pick<DoingParts, 'good'>) => `Carrying ${good} to the stockpile`,
+    toStore: carryingTo,
+    toFetch: ({ good, site }: Pick<DoingParts, 'good' | 'site'>) => `Walking to fetch ${good} for a ${site} site`,
+    toSupply: ({ good, site }: Pick<DoingParts, 'good' | 'site'>) => `Carrying ${good} to a ${site} site`,
+    building: ({ site }: Pick<DoingParts, 'site'>) => `Building a ${site}`,
+    toSite: ({ site }: Pick<DoingParts, 'site'>) => `Walking to a ${site} site`,
+  },
+  forager: {
+    foraging: 'Foraging',
+    toForage: 'Walking to a tree to forage',
+    toStore: carryingTo,
+    winter: 'Idle, nothing grows until spring',
+    noRoom: 'Idle, waiting for room in a store',
+    looking: 'Looking for forage',
+  },
+  hunter: {
+    aiming: 'Aiming at a deer',
+    stalking: 'Stalking a deer',
+    toKill: 'Walking to a kill to pick up food',
+    toStore: carryingTo,
+    noRoom: 'Idle, waiting for room in a store',
+    noDeer: `Idle, no deer within ${BUILDINGS[Building.Lodge].reach} tiles of the lodge`,
+    looking: 'Looking for deer',
+  },
+  farmer: {
+    sowing: 'Sowing a field',
+    toSow: 'Walking to a field to sow',
+    winter: 'Idle, nothing is sown until spring',
+    toBare: 'Looking for a field to sow',
+    sown: 'Idle, the fields are sown',
+    noField: `Idle, no field within ${BUILDINGS[Building.Farm].reach} tiles of the farm`,
+  },
+  child: {
+    atCamp: 'Playing at the camp',
+    byHouse: 'Playing by the house',
+  },
+  dead: {
+    died: ({ cause, age }: Pick<DoingParts, 'cause' | 'age'>) => `Died of ${cause} at ${age}`,
+  },
+} as const satisfies Readonly<Record<string, DoingWords>>;
+
+/** The fixed words of the panel rows outside `Doing`, by row. */
+export const ROW_WORDS = {
+  job: { child: `Child, works at ${WORK_AGE}` },
+  home: { own: 'A house', none: 'None, sleeps at the camp', parents: "Parents' house" },
+  fire: { none: 'No winter night yet', burned: 'Burned', out: 'Did not burn' },
+  work: { waiting: 'Waiting for materials' },
+  workers: { nobody: 'Nobody' },
+  doing: { nobody: 'Nobody works here' },
+  count: { none: 'None' },
+} as const;
+
 /** The word for the kind of the site or building on a tile, such as the anchor a task goes to. */
 function siteNoun({ orders }: Facts, tile: number): string {
   const slot = tile < 0 ? -1 : orders.siteOf[tile]!;
-  return slot < 0 ? 'building' : BUILDING_WORDS[orders.sites.kind[slot] as Building].noun;
+  return slot < 0 ? ANY_SITE : BUILDING_WORDS[orders.sites.kind[slot] as Building].noun;
 }
 
 /** What a villager holding a task does, by the task's column value, while it walks to its work or works it. */
 const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: boolean) => string>> = {
   [GATHER]: ({ map, frame }, id, working) => {
+    const { labor } = DOING_WORDS;
     const rock = map.kinds[frame.taskTiles[id]!] === TileKind.Rock;
-    if (rock) return working ? 'Quarrying stone' : 'Walking to the rock';
-    return working ? 'Chopping a tree' : 'Walking to a tree';
+    if (rock) return working ? labor.quarrying : labor.toRock;
+    return working ? labor.chopping : labor.toTree;
   },
   [CARRY]: (facts, id) => {
-    const food = facts.frame.carried[id] === Good.Food || facts.map.stackGood[facts.frame.taskTiles[id]!] === Good.Food;
-    return fetching(facts, id, food ? `to ${storeAt(facts, facts.frame.destinations[id]!)}` : 'to the stockpile', 'to pick up');
+    const { frame, map } = facts;
+    const { labor } = DOING_WORDS;
+    const carried = frame.carried[id] as Good;
+    const food = carried === Good.Food || map.stackGood[frame.taskTiles[id]!] === Good.Food;
+    if (carried === Good.None) return labor.toPickUp({ good: stackedAt(facts, id) });
+    const good = GOOD_NAMES[carried];
+    return food ? labor.toStore({ good, store: storeAt(facts, frame.destinations[id]!) }) : labor.toStockpile({ good });
   },
   [SUPPLY]: (facts, id) => {
+    const { labor } = DOING_WORDS;
     const site = siteNoun(facts, facts.frame.destinations[id]!);
-    return fetching(facts, id, `to a ${site} site`, 'to fetch', ` for a ${site} site`);
+    const carried = facts.frame.carried[id] as Good;
+    return carried === Good.None ? labor.toFetch({ good: stackedAt(facts, id), site }) : labor.toSupply({ good: GOOD_NAMES[carried], site });
   },
   [BUILD]: (facts, id, working) => {
     const site = siteNoun(facts, facts.frame.taskTiles[id]!);
-    return working ? `Building a ${site}` : `Walking to a ${site} site`;
+    return working ? DOING_WORDS.labor.building({ site }) : DOING_WORDS.labor.toSite({ site });
   },
   [EAT]: ({ frame, camp }, id, working) => {
-    if (working) return 'Eating';
-    return frame.taskTiles[id] === camp ? 'Walking to the camp to eat' : 'Walking home to eat';
+    const { anyone } = DOING_WORDS;
+    if (working) return anyone.eating;
+    return frame.taskTiles[id] === camp ? anyone.toEatAtCamp : anyone.toEatAtHome;
   },
   [STOCK]: (facts, id) => {
     const { frame, camp } = facts;
-    const good = frame.stockGoods[id] as Good;
-    const from = good === Good.Firewood && frame.taskTiles[id] !== camp ? 'a woodshed' : storeAt(facts, frame.taskTiles[id]!);
-    if (frame.carried[id] === Good.None) return `Walking to ${from} for ${GOOD_NAMES[good]}`;
-    return `Carrying ${GOOD_NAMES[good]} ${frame.destinations[id] === camp ? 'to the camp' : 'home'}`;
+    const { anyone } = DOING_WORDS;
+    const good = GOOD_NAMES[frame.stockGoods[id] as Good];
+    const from = frame.stockGoods[id] === Good.Firewood && frame.taskTiles[id] !== camp ? STORE_WORDS.woodshed : storeAt(facts, frame.taskTiles[id]!);
+    if (frame.carried[id] === Good.None) return anyone.toStock({ store: from, good });
+    return frame.destinations[id] === camp ? anyone.stockingAtCamp({ good }) : anyone.stockingAtHome({ good });
   },
-  [WEAR]: (_facts, _id, working) => (working ? 'Putting on clothing' : "Walking to the tailor's hut for clothing"),
+  [WEAR]: (_facts, _id, working) => (working ? DOING_WORDS.anyone.wearing : DOING_WORDS.anyone.toClothing),
   [FORAGE]: (facts, id, working) => {
-    if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
-    return working ? 'Foraging' : 'Walking to a tree to forage';
+    const { forager } = DOING_WORDS;
+    if (facts.frame.carried[id] === Good.Food) return forager.toStore({ good: GOOD_NAMES[Good.Food], store: storeAt(facts, facts.frame.destinations[id]!) });
+    return working ? forager.foraging : forager.toForage;
   },
   [FETCH_KILL]: (facts, id) => {
-    if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
-    return 'Walking to a kill to pick up food';
+    const { hunter } = DOING_WORDS;
+    if (facts.frame.carried[id] === Good.Food) return hunter.toStore({ good: GOOD_NAMES[Good.Food], store: storeAt(facts, facts.frame.destinations[id]!) });
+    return hunter.toKill;
   },
-  [HUNT]: (_facts, _id, working) => (working ? 'Aiming at a deer' : 'Stalking a deer'),
-  [SOW]: (_facts, _id, working) => (working ? 'Sowing a field' : 'Walking to a field to sow'),
+  [HUNT]: (_facts, _id, working) => (working ? DOING_WORDS.hunter.aiming : DOING_WORDS.hunter.stalking),
+  [SOW]: (_facts, _id, working) => (working ? DOING_WORDS.farmer.sowing : DOING_WORDS.farmer.toSow),
   [WORK]: (facts, id, working) => {
     const { frame } = facts;
     const words = workshopWords(facts, frame.workplaces[id]!);
@@ -274,7 +381,7 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
 
 /** The common store a carrier goes to on a tile: the camp at the camp center, and a barn at any tile beside one. */
 function storeAt({ camp }: Facts, tile: number): string {
-  return tile === camp ? 'the camp' : 'a barn';
+  return tile === camp ? STORE_WORDS.camp : STORE_WORDS.barn;
 }
 
 /** Whether some common store, the camp or a finished barn, takes one more unit, counting the units on their way. */
@@ -294,10 +401,9 @@ function preyInReach({ orders, frame }: Facts, slot: number): boolean {
   return false;
 }
 
-function fetching({ map, frame }: Facts, id: number, to: string, fetch: string, purpose = ''): string {
-  const carried = frame.carried[id] as Good;
-  if (carried !== Good.None) return `Carrying ${GOOD_NAMES[carried]} ${to}`;
-  return `Walking ${fetch} ${GOOD_NAMES[map.stackGood[frame.taskTiles[id]!] as Good]}${purpose}`;
+/** The good on the stack that a settler walks to. */
+function stackedAt({ map, frame }: Facts, id: number): string {
+  return GOOD_NAMES[map.stackGood[frame.taskTiles[id]!] as Good];
 }
 
 /** The job of a villager: the job of the kind of its workplace, or `Job.None` when it has no place. */
@@ -311,7 +417,8 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
  * still counts as one to sow.
  */
 function farmerIdle({ orders, fields, frame, map }: Facts, slot: number): string {
-  if (!sowsAt(frame.tick)) return 'Idle, nothing is sown until spring';
+  const { farmer } = DOING_WORDS;
+  if (!sowsAt(frame.tick)) return farmer.winter;
   const { size } = map;
   const { reach } = BUILDINGS[Building.Farm];
   const cx = siteMidX(orders.sites, slot);
@@ -321,11 +428,11 @@ function farmerIdle({ orders, fields, frame, map }: Facts, slot: number): string
     for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
       const tile = y * size + x;
       if (orders.claims[tile] !== Claim.Field || !withinReach(orders.sites, slot, x + 0.5, y + 0.5)) continue;
-      if (fieldState(fields, tile) === FieldState.Bare) return 'Looking for a field to sow';
+      if (fieldState(fields, tile) === FieldState.Bare) return farmer.toBare;
       field = true;
     }
   }
-  return field ? 'Idle, the fields are sown' : `Idle, no field within ${reach} tiles of the farm`;
+  return field ? farmer.sown : farmer.noField;
 }
 
 /** Why a worker at a workshop is idle, as its workshop's last look for work found. */
@@ -336,17 +443,18 @@ function workshopIdle(facts: Facts, id: number): string {
 
 /** What a villager with no task does by day, by its job: a forager or a hunter says why it is not out at its work. */
 const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = {
-  [Job.None]: () => 'Idle',
+  [Job.None]: () => DOING_WORDS.labor.idle,
   [Job.Forager]: (facts) => {
-    const { frame } = facts;
-    if (seasonIndexAt(frame.tick) === WINTER) return 'Idle, nothing grows until spring';
-    if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
-    return 'Looking for forage';
+    const { forager } = DOING_WORDS;
+    if (seasonIndexAt(facts.frame.tick) === WINTER) return forager.winter;
+    if (!roomInAStore(facts)) return forager.noRoom;
+    return forager.looking;
   },
   [Job.Hunter]: (facts, id) => {
-    if (!roomInAStore(facts)) return 'Idle, waiting for room in a store';
-    if (!preyInReach(facts, facts.frame.workplaces[id]!)) return `Idle, no deer within ${BUILDINGS[Building.Lodge].reach} tiles of the lodge`;
-    return 'Looking for deer';
+    const { hunter } = DOING_WORDS;
+    if (!roomInAStore(facts)) return hunter.noRoom;
+    if (!preyInReach(facts, facts.frame.workplaces[id]!)) return hunter.noDeer;
+    return hunter.looking;
   },
   [Job.Woodcutter]: (facts, id) => workshopIdle(facts, id),
   [Job.Tailor]: (facts, id) => workshopIdle(facts, id),
@@ -354,14 +462,14 @@ const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = 
 };
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
-const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
+export const STATE_WORDS: Partial<Readonly<Record<VillagerState, string>>> = {
   [VillagerState.GoingToCamp]: 'Walking to the camp',
   [VillagerState.Settling]: 'Resting at the camp',
   [VillagerState.GoingIn]: 'Walking home',
   [VillagerState.Inside]: 'At home',
 };
 
-const CAUSE_WORDS: Readonly<Record<Exclude<Cause, typeof Cause.None>, string>> = {
+export const CAUSE_WORDS: Readonly<Record<Exclude<Cause, typeof Cause.None>, string>> = {
   [Cause.Hunger]: 'hunger',
   [Cause.Cold]: 'cold',
   [Cause.OldAge]: 'old age',
@@ -371,32 +479,32 @@ const CAUSE_WORDS: Readonly<Record<Exclude<Cause, typeof Cause.None>, string>> =
 function doing(facts: Facts, id: number): string {
   const { frame } = facts;
   const state = frame.states[id]! as VillagerState;
-  if (state === VillagerState.Dead) return `Died of ${CAUSE_WORDS[frame.causes[id] as Exclude<Cause, typeof Cause.None>]} at ${frame.ages[id]}`;
+  if (state === VillagerState.Dead) return DOING_WORDS.dead.died({ cause: CAUSE_WORDS[frame.causes[id] as Exclude<Cause, typeof Cause.None>], age: String(frame.ages[id]) });
   const words = STATE_WORDS[state];
   if (words) return words;
   const task = TASK_WORDS[frame.tasks[id]!];
   if (!task || (state !== VillagerState.Walking && state !== VillagerState.Working)) {
     if (!isChild(facts, id)) return IDLE_WORDS[jobOf(facts, id)](facts, id);
-    return frame.homes[frame.households[id]!] === NO_HOME ? 'Playing at the camp' : 'Playing by the house';
+    return frame.homes[frame.households[id]!] === NO_HOME ? DOING_WORDS.child.atCamp : DOING_WORDS.child.byHouse;
   }
   return task(facts, id, state === VillagerState.Working);
 }
 
 function missedMeals({ frame }: Facts, id: number): string {
   const missed = frame.missedMeals[id]!;
-  if (missed === 0) return 'None';
+  if (missed === 0) return ROW_WORDS.count.none;
   return frame.states[id] === VillagerState.Dead ? String(missed) : `${missed}, hungry`;
 }
 
 /** A settler's cold nights, and beside them whether it wears clothing, which a dead settler's is gone with. */
 function coldNights({ frame }: Facts, id: number): string {
   const nights = frame.coldNights[id]!;
-  if (frame.states[id] === VillagerState.Dead) return nights === 0 ? 'None' : String(nights);
-  const cold = nights === 0 ? 'None' : `${nights}, cold`;
+  if (frame.states[id] === VillagerState.Dead) return nights === 0 ? ROW_WORDS.count.none : String(nights);
+  const cold = nights === 0 ? ROW_WORDS.count.none : `${nights}, cold`;
   return frame.worn[id] === Good.Clothing ? `${cold}, clothed` : cold;
 }
 
-const CARRIED_WORDS: Readonly<Record<Good, string>> = {
+export const CARRIED_WORDS: Readonly<Record<Good, string>> = {
   [Good.None]: 'Nothing',
   [Good.Log]: '1 log',
   [Good.Stone]: '1 stone',
@@ -440,10 +548,10 @@ function peopleOf({ states, children, ages }: Pick<SimFrame, 'states' | 'childre
   return { children: young, workers, older };
 }
 
-const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
+export const SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Woman', [Sex.Man]: 'Man' };
 /** The sex of a settler younger than `GROWN_AGE`, who works from `WORK_AGE` on. */
-const YOUNG_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
-const BORN_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'daughter', [Sex.Man]: 'son' };
+export const YOUNG_SEX_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'Girl', [Sex.Man]: 'Boy' };
+export const BORN_WORDS: Readonly<Record<Sex, string>> = { [Sex.Woman]: 'daughter', [Sex.Man]: 'son' };
 
 const isChild = ({ frame }: Facts, id: number) => frame.children[id] === 1;
 
@@ -503,14 +611,14 @@ function householdLine(facts: Facts, household: number, house = NO_HOME): string
 
 function livingIn(facts: Facts, slot: number): string {
   const household = facts.frame.homes.indexOf(slot);
-  return household < 0 ? 'Nobody' : householdLine(facts, household, slot);
+  return household < 0 ? ROW_WORDS.workers.nobody : householdLine(facts, household, slot);
 }
 
 /** The names of the workers at a workplace in the order they came, or Nobody. */
 function workersAt(facts: Facts, slot: number): string {
   const { workplaces, hired } = facts.frame;
   const ids = [...workplaces.keys()].filter((id) => workplaces[id] === slot).sort((a, b) => hired[a]! - hired[b]!);
-  return ids.length === 0 ? 'Nobody' : listNames(ids.map((id) => nameOfSettler(facts, id)));
+  return ids.length === 0 ? ROW_WORDS.workers.nobody : listNames(ids.map((id) => nameOfSettler(facts, id)));
 }
 
 /** The panel of a site of a building kind: what has arrived of each good it needs, its work, and its builders. */
@@ -527,7 +635,7 @@ function sitePanel(building: Building): Panel<BuildingSelection> {
         label: 'Work',
         read: ({ map, orders }, { slot }) => {
           const { percent } = siteProgress(map, orders, slot);
-          return percent === null ? 'Waiting for materials' : `${percent}%`;
+          return percent === null ? ROW_WORDS.work.waiting : `${percent}%`;
         },
       },
       { label: 'Builders', read: (facts, { anchor }) => String(builders(facts, anchor)) },
@@ -539,13 +647,13 @@ function sitePanel(building: Building): Panel<BuildingSelection> {
 function workersDoing(facts: Facts, slot: number): string {
   const { workplaces, hired } = facts.frame;
   const ids = [...workplaces.keys()].filter((id) => workplaces[id] === slot).sort((a, b) => hired[a]! - hired[b]!);
-  return ids.length === 0 ? 'Nobody works here' : [...new Set(ids.map((id) => doing(facts, id)))].join('; ');
+  return ids.length === 0 ? ROW_WORDS.doing.nobody : [...new Set(ids.map((id) => doing(facts, id)))].join('; ');
 }
 
 /** What the worker at a workshop does, in the words of its own panel, or that nobody works there. */
 function workAt(facts: Facts, slot: number): string {
   const id = facts.frame.workplaces.indexOf(slot);
-  return id < 0 ? 'Nobody works here' : doing(facts, id);
+  return id < 0 ? ROW_WORDS.doing.nobody : doing(facts, id);
 }
 
 /**
@@ -590,7 +698,7 @@ export const PANELS: Panels = {
     rows: [
       { label: 'Doing', read: (facts, { id }) => doing(facts, id) },
       { label: 'Carries', read: ({ frame }, { id }) => CARRIED_WORDS[frame.carried[id] as Good] },
-      { label: 'Job', read: (facts, { id }) => (isChild(facts, id) ? `Child, works at ${WORK_AGE}` : JOB_WORDS[jobOf(facts, id)].title) },
+      { label: 'Job', read: (facts, { id }) => (isChild(facts, id) ? ROW_WORDS.job.child : JOB_WORDS[jobOf(facts, id)].title) },
       {
         label: 'Sex and age',
         read: ({ frame }, { id }) => `${(frame.ages[id]! < GROWN_AGE ? YOUNG_SEX_WORDS : SEX_WORDS)[frame.sexes[id] as Sex]}, ${frame.ages[id]}`,
@@ -599,8 +707,8 @@ export const PANELS: Panels = {
       {
         label: 'Home',
         read: ({ frame }, { id }) => {
-          if (frame.homes[frame.households[id]!] !== NO_HOME) return 'A house';
-          return frame.lodgings[id] === NO_HOME ? 'None, sleeps at the camp' : "Parents' house";
+          if (frame.homes[frame.households[id]!] !== NO_HOME) return ROW_WORDS.home.own;
+          return frame.lodgings[id] === NO_HOME ? ROW_WORDS.home.none : ROW_WORDS.home.parents;
         },
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
@@ -619,8 +727,8 @@ export const PANELS: Panels = {
         label: 'Fire last night',
         shows: ({ frame }) => seasonIndexAt(frame.tick) === WINTER,
         read: ({ frame }, { slot }) => {
-          if (winterNightsEnded(frame.tick) === 0) return 'No winter night yet';
-          return frame.firesLastNight[slot] === 1 ? 'Burned' : 'Did not burn';
+          if (winterNightsEnded(frame.tick) === 0) return ROW_WORDS.fire.none;
+          return frame.firesLastNight[slot] === 1 ? ROW_WORDS.fire.burned : ROW_WORDS.fire.out;
         },
       },
     ],
