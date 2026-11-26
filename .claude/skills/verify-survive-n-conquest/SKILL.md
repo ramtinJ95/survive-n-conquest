@@ -192,7 +192,7 @@ The scenarios take about 1.2 to 1.4 times as long as before that pull request. O
 
 At 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
 
-Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed, because 8 legs of 2.5 s of a held `W` drew too few frames to reach the corner.
+Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed while its legs were 2.5 s of a held `W`, because they drew too few frames to reach the corner. Its legs are now 10 drawn frames each, and under the same load `camera` passed 20 of 20 in 6 min 54 s against 3 min 1 s, `selecting` 40 of 40 in 16 min 21 s against 10 min 22 s, and `readiness` 28 of 28 in 15 min 3 s against 12 min 11 s.
 
 ## The frame pacer
 
