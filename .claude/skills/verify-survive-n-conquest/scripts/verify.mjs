@@ -4246,10 +4246,12 @@ const SOW_STEP = 5;
 const FARMER_WORDS = /^(Walking to a field to sow|Sowing a field|Looking for a field to sow|Idle, the fields are sown|Idle, nothing is sown until spring|Idle, no field within 20 tiles of the farm)$/;
 /**
  * A field tile draws soil at 75% over the lit ground and, once sown, 3 rows of shoots across it, each 40% of its third,
- * in pure colors that no light changes. `SHOOTS` matches the shoots, and `SOIL` the soil's brown, whose red leads its
- * green and blue as no grass, forest, or rock of the map does by day or by night.
+ * in pure colors that no light changes: the color of `SHOOT_STAGES` for the dawns since its sowing, from `stages` in
+ * `src/render/orderMarks.ts`. `SHOOTS` matches the shoots of any stage, and `SOIL` the soil's brown, whose red leads
+ * its green and blue as no grass, forest, or rock of the map does by day or by night.
  */
-const SHOOTS = ([r, g, b]) => distance([r, g, b], [0xa6, 0xd6, 0x4a]) < ORDER_TOLERANCE;
+const SHOOT_STAGES = [[0xea, 0xf5, 0xb0], [0xb8, 0xe0, 0x5a], [0x5f, 0xe0, 0x4a], [0x22, 0xb8, 0x4a], [0x0e, 0x7d, 0x3a]];
+const SHOOTS = (rgb) => SHOOT_STAGES.some((stage) => distance(rgb, stage) < ORDER_TOLERANCE);
 const SOIL = ([r, g, b]) => r > g + 10 && g > b && r - b > 25 && r < 150;
 const FIELD_OUTLINE = ([r, g, b]) => distance([r, g, b], [0xff, 0xe1, 0x4d]) < ORDER_TOLERANCE;
 /** The half side of the box around a tile's center that the pixel checks read: about half a tile at this view. */
@@ -4647,7 +4649,12 @@ const HARVEST_STOPS = {
 };
 const FIELD_STATES = ['bare', 'sown', 'ripe', 'cut'];
 /** The crop's colors from `FIELD_LOOK` in `src/render/orderMarks.ts`. The mark layer draws them after the light, so no light changes them. */
-const CROP_RGB = { shoots: [0xa6, 0xd6, 0x4a], shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a] };
+const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a] };
+/**
+ * Adjacent stages of a sown tile differ by at least this much in the mean color of the tile's box, as a distance in
+ * 8-bit RGB, by day and at midnight, so a player tells them apart at a glance.
+ */
+const STAGE_MARGIN = 20;
 /**
  * In the box of 11 by 11 pixels around a tile's center, about half a tile, the rows of a sown tile draw about 48 pixels
  * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, and the shadow
@@ -4668,16 +4675,25 @@ const HARVEST_CLIP = { crop: { x: 0, y: 0, width: 720, height: 540 }, width: 560
 function cropLook(png, width, spots) {
   const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   return spots.map(({ x, y }) => {
-    const found = { shoots: 0, shadow: 0, ripe: 0, stubble: 0, soil: 0 };
+    const found = { shoots: 0, shadow: 0, ripe: 0, stubble: 0, soil: 0, stages: SHOOT_STAGES.map(() => 0), mean: [0, 0, 0] };
     for (let row = y - SOW_HALF; row <= y + SOW_HALF; row++) {
       for (let column = x - SOW_HALF; column <= x + SOW_HALF; column++) {
         const i = (row * width + column) * 3;
         const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
         for (const [name, color] of Object.entries(CROP_RGB)) if (distance(rgb, color) < ORDER_TOLERANCE) found[name] += 1;
+        SHOOT_STAGES.forEach((stage, index) => {
+          if (distance(rgb, stage) < ORDER_TOLERANCE) found.stages[index] += 1;
+        });
         if (SOIL(rgb)) found.soil += 1;
+        rgb.forEach((value, channel) => {
+          found.mean[channel] += value;
+        });
       }
     }
-    return { ...found, soil: found.soil / (2 * SOW_HALF + 1) ** 2 };
+    const all = (2 * SOW_HALF + 1) ** 2;
+    const shoots = found.stages.reduce((sum, count) => sum + count, 0);
+    const stage = found.stages.indexOf(Math.max(...found.stages));
+    return { ...found, shoots, stage, soil: found.soil / all, mean: found.mean.map((sum) => sum / all) };
   });
 }
 
@@ -4767,13 +4783,21 @@ SCENARIOS.harvest = async (session) => {
   await session.screenshot(page, 'harvest-orders');
 
   const percent = (part, whole) => `${((part / whole) * 100).toFixed(0)}%`;
-  /** Reads every field tile at the stop against the rules: its state, and for a sown tile the shadow of the dawns it has grown. */
+  /** The mean colors of the boxes of the sown tiles read at their stage, by day and at midnight, by the dawns grown. */
+  const stageColors = { day: SHOOT_STAGES.map(() => []), midnight: SHOOT_STAGES.map(() => []) };
+  /** Reads every field tile at the stop against the rules: its state, and for a sown tile its stage's color and the shadow of the dawns it has grown. */
   const expectCrop = async (stop, shot, what, { midnight }) => {
     await session.still(page);
     const png = await session.screenshot(page, shot);
     const look = cropLook(png, CLIP.width, fieldSpots);
     const rules = simAt[stop].tiles;
-    const shown = look.map(cropState);
+    const shown = look.map((tile, index) => {
+      const state = cropState(tile);
+      return state === 'sown' && FIELD_STATES[rules[index].state] === 'sown' && tile.stage !== rules[index].grown ? `sown at stage ${tile.stage}` : state;
+    });
+    rules.forEach((tile, index) => {
+      if (FIELD_STATES[tile.state] === 'sown' && shown[index] === 'sown') stageColors[midnight ? 'midnight' : 'day'][tile.grown].push(look[index].mean);
+    });
     const hidden = (tile, index) => shown[index] === 'unclear' && (!midnight || HARVEST_STONES.includes(tileName(tile)));
     const wrong = fieldTiles.filter((tile, index) => shown[index] !== FIELD_STATES[rules[index].state] && !hidden(tile, index));
     const matched = fieldTiles.filter((_, index) => shown[index] === FIELD_STATES[rules[index].state]).length;
@@ -4790,7 +4814,7 @@ SCENARIOS.harvest = async (session) => {
       wrong.length === 0 && matched >= (midnight ? fieldTiles.length - HARVEST_STONES.length : CROP_LEAST.day) && taller,
       `${matched} of ${fieldTiles.length} tiles read as the rules have them, needs ${midnight ? `all but the stone at ${HARVEST_STONES.join(' ')}` : `${CROP_LEAST.day} by day`}; wrong: ${wrong.map(tileName).join(' ') || 'none'}; ` +
         `shadow pixels by dawns grown: ${means.map(([grown, mean]) => `${grown} ${mean.toFixed(1)}`).join(', ') || 'none'}; ` +
-        `by tile shoots/shadow/ripe/stubble/soil: ${fieldTiles.map((tile, index) => `${tileName(tile)} ${FIELD_STATES[rules[index].state]}${rules[index].grown} ${look[index].shoots}/${look[index].shadow}/${look[index].ripe}/${look[index].stubble}/${percent(look[index].soil, 1)}`).join(', ')}`,
+        `by tile shoots at its stage/shadow/ripe/stubble/soil: ${fieldTiles.map((tile, index) => `${tileName(tile)} ${FIELD_STATES[rules[index].state]}${rules[index].grown} ${look[index].shoots}@${look[index].stage}/${look[index].shadow}/${look[index].ripe}/${look[index].stubble}/${percent(look[index].soil, 1)}`).join(', ')}`,
     );
     return png;
   };
@@ -4836,6 +4860,15 @@ SCENARIOS.harvest = async (session) => {
   }
   await session.reach(page, HARVEST_STOPS.midnight6);
   await expectCrop('midnight6', 'harvest-field-midnight-6', 'at the midnight before the brief says the first tiles ripen, none is ripe', { midnight: true });
+  for (const [when, byStage] of Object.entries(stageColors)) {
+    const means = byStage.map((colors) => (colors.length === 0 ? null : [0, 1, 2].map((channel) => colors.reduce((sum, color) => sum + color[channel], 0) / colors.length)));
+    const apart = means.slice(1).map((mean, index) => (mean && means[index] ? distance(mean, means[index]) : 0));
+    session.check(
+      `${when === 'day' ? 'by day' : 'at midnight'} the five sown stages read apart: the mean color of the tiles' boxes at each stage differs from the next by at least ${STAGE_MARGIN}`,
+      means.every(Boolean) && apart.every((gap) => gap >= STAGE_MARGIN),
+      `mean RGB by dawns grown: ${means.map((mean, grown) => `${grown} ${mean ? mean.map((value) => value.toFixed(0)).join('/') : 'none'} over ${byStage[grown].length} tiles`).join(', ')}; distance from each stage to the next: ${apart.map((gap) => gap.toFixed(1)).join(', ')}`,
+    );
+  }
 
   await session.reach(page, HARVEST_STOPS.clipFrom);
   const barn = await clickBuilding(barnRoofs, 'Barn');

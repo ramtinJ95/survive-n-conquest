@@ -61,13 +61,14 @@ const CLAIM_COLORS: Record<Claim, string> = {
 };
 
 /**
- * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of green shoots across it, with a
- * shadow on the soil that grows by `shadowPerDawn` of a row's third at each dawn. A ripe tile bears wide golden rows,
- * and a cut one thin rows of pale stubble.
+ * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of shoots across it in the color of
+ * `stages` for the dawns since its sowing, from pale to deep green, with a shadow on the soil that grows by
+ * `shadowPerDawn` of a row's third at each dawn. A ripe tile bears wide golden rows, and a cut one thin rows of pale
+ * stubble.
  */
 const FIELD_LOOK = {
   soil: '#6b4a2b',
-  shoots: '#a6d64a',
+  stages: ['#eaf5b0', '#b8e05a', '#5fe04a', '#22b84a', '#0e7d3a'],
   shadow: '#3f2a16',
   ripe: '#f0b429',
   stubble: '#d9c58a',
@@ -106,7 +107,7 @@ uniform vec3 previewColors[${Object.keys(PREVIEW_COLORS).length}];
 uniform vec4 ordersArea;
 uniform vec3 ordersAreaColor;
 uniform vec3 fieldSoil;
-uniform vec3 fieldShoots;
+uniform vec3 fieldStages[${RIPE_DAWNS}];
 uniform vec3 fieldShadow;
 uniform vec3 fieldRipe;
 uniform vec3 fieldStubble;
@@ -131,7 +132,7 @@ void drawCrop(inout vec3 color, ivec2 tile, vec2 inTile) {
   bool ripe = grown >= ${RIPE_DAWNS.toFixed(1)};
   float width = ripe ? ${FIELD_LOOK.ripeWidth.toFixed(2)} : ${FIELD_LOOK.rowWidth.toFixed(2)};
   float shadow = ripe ? ${FIELD_LOOK.ripeShadow.toFixed(2)} : grown * ${FIELD_LOOK.shadowPerDawn.toFixed(2)};
-  if (row >= 1.0 - width) color = linearToOutputTexel(vec4(ripe ? fieldRipe : fieldShoots, 1.0)).rgb;
+  if (row >= 1.0 - width) color = linearToOutputTexel(vec4(ripe ? fieldRipe : fieldStages[int(grown)], 1.0)).rgb;
   else if (row < shadow) color = linearToOutputTexel(vec4(fieldShadow, 1.0)).rgb;
 }
 
@@ -286,7 +287,7 @@ export function createOrderMarks(
     ordersArea: { value: area },
     ordersAreaColor: { value: areaColor },
     fieldSoil: { value: linear(FIELD_LOOK.soil) },
-    fieldShoots: { value: linear(FIELD_LOOK.shoots) },
+    fieldStages: { value: FIELD_LOOK.stages.map(linear) },
     fieldShadow: { value: linear(FIELD_LOOK.shadow) },
     fieldRipe: { value: linear(FIELD_LOOK.ripe) },
     fieldStubble: { value: linear(FIELD_LOOK.stubble) },
