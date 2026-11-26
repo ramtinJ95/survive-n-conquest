@@ -1,5 +1,5 @@
 import { GROWN_AGE, ageAt } from './aging';
-import { NO_VILLAGER, pair, partnerOf } from './households';
+import { MAX_HOUSEHOLDS, NO_VILLAGER, pair, partnerOf } from './households';
 import { Sex } from './names';
 import type { Sim } from './sim';
 import { VILLAGER_ROWS, VillagerState } from './villagerState';
@@ -31,15 +31,20 @@ export function canPair(villagers: Villagers, a: number, b: number): boolean {
   return !(mother[a]! >= 0 && mother[a] === mother[b]) && !(father[a]! >= 0 && father[a] === father[b]);
 }
 
+/** Whether villager `id` holds a place in its household's couple whose partner died. Only a single settler is asked. */
+const widowed = (sim: Sim, id: number) => partnerOf(sim.households, sim.villagers, id) !== NO_VILLAGER;
+
 /**
  * Takes the first man of age `age` that woman `woman` can pair with, in id
- * order, out of his list, and returns him, or -1 when there is none.
+ * order, out of his list, and returns him, or -1 when there is none. With
+ * `widowersOnly` it takes only a man whose partner died, whose pairing needs
+ * no new household.
  */
-function takeManOfAge(villagers: Villagers, woman: number, age: number): number {
+function takeManOfAge(sim: Sim, woman: number, age: number, widowersOnly: boolean): number {
   const at = Sex.Man * AGES + age;
   let before = -1;
   for (let man = firstOfAge[at]!; man >= 0; before = man, man = nextOfAge[man]!) {
-    if (!canPair(villagers, woman, man)) continue;
+    if (!canPair(sim.villagers, woman, man) || (widowersOnly && !widowed(sim, man))) continue;
     if (before < 0) firstOfAge[at] = nextOfAge[man]!;
     else nextOfAge[before] = nextOfAge[man]!;
     return man;
@@ -47,12 +52,12 @@ function takeManOfAge(villagers: Villagers, woman: number, age: number): number 
   return -1;
 }
 
-/** The single man nearest woman `woman` of age `age` in age whom she can pair with, the older when two are as near, then the lower id, taken out of his list, or -1. */
-function takeNearestMan(villagers: Villagers, woman: number, age: number): number {
+/** The single man nearest woman `woman` of age `age` in age whom she can pair with, the older when two are as near, then the lower id, taken out of his list, or -1. With `widowersOnly` only a man whose partner died counts. */
+function takeNearestMan(sim: Sim, woman: number, age: number, widowersOnly: boolean): number {
   for (let apart = 0; age + apart < AGES || age - apart >= GROWN_AGE; apart++) {
-    const older = age + apart < AGES ? takeManOfAge(villagers, woman, age + apart) : -1;
+    const older = age + apart < AGES ? takeManOfAge(sim, woman, age + apart, widowersOnly) : -1;
     if (older >= 0) return older;
-    const younger = apart > 0 && age - apart >= GROWN_AGE ? takeManOfAge(villagers, woman, age - apart) : -1;
+    const younger = apart > 0 && age - apart >= GROWN_AGE ? takeManOfAge(sim, woman, age - apart, widowersOnly) : -1;
     if (younger >= 0) return younger;
   }
   return -1;
@@ -62,8 +67,9 @@ function takeNearestMan(villagers: Villagers, woman: number, age: number): numbe
  * The pairings of a dawn, step 4 of its order. The single women go from the
  * oldest to the youngest, by the lower id at one age, and each takes the
  * single man she can pair with nearest her in age, the older when two are as
- * near, then the lower id. `pair` puts the two in one household. Pairing
- * stops when two who never had a partner find the household table full.
+ * near, then the lower id. `pair` puts the two in one household. While the
+ * household table is full, a woman who never had a partner takes only a man
+ * whose partner died, so every pairing of the dawn has a household to go to.
  */
 export function pairSettlers(sim: Sim): void {
   const { villagers, households } = sim;
@@ -76,13 +82,13 @@ export function pairSettlers(sim: Sim): void {
   }
   for (let age = AGES - 1; age >= GROWN_AGE; age--) {
     for (let woman = firstOfAge[Sex.Woman * AGES + age]!; woman >= 0; woman = nextOfAge[woman]!) {
-      const man = takeNearestMan(villagers, woman, age);
+      const widow = widowed(sim, woman);
+      const man = takeNearestMan(sim, woman, age, !widow && households.count >= MAX_HOUSEHOLDS);
       if (man < 0) continue;
       const count = households.count;
-      const widowed = Number(partnerOf(households, villagers, man) !== NO_VILLAGER) + Number(partnerOf(households, villagers, woman) !== NO_VILLAGER);
-      if (pair(households, villagers, man, woman, sim.dawns) < 0) return;
+      sim.tally.widowedPaired += Number(widow) + Number(widowed(sim, man));
+      pair(households, villagers, man, woman, sim.dawns);
       sim.tally.paired += households.count - count;
-      sim.tally.widowedPaired += widowed;
     }
   }
 }

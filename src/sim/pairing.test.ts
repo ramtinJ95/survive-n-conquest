@@ -7,7 +7,7 @@ import { TICKS_PER_DAY, dateAt } from './calendar';
 import { DAWN } from './dawn';
 import { isColdNight, isDawn } from './daylight';
 import { Good } from './goods';
-import { NO_HOME, houseOf, peopleIn } from './households';
+import { MAX_HOUSEHOLDS, NO_HOME, houseOf, peopleIn } from './households';
 import { Sex } from './names';
 import { storeOf } from './needs';
 import { isSingle, pairSettlers } from './pairing';
@@ -702,6 +702,18 @@ describe('a settler whose partner died', () => {
     die(sim, 1, Cause.Hunger);
     pairSettlers(sim);
     expect([households.man[0], households.woman[0], villagers.household[5], villagers.lodging[5], houseOf(households, villagers, 5), households.lodgers[hers]]).toEqual([0, 5, 0, NO_HOME, his, 0]);
+    audit(sim);
+  });
+
+  it('pairs as a widow while the household table is full, after an older woman who never had a partner found no room for a new household', () => {
+    const boys = Array.from({ length: MAX_HOUSEHOLDS - 3 }, () => [man(10)]);
+    const sim = settlement([[man(40), woman(38)], [...PARENTS, woman(45)], [...PARENTS, man(44), man(39)], ...boys]);
+    const { households } = sim;
+    expect(households.count).toBe(MAX_HOUSEHOLDS);
+    die(sim, 0, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.count, households.man[0], households.woman[0], sim.tally.paired, sim.tally.widowedPaired]).toEqual([MAX_HOUSEHOLDS, 8, 1, 0, 1]);
+    expect([isSingle(sim, 4), isSingle(sim, 7)]).toEqual([true, true]);
     audit(sim);
   });
 
