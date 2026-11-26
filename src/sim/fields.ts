@@ -1,6 +1,7 @@
 import { Job, kindOf, siteMidX, siteMidY, withinReach } from './buildings';
-import { SEASONS, TICKS_PER_SECOND, seasonIndexAt } from './calendar';
+import { DAYS_PER_YEAR, SEASONS, TICKS_PER_SECOND, seasonIndexAt } from './calendar';
 import { Claim } from './claims';
+import { dawnDayAt } from './daylight';
 import { Good } from './goods';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -10,18 +11,30 @@ import { CHUNK_SHIFT, type TileSet, createTileSet, setOpen } from './tileSet';
 
 /** Work ticks by one farmer that sow a field tile. */
 export const SOW_WORK_TICKS = 15 * TICKS_PER_SECOND;
+/** Work ticks by one farmer that cut a ripe field tile. */
+export const CUT_WORK_TICKS = 20 * TICKS_PER_SECOND;
+/** A sown tile is ripe at this many dawns after its sowing. */
+export const RIPE_DAWNS = 5;
+/** The units of food a cut tile puts down. */
+export const FOOD_PER_TILE = 4;
 const SPRING = SEASONS.indexOf('Spring');
 /** `sownAt` of a tile that bears no crop. */
 export const NOT_SOWN = -1;
+/** `cutAt` of a tile whose crop was not cut. */
+export const NOT_CUT = -1;
+/** The slots of `Fields.ripening`, more than the dawns a crop takes to ripen. */
+const RIPENING_SLOTS = 8;
 
-/** The state of a field tile's crop, read from what the tile stores. */
-export const FieldState = { Bare: 0, Sown: 1 } as const;
+/** The state of a field tile's crop, read from what the tile stores against the clock. */
+export const FieldState = { Bare: 0, Sown: 1, Ripe: 2, Cut: 3 } as const;
 export type FieldState = (typeof FieldState)[keyof typeof FieldState];
 
 /** What a field tile stores of its crop, the size of the map. The main thread keeps a copy from the tile changes. */
 export interface FieldTiles {
   /** The tick of the step in which each tile was sown, or `NOT_SOWN`. */
   readonly sownAt: Int32Array;
+  /** The tick of the step in which each tile was cut, or `NOT_CUT`. */
+  readonly cutAt: Int32Array;
 }
 
 /**
@@ -30,24 +43,81 @@ export interface FieldTiles {
  * chunks of its reach that hold no field.
  */
 export interface Fields extends TileSet, FieldTiles {
-  /** The farmer that sows each tile, or -1. */
+  /** The farmer that sows or cuts each tile, or -1. */
   readonly taker: Int32Array;
-  /** Work ticks done on each tile toward its sowing. Work stays when the farmer leaves, and goes with the field. */
+  /** Work ticks done on each tile toward its sowing or its cut. Work stays when the farmer leaves, and goes with the field. */
   readonly progress: Uint16Array;
+  /** By the day index of a dawn, at `day & 7`: the sown tiles that turn ripe at that dawn, so no dawn walks the fields. */
+  readonly ripening: Uint32Array;
+  /** The day index of the last dawn whose tiles `ripenFields` counted ripe. */
+  ripenedDay: number;
+  /** The tiles that turned ripe at the dawns of the calendar year the clock is in. */
+  ripeThisYear: number;
 }
 
 export function createFieldTiles(tiles: number): FieldTiles {
-  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN) };
+  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN), cutAt: new Int32Array(tiles).fill(NOT_CUT) };
 }
 
 export function createFields(size: number): Fields {
   const tiles = size * size;
-  return { ...createTileSet(size), ...createFieldTiles(tiles), taker: new Int32Array(tiles).fill(-1), progress: new Uint16Array(tiles) };
+  return {
+    ...createTileSet(size),
+    ...createFieldTiles(tiles),
+    taker: new Int32Array(tiles).fill(-1),
+    progress: new Uint16Array(tiles),
+    ripening: new Uint32Array(RIPENING_SLOTS),
+    ripenedDay: 0,
+    ripeThisYear: 0,
+  };
 }
 
-/** The state of a field tile's crop. */
-export function fieldState(fields: FieldTiles, tile: number): FieldState {
-  return fields.sownAt[tile] === NOT_SOWN ? FieldState.Bare : FieldState.Sown;
+/** The dawns a tile's crop has grown since it was sown, up to `RIPE_DAWNS`, at which it is ripe. 0 for a tile that was not sown. */
+export function grownDawns(fields: FieldTiles, tile: number, tick: number): number {
+  const sownAt = fields.sownAt[tile]!;
+  return sownAt === NOT_SOWN ? 0 : Math.min(dawnDayAt(tick) - dawnDayAt(sownAt), RIPE_DAWNS);
+}
+
+/** The day index of the first dawn of spring after a cut, at which the cut tile is bare again. */
+export function bareAgainDay(cutAt: number): number {
+  return (Math.floor(dawnDayAt(cutAt) / DAYS_PER_YEAR) + 1) * DAYS_PER_YEAR;
+}
+
+/**
+ * The state of a field tile's crop at `tick`. A cut tile is cut until the
+ * first dawn of spring after the cut and bare from then on, whatever its
+ * `sownAt` still holds.
+ */
+export function fieldState(fields: FieldTiles, tile: number, tick: number): FieldState {
+  const cutAt = fields.cutAt[tile]!;
+  if (cutAt !== NOT_CUT) return dawnDayAt(tick) < bareAgainDay(cutAt) ? FieldState.Cut : FieldState.Bare;
+  if (fields.sownAt[tile] === NOT_SOWN) return FieldState.Bare;
+  return grownDawns(fields, tile, tick) === RIPE_DAWNS ? FieldState.Ripe : FieldState.Sown;
+}
+
+/** The slot of `ripening` that counts a tile sown at `sownAt`. */
+function ripeningSlot(sownAt: number): number {
+  return (dawnDayAt(sownAt) + RIPE_DAWNS) & (RIPENING_SLOTS - 1);
+}
+
+/** Takes a tile that loses its crop out of the count of the dawn it would ripen at, while that dawn has not come. */
+function leaveRipening(fields: Fields, tile: number): void {
+  const sownAt = fields.sownAt[tile]!;
+  if (sownAt === NOT_SOWN || fields.cutAt[tile] !== NOT_CUT || dawnDayAt(sownAt) + RIPE_DAWNS <= fields.ripenedDay) return;
+  const slot = ripeningSlot(sownAt);
+  fields.ripening[slot] = fields.ripening[slot]! - 1;
+}
+
+/** A step of `DAWN`: counts the tiles that turn ripe at this dawn. */
+export function ripenFields(sim: Sim): void {
+  const { fields } = sim;
+  const day = dawnDayAt(sim.tick);
+  const slot = day & (RIPENING_SLOTS - 1);
+  const ripe = fields.ripening[slot]!;
+  sim.tally.ripened += ripe;
+  fields.ripeThisYear += ripe;
+  fields.ripening[slot] = 0;
+  fields.ripenedDay = day;
 }
 
 /** Whether the farmers sow at `tick`: in spring only. Seasons turn at midnight, so sowing starts at the first dawn of spring and ends at its last dusk. */
@@ -56,20 +126,21 @@ export function sowsAt(tick: number): boolean {
 }
 
 /** Whether a tile's center lies within the reach of the workplace in `slot`. */
-function inReach(sim: Sim, slot: number, tile: number): boolean {
+export function inReach(sim: Sim, slot: number, tile: number): boolean {
   const { size } = sim.map;
   return withinReach(sim.orders.sites, slot, (tile % size) + 0.5, (tile - (tile % size)) / size + 0.5);
 }
 
 /**
- * The bare field tile nearest a point in a straight line among those within
- * the reach of the farm in `slot`, that no farmer sows and that a walk from the
- * camp reaches, or -1. It reads only the chunks of the reach that hold a field
- * tile. Equally near tiles go to the lowest tile index.
+ * The field tile nearest a point in a straight line among those within the
+ * reach of the farm in `slot` that a walk from the camp reaches and that
+ * `wanted` takes, or -1. It reads only the chunks of the reach that hold a
+ * field tile and, when `chunks` is given, a tile of that set too. Equally near
+ * tiles go to the lowest tile index.
  */
-function nearestToSow(sim: Sim, slot: number, px: number, py: number): number {
+export function nearestInReach(sim: Sim, slot: number, px: number, py: number, wanted: (sim: Sim, tile: number) => boolean, chunks: TileSet | null): number {
   const { map, fields, flow } = sim;
-  if (fields.count === 0 || !sowsAt(sim.tick)) return -1;
+  if (fields.count === 0 || (chunks !== null && chunks.count === 0)) return -1;
   const { sites } = sim.orders;
   const { size } = map;
   const { reach } = kindOf(sites, slot);
@@ -83,14 +154,15 @@ function nearestToSow(sim: Sim, slot: number, px: number, py: number): number {
   let bestDistance = Infinity;
   for (let j = y0 >> CHUNK_SHIFT; j <= y1 >> CHUNK_SHIFT; j++) {
     for (let i = x0 >> CHUNK_SHIFT; i <= x1 >> CHUNK_SHIFT; i++) {
-      if (fields.chunkOpen[j * fields.chunks + i] === 0) continue;
+      const chunk = j * fields.chunks + i;
+      if (fields.chunkOpen[chunk] === 0 || (chunks !== null && chunks.chunkOpen[chunk] === 0)) continue;
       const yEnd = Math.min(y1, ((j + 1) << CHUNK_SHIFT) - 1);
       const xEnd = Math.min(x1, ((i + 1) << CHUNK_SHIFT) - 1);
       for (let y = Math.max(y0, j << CHUNK_SHIFT); y <= yEnd; y++) {
         const dy = y + 0.5 - py;
         for (let x = Math.max(x0, i << CHUNK_SHIFT); x <= xEnd; x++) {
           const tile = y * size + x;
-          if (fields.open[tile] === 0 || fields.sownAt[tile] !== NOT_SOWN || fields.taker[tile] !== -1 || flow.next[tile] === -1) continue;
+          if (fields.open[tile] === 0 || flow.next[tile] === -1 || !wanted(sim, tile)) continue;
           if (!inReach(sim, slot, tile)) continue;
           const dx = x + 0.5 - px;
           const distance = dx * dx + dy * dy;
@@ -105,12 +177,18 @@ function nearestToSow(sim: Sim, slot: number, px: number, py: number): number {
   return best;
 }
 
+/** A bare field tile that no farmer sows. */
+function toSow(sim: Sim, tile: number): boolean {
+  return sim.fields.taker[tile] === -1 && fieldState(sim.fields, tile, sim.tick) === FieldState.Bare;
+}
+
 /** Sends a farmer with empty hands to the bare field tile nearest it in its farm's reach, and reserves the tile. */
 function take(sim: Sim, id: number): boolean {
   const { villagers, fields } = sim;
   const workplace = villagers.workplace[id]!;
   if (workplace < 0 || villagers.carried[id] !== Good.None) return false;
-  const tile = nearestToSow(sim, workplace, villagers.x[id]!, villagers.y[id]!);
+  if (!sowsAt(sim.tick)) return false;
+  const tile = nearestInReach(sim, workplace, villagers.x[id]!, villagers.y[id]!, toSow, null);
   if (tile < 0 || !planPath(sim, id, tile)) return false;
   fields.taker[tile] = id;
   villagers.taskTile[id] = tile;
@@ -132,7 +210,7 @@ function holds(sim: Sim, id: number): boolean {
     workplace >= 0 &&
     fields.taker[tile] === id &&
     sim.orders.claims[tile] === Claim.Field &&
-    fields.sownAt[tile] === NOT_SOWN &&
+    fieldState(fields, tile, sim.tick) === FieldState.Bare &&
     sowsAt(sim.tick) &&
     inReach(sim, workplace, tile)
   );
@@ -146,7 +224,10 @@ function work(sim: Sim, id: number): boolean {
   if (fields.progress[tile]! < SOW_WORK_TICKS) return false;
   fields.progress[tile] = 0;
   fields.sownAt[tile] = sim.tick;
+  fields.cutAt[tile] = NOT_CUT;
   fields.taker[tile] = -1;
+  const slot = ripeningSlot(sim.tick);
+  fields.ripening[slot] = fields.ripening[slot]! + 1;
   sim.tally.sown += 1;
   noteTileChange(sim, tile);
   return true;
@@ -158,15 +239,17 @@ function release(sim: Sim, id: number): void {
   if (tile >= 0 && sim.fields.taker[tile] === id) sim.fields.taker[tile] = -1;
 }
 
-/** Keeps the set of field tiles up to the claims. A tile whose field was cancelled loses its crop and the work done on it. */
+/** Keeps the set of field tiles up to the claims. A tile whose field was cancelled loses its crop, sown, ripe, or cut, and the work done on it. */
 function refresh(sim: Sim, tile: number): void {
   const { fields } = sim;
   const field = sim.orders.claims[tile] === Claim.Field;
   setOpen(fields, sim.map.size, tile, field);
   if (field) return;
   fields.progress[tile] = 0;
-  if (fields.sownAt[tile] === NOT_SOWN) return;
+  if (fields.sownAt[tile] === NOT_SOWN && fields.cutAt[tile] === NOT_CUT) return;
+  leaveRipening(fields, tile);
   fields.sownAt[tile] = NOT_SOWN;
+  fields.cutAt[tile] = NOT_CUT;
   noteTileChange(sim, tile);
 }
 

@@ -155,7 +155,10 @@ function work(sim: Sim, id: number): boolean {
   const place = villagers.destination[id]!;
   if (villagers.carried[id] === Good.None) return pickUpReserved(sim, id);
   if (villagers.toStore[id]! >= 0) {
-    if (villagers.carried[id] === Good.Food) sim.tally.fromGround += 1;
+    if (villagers.carried[id] === Good.Food) {
+      sim.tally.fromGround += 1;
+      if (sim.orders.claims[villagers.taskTile[id]!] === Claim.Field) sim.tally.fromFields += 1;
+    }
     putInStore(sim, id);
     return true;
   }
