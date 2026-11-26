@@ -7,7 +7,7 @@ import { TICKS_PER_DAY, dateAt } from './calendar';
 import { DAWN } from './dawn';
 import { isColdNight, isDawn } from './daylight';
 import { Good } from './goods';
-import { NO_HOME, houseOf, peopleIn } from './households';
+import { MAX_HOUSEHOLDS, NO_HOME, houseOf, peopleIn } from './households';
 import { Sex } from './names';
 import { storeOf } from './needs';
 import { isSingle, pairSettlers } from './pairing';
@@ -95,13 +95,17 @@ describe('a single settler', () => {
     expect(pairings([[...PARENTS, man(16)], [...PARENTS, woman(16)]])).toEqual([[2, 5]]);
   });
 
-  it('is never one of a couple, though its partner died', () => {
+  it('is never one of a couple while its partner lives, and is single again once its partner died', () => {
     const households = [[man(28), woman(28)], [...PARENTS, woman(27)], [...PARENTS, man(30)]];
     const sim = settlement(households);
-    die(sim, 1, Cause.Hunger);
     expect([0, 1, 2, 3, 4, 7].map((id) => isSingle(sim, id))).toEqual([false, false, false, false, true, true]);
+    die(sim, 1, Cause.Hunger);
+    expect([0, 1, 2, 3, 4, 7].map((id) => isSingle(sim, id))).toEqual([true, false, false, false, true, true]);
     expect(pairings(households)).toEqual([[7, 4]]);
-    expect(pairings(households, (sim) => die(sim, 1, Cause.Hunger))).toEqual([[7, 4]]);
+    const widowed = settlement(households);
+    die(widowed, 1, Cause.Hunger);
+    pairSettlers(widowed);
+    expect([widowed.households.count, widowed.households.man[0], widowed.households.woman[0], widowed.tally.paired, widowed.tally.widowedPaired]).toEqual([3, 0, 4, 0, 1]);
   });
 
   it('is the man of a starting household of one, who never had a partner', () => {
@@ -487,7 +491,7 @@ describe('the order of a dawn', () => {
     expect([sim.tally.births, households.living[0], peopleIn(households, parents)]).toEqual([1, 5, 5]);
   });
 
-  it('runs a death of old age, a start of work, a pairing, and a birth at one dawn, in that order', () => {
+  it('runs a death of old age, a start of work, a pairing, and a birth at one dawn, in that order, so a widow of that dawn pairs at it', () => {
     const lucky = 3;
     const sim = settlement(
       [
@@ -497,16 +501,17 @@ describe('the order of a dawn', () => {
       ],
       { seed: seedFor(0, [lucky]), seen: BIRTH_GAP + 1 - lucky },
     );
-    const [boy, old, daughter, son] = [2, 3, 5, 8];
+    const [boy, old, widow, daughter, son] = [2, 3, 4, 5, 8];
     house(sim, 0);
     throughDawn(sim, lucky - 1);
     expect([sim.tally.oldAge, sim.tally.startedWork, sim.tally.paired, sim.tally.births]).toEqual([0, 0, 0, 0]);
     expect([sim.villagers.child[boy], sim.households.workers[0]]).toEqual([1, 2]);
     throughDawn(sim, lucky);
-    expect([sim.tally.oldAge, sim.tally.startedWork, sim.tally.paired, sim.tally.births]).toEqual([1, 1, 1, 1]);
+    expect([sim.tally.oldAge, sim.tally.startedWork, sim.tally.widowedPaired, sim.tally.births]).toEqual([1, 1, 1, 1]);
     expect(sim.villagers.cause[old]).toBe(Cause.OldAge);
     expect([sim.villagers.child[boy], sim.households.workers[0]]).toEqual([0, 3]);
-    expect([sim.households.man[3], sim.households.woman[3], sim.households.living[1], sim.households.living[2]]).toEqual([son, daughter, 1, 2]);
+    expect([sim.households.count, sim.households.man[1], sim.households.woman[1], sim.households.living[1], sim.households.living[2]]).toEqual([3, son, widow, 3, 2]);
+    expect(isSingle(sim, daughter)).toBe(true);
     expect([sim.villagers.household[sim.villagers.count - 1], sim.households.living[0]]).toEqual([0, 4]);
   });
 
@@ -542,5 +547,226 @@ describe('the order of a dawn', () => {
     expect(sim.villagers.count).toBe(people);
     throughDawn(sim, first, stocked);
     expect([sim.villagers.count, sim.villagers.household[people]]).toEqual([people + 1, 2]);
+  });
+});
+
+/**
+ * Recounts from the villagers every count the household table keeps of where
+ * its people live, and checks the table holds the same: the living of each
+ * household, the lodgers of each house, who lodges and for which household,
+ * those at the camp, the households in the houses, and the vacant houses.
+ */
+function audit(sim: Sim): void {
+  const { households, villagers } = sim;
+  const living = new Array<number>(households.count).fill(0);
+  const lodgers = new Map<number, number>();
+  let atCamp = 0;
+  for (let id = 0; id < villagers.count; id++) {
+    if (villagers.state[id] === VillagerState.Dead) continue;
+    const h = villagers.household[id]!;
+    living[h]! += 1;
+    const slot = villagers.lodging[id]!;
+    if (slot !== NO_HOME) {
+      expect([households.home[h], [households.man[h], households.woman[h]].includes(id)]).toEqual([NO_HOME, true]);
+      lodgers.set(slot, (lodgers.get(slot) ?? 0) + 1);
+    } else if (households.home[h] === NO_HOME) atCamp += 1;
+  }
+  expect(Array.from(households.living.subarray(0, households.count))).toEqual(living);
+  expect(households.atCamp).toBe(atCamp);
+  const houses = Array.from(households.houses.subarray(0, households.houseCount));
+  for (const slot of houses) expect([slot, households.lodgers[slot]]).toEqual([slot, lodgers.get(slot) ?? 0]);
+  for (let h = 0; h < households.count; h++) if (households.home[h] !== NO_HOME) expect(households.householdIn[households.home[h]!]).toBe(h);
+  const vacant = Array.from(households.vacant.subarray(0, households.vacantCount)).sort((a, b) => a - b);
+  expect(vacant).toEqual(houses.filter((slot) => households.householdIn[slot] === -1).sort((a, b) => a - b));
+}
+
+describe('a settler whose partner died', () => {
+  it('pairs again as a widow with her children and her house, and a single man joins her household', () => {
+    const sim = settlement([[man(40), woman(38), woman(8), man(6)], [...PARENTS, man(30)]]);
+    const hers = house(sim, 0);
+    const parents = house(sim, 1);
+    die(sim, 0, Cause.Hunger);
+    expect([isSingle(sim, 1), isSingle(sim, 6)]).toEqual([true, true]);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.count, households.man[0], households.woman[0], households.home[0], households.lastBirth[0]]).toEqual([2, 6, 1, hers, 0]);
+    expect([villagers.household[6], houseOf(households, villagers, 6), households.living[0], households.living[1], peopleIn(households, parents)]).toEqual([0, hers, 4, 2, 2]);
+    expect([2, 3].map((id) => [villagers.mother[id], villagers.father[id], villagers.household[id]])).toEqual([[1, 0, 0], [1, 0, 0]]);
+    expect([sim.tally.paired, sim.tally.widowedPaired, isSingle(sim, 1), isSingle(sim, 6)]).toEqual([0, 1, false, false]);
+    audit(sim);
+  });
+
+  it("pairs again as a widower with his house, and a single woman joins his household, who lodges in her parents' house while it has none", () => {
+    const sim = settlement([[man(40), woman(38), man(8)], [...PARENTS, woman(30)]]);
+    const his = house(sim, 0);
+    die(sim, 1, Cause.Hunger);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.count, households.man[0], households.woman[0], households.home[0], villagers.household[5]]).toEqual([2, 0, 5, his, 0]);
+    expect([houseOf(households, villagers, 5), households.living[0], households.living[1], households.atCamp]).toEqual([his, 3, 2, 2]);
+    audit(sim);
+
+    const camp = settlement([[...PARENTS, woman(30)], [man(40), woman(38), man(8)]]);
+    const parents = house(camp, 0);
+    die(camp, 4, Cause.Hunger);
+    pairSettlers(camp);
+    expect([camp.households.man[1], camp.households.woman[1], camp.households.home[1], camp.villagers.lodging[2], houseOf(camp.households, camp.villagers, 2)]).toEqual([3, 2, NO_HOME, parents, parents]);
+    expect([camp.households.living[0], camp.households.living[1], camp.households.lodgers[parents], peopleIn(camp.households, parents), camp.households.atCamp]).toEqual([2, 3, 1, 3, 2]);
+    audit(camp);
+  });
+
+  it('as one of two widowed settlers with houses, makes one household of the two in the lower one\'s house, and frees the other house', () => {
+    const sim = settlement([[man(40), woman(38), man(8)], [man(42), woman(40), woman(9)]]);
+    const his = house(sim, 0);
+    const hers = house(sim, 1);
+    die(sim, 1, Cause.Hunger);
+    die(sim, 3, Cause.Hunger);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.count, households.man[0], households.woman[0], households.home[0], households.home[1]]).toEqual([2, 0, 4, his, NO_HOME]);
+    expect([[2, 4, 5].map((id) => villagers.household[id]), households.living[0], households.living[1], households.householdIn[hers]]).toEqual([[0, 0, 0], 4, 0, -1]);
+    expect([villagers.mother[5], villagers.father[5], sim.tally.widowedPaired]).toEqual([4, 3, 2]);
+    audit(sim);
+    expect(Array.from(households.vacant.subarray(0, households.vacantCount))).toEqual([hers]);
+  });
+
+  /** Two pairs of the first dawn: Bodo, 21, and Hild, 20, from the camp, then Arne, 19, from the camp and Tova, 18, from her parents' house in `parents`, who lodges there. */
+  function lodgingPairs() {
+    const sim = settlement([[...PARENTS, woman(18)], [...PARENTS, woman(20)], [...PARENTS, man(21), man(19)]]);
+    const parents = house(sim, 0);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.man[3], households.woman[3], households.man[4], households.woman[4], villagers.lodging[2]]).toEqual([8, 5, 9, 2, parents]);
+    return { sim, parents };
+  }
+
+  it('as one of two widowed settlers without a house, takes the house of the other, of the higher number, into the lower household', () => {
+    const { sim, parents } = lodgingPairs();
+    const { households, villagers } = sim;
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    expect([households.home[3], households.home[4], households.householdIn[parents]]).toEqual([NO_HOME, parents, 4]);
+    die(sim, 5, Cause.Hunger);
+    die(sim, 9, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[3], households.woman[3], villagers.household[2], households.home[3], households.home[4], households.householdIn[parents]]).toEqual([8, 2, 3, parents, NO_HOME, 3]);
+    expect([villagers.lodging[2], villagers.lodging[8], households.living[3], households.living[4]]).toEqual([NO_HOME, NO_HOME, 2, 0]);
+    audit(sim);
+  });
+
+  it('as one of two widowed settlers neither of whose households has a house, goes on living where it lived, a lodger in its parents\' house', () => {
+    const { sim, parents } = lodgingPairs();
+    const { households, villagers } = sim;
+    die(sim, 5, Cause.Hunger);
+    die(sim, 9, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[3], households.woman[3], villagers.household[2], households.home[3], households.living[4]]).toEqual([8, 2, 3, NO_HOME, 0]);
+    expect([villagers.lodging[2], villagers.lodging[8], households.lodgers[parents]]).toEqual([parents, NO_HOME, 1]);
+    audit(sim);
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    expect([households.home[3], villagers.lodging[2], households.lodgers[parents]]).toEqual([parents, NO_HOME, 0]);
+    audit(sim);
+  });
+
+  it('as one of two widowed settlers, takes the house of the other into the lower household, though a third household lodges there and has a lower number', () => {
+    const sim = settlement([[...PARENTS, man(20), woman(21)], [...PARENTS, man(21)], [...PARENTS, man(22)], [...PARENTS], [...PARENTS, woman(22), woman(20)]]);
+    const home = house(sim, 0);
+    const { households, villagers } = sim;
+    pairSettlers(sim);
+    expect([5, 6, 7].map((h) => [households.man[h], households.woman[h]])).toEqual([[9, 14], [6, 3], [2, 15]]);
+    die(sim, 0, Cause.Hunger);
+    die(sim, 1, Cause.Hunger);
+    expect([households.home[6], villagers.lodging[2]]).toEqual([home, home]);
+    die(sim, 10, Cause.Hunger);
+    die(sim, 15, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[3], households.woman[3], villagers.lodging[2], households.home[6]]).toEqual([2, 11, home, home]);
+    die(sim, 6, Cause.Hunger);
+    die(sim, 14, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[5], households.woman[5], households.home[5], households.householdIn[home], households.home[3], households.home[6]]).toEqual([9, 3, home, 5, NO_HOME, NO_HOME]);
+    expect([villagers.lodging[2], villagers.lodging[3], villagers.lodging[9], households.lodgers[home]]).toEqual([home, NO_HOME, NO_HOME, 1]);
+    audit(sim);
+  });
+
+  it('as a widow who lodges, stops lodging when she joins a widower of the lower number in his house', () => {
+    const sim = settlement([[man(40), woman(38), man(8)], [...PARENTS, woman(20)], [...PARENTS, man(20)]]);
+    const his = house(sim, 0);
+    const hers = house(sim, 1);
+    house(sim, 2);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.man[3], households.woman[3], villagers.lodging[5], households.lodgers[hers]]).toEqual([8, 5, hers, 1]);
+    die(sim, 8, Cause.Hunger);
+    die(sim, 1, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[0], households.woman[0], villagers.household[5], villagers.lodging[5], houseOf(households, villagers, 5), households.lodgers[hers]]).toEqual([0, 5, 0, NO_HOME, his, 0]);
+    audit(sim);
+  });
+
+  it('pairs as a widow while the household table is full, after an older woman who never had a partner found no room for a new household', () => {
+    const boys = Array.from({ length: MAX_HOUSEHOLDS - 3 }, () => [man(10)]);
+    const sim = settlement([[man(40), woman(38)], [...PARENTS, woman(45)], [...PARENTS, man(44), man(39)], ...boys]);
+    const { households } = sim;
+    expect(households.count).toBe(MAX_HOUSEHOLDS);
+    die(sim, 0, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.count, households.man[0], households.woman[0], sim.tally.paired, sim.tally.widowedPaired]).toEqual([MAX_HOUSEHOLDS, 8, 1, 0, 1]);
+    expect([isSingle(sim, 4), isSingle(sim, 7)]).toEqual([true, true]);
+    audit(sim);
+  });
+
+  it("pairs under the kin rule as it stands: with its dead partner's brother and its dead partner's son by an earlier partner, never with its own son", () => {
+    const sim = settlement([[...PARENTS, man(20), man(19)], [...PARENTS, woman(20)]]);
+    pairSettlers(sim);
+    const { households, villagers } = sim;
+    expect([households.man[2], households.woman[2]]).toEqual([2, 6]);
+    die(sim, 2, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.count, households.man[2], households.woman[2], villagers.household[3]]).toEqual([3, 3, 6, 2]);
+    audit(sim);
+
+    const son = settlement([[man(40), woman(38), man(17)], [...PARENTS]]);
+    die(son, 0, Cause.Hunger);
+    pairSettlers(son);
+    expect([son.households.man[0], son.households.woman[0], isSingle(son, 1), isSingle(son, 2)]).toEqual([0, 1, true, true]);
+
+    const step = settlement([[man(40), woman(38), man(17)], [...PARENTS, woman(30)]]);
+    die(step, 1, Cause.Hunger);
+    pairSettlers(step);
+    expect([step.households.man[0], step.households.woman[0]]).toEqual([0, 5]);
+    die(step, 0, Cause.Hunger);
+    pairSettlers(step);
+    expect([step.households.count, step.households.man[0], step.households.woman[0], step.villagers.household[2], step.households.living[0]]).toEqual([2, 2, 5, 0, 2]);
+    audit(step);
+  });
+
+  it(`gives a household whose couple is whole again no birth before it has seen more than ${BIRTH_GAP} dawns since the pairing, and a child of the two after`, () => {
+    const first = BIRTH_GAP + 2;
+    const seed = (() => {
+      for (let seed = 1; ; seed++) {
+        if (birthDraw(seed, 0, first) >= BIRTH_CHANCE) continue;
+        if (Array.from({ length: BIRTH_GAP }, (_, at) => birthDraw(seed, 0, at + 1)).some((draw) => draw < BIRTH_CHANCE)) return seed;
+      }
+    })();
+    const sim = settlement([[man(40), woman(30), man(8)], [...PARENTS, man(30)]], { seed, seen: 50 });
+    const slots = [house(sim, 0), house(sim, 1)];
+    const stocked = () => {
+      for (const slot of slots) {
+        sim.stores.held[FOOD]![slot] = 16;
+        sim.stores.held[FIREWOOD]![slot] = 6;
+      }
+    };
+    die(sim, 0, Cause.Hunger);
+    throughDawn(sim, 1, stocked);
+    const { households, villagers } = sim;
+    expect([households.man[0], households.woman[0], households.lastBirth[0], sim.tally.widowedPaired]).toEqual([5, 1, 1, 1]);
+    const people = villagers.count;
+    throughDawn(sim, first - 1, stocked);
+    expect(villagers.count).toBe(people);
+    throughDawn(sim, first, stocked);
+    expect([villagers.count, villagers.household[people], villagers.mother[people], villagers.father[people]]).toEqual([people + 1, 0, 1, 5]);
+    expect([villagers.mother[2], villagers.father[2]]).toEqual([1, 0]);
   });
 });

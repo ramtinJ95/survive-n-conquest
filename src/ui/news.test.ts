@@ -90,6 +90,37 @@ describe('the news of a new household', () => {
   });
 });
 
+describe('the news of a couple in a household that was there before', () => {
+  it('names the couple in the form of a new household\'s line', () => {
+    const tick = 2600;
+    expect(lineWords('paired again', tick, ['Sten and Ysa'])).toBe('Day 2, 04:48. Sten and Ysa formed a couple.');
+    expect(lineWords('paired again', tick, ['Sten and Ysa', 'Ulvar and Elsi', 'Jorrin and Fenna'])).toBe('Day 2, 04:48. Sten and Ysa formed a couple, and so did Ulvar and Elsi and 1 other couple.');
+  });
+
+  it('says once that a widow formed a couple with a single man, at the dawn they pair, and nothing of a new household', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [{ members: [{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }] }, { members: [{ sex: Sex.Man, age: 50 }, { sex: Sex.Woman, age: 48 }, { sex: Sex.Man, age: 30 }] }];
+    const sim = createSim(map, { villagers: 5, monsters: 0, campFood: 200, animals: false, settlers });
+    die(sim, 0, Cause.Hunger);
+    const { said } = listen(sim, 3000 * 3);
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    expect([sim.households.count, sim.households.man[0], sim.households.woman[0]]).toEqual([2, 4, 1]);
+    expect(said.filter((line) => line.includes('couple') || line.includes('household'))).toEqual([expect.stringMatching(new RegExp(`^Day 2, \\d\\d:\\d\\d\\. ${name(4)} and ${name(1)} formed a couple\\.$`))]);
+  });
+
+  it('says that two widowed settlers formed a couple when she joins his household of the lower number', () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);
+    const settlers = [{ members: [{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }] }, { members: [{ sex: Sex.Man, age: 42 }, { sex: Sex.Woman, age: 40 }] }];
+    const sim = createSim(map, { villagers: 4, monsters: 0, campFood: 200, animals: false, settlers });
+    die(sim, 1, Cause.Hunger);
+    die(sim, 2, Cause.Hunger);
+    const { said } = listen(sim, 3000 * 3);
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    expect([sim.villagers.household[3], sim.households.man[0], sim.households.woman[0]]).toEqual([0, 0, 3]);
+    expect(said.filter((line) => line.includes('couple') || line.includes('household'))).toEqual([expect.stringMatching(new RegExp(`^Day 2, \\d\\d:\\d\\d\\. ${name(0)} and ${name(3)} formed a couple\\.$`))]);
+  });
+});
+
 describe('the settlement news', () => {
   it('names a settler that died of old age at the dawn it died', () => {
     const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), 7);

@@ -89,7 +89,7 @@ A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` take
 
 `scripts/births.ts` plays the `births`, `growing-up`, and `people` scenarios' commands in `src/sim` and prints each dawn's draws, births, and starts of work, and the living children, workers, and settlers of 50 or older after it, so a scenario can check the page against the rules.
 
-`scripts/pairing.ts '<settlers>' <food> <dawns> [<day> <hh:mm>]` plays the `settlers` setting, the orders of `bun scripts/firewood-years.ts near-houses-at-minutes` without the woodshed, and the given dawns in `src/sim`, and prints each dawn's new households and the house each of their couples lives in, the single settlers left, every household's house, and the minute each house was finished. With a day and a minute it gives the fourth house only then. `pairing` runs it before it drives the page.
+`scripts/pairing.ts '<settlers>' <food> <dawns> [<day> <hh:mm>]` plays the `settlers` setting, the orders of `bun scripts/firewood-years.ts near-houses-at-minutes` without the woodshed, and the given dawns in `src/sim`, and prints each dawn's new households and the house each of their couples lives in, the couples that formed in a household there before, the single settlers left, every household's house, and the minute each house was finished. With a day and a minute it gives the fourth house only then. `pairing` runs it before it drives the page.
 
 `scripts/panelRows.ts` prints every kind of selection panel in the game's `PANELS`, with its rows and their buttons and what a site needs of each good, and the names a woman and a man can have. `readiness` and `selecting` fill a copy of the panel with the longest reading of each row and measure it.
 

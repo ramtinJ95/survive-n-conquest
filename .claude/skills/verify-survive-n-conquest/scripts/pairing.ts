@@ -5,8 +5,8 @@
 // that `births` gives through the page at 08:00 on day 1. With a day and a minute it holds the fourth house's order,
 // worked out at 08:00 on day 1 as the page clicks it, back until that minute. For each of the first `<dawns>` dawns
 // it prints the minute the page stops at after it, the couples that formed a household there with their ages, the
-// households they left, and the house each lives in, the single settlers left after it, and every household's house
-// slot and living members. It prints the minute each house was finished.
+// households they left, and the house each lives in, the same of the couples that formed there in a household that was
+// there before, the single settlers left after it, and every household's house slot and living members. It prints the minute each house was finished.
 import { ageAt } from '../../../../src/sim/aging';
 import { Building } from '../../../../src/sim/buildings';
 import { dateAt } from '../../../../src/sim/calendar';
@@ -46,6 +46,7 @@ while (dawns.length < Number(dawnsText) && !sim.over) {
   const tick = sim.tick;
   const was = sim.villagers.household.slice(0, sim.villagers.count);
   const formed = sim.households.count;
+  const couples = Array.from({ length: formed }, (_, h) => `${sim.households.man[h]},${sim.households.woman[h]}`);
   step(sim);
   const { sites } = sim.orders;
   for (let slot = 0; slot < sites.used; slot++) {
@@ -70,6 +71,17 @@ while (dawns.length < Number(dawnsText) && !sim.over) {
         woman: { id: woman, name: name(woman), age: ageAt(villagers, woman, tick), left: was[woman]! + 1, livesIn: houseOf(households, villagers, woman) },
         man: { id: man, name: name(man), age: ageAt(villagers, man, tick), left: was[man]! + 1, livesIn: houseOf(households, villagers, man) },
       };
+    }),
+    pairedAgain: couples.flatMap((couple, h) => {
+      const man = households.man[h]!;
+      const woman = households.woman[h]!;
+      if (couple === `${man},${woman}`) return [];
+      return [{
+        household: h + 1,
+        slot: households.home[h],
+        woman: { id: woman, name: name(woman), age: ageAt(villagers, woman, tick), left: was[woman]! + 1, livesIn: houseOf(households, villagers, woman) },
+        man: { id: man, name: name(man), age: ageAt(villagers, man, tick), left: was[man]! + 1, livesIn: houseOf(households, villagers, man) },
+      }];
     }),
     singles: Array.from({ length: villagers.count }, (_, id) => id)
       .filter((id) => isSingle(sim, id))

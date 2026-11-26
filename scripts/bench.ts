@@ -699,7 +699,8 @@ function measure(size: number, run: string): boolean {
   );
   console.log(
     `  households formed in the measured ticks: ${sim.tally.paired - tallyBefore.paired}, at each measured dawn ${pairedByDawn.join(', ') || 'none'}; ` +
-      `single settlers living at the start ${singleBefore} and at the end ${countSingle(sim)}`,
+      `single settlers living at the start ${singleBefore} and at the end ${countSingle(sim)}; ` +
+      `settlers whose partner had died who paired again in the measured ticks: ${sim.tally.widowedPaired - tallyBefore.widowedPaired}`,
   );
   console.log(`  children who started to work in the measured ticks: ${sim.tally.startedWork - tallyBefore.startedWork}, at each measured dawn ${startedByDawn.join(', ') || 'none'}`);
   console.log(`  villagers on their spot at the camp at each measured midnight: ${midnights.subarray(0, nights).join(', ')} of ${villagers}`);
