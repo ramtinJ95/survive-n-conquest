@@ -196,6 +196,24 @@ describe('a farmer', () => {
     expect(workplaces).toEqual(new Set([west, east]));
   });
 
+  it('frees its tile when it loses its place in the middle of sowing, and the farmer who comes next finishes the work', () => {
+    const sim = createSim(grass(30), { villagers: 1, monsters: 0 });
+    const slot = finishedFarm(sim, 16, 16);
+    field(sim, square(19, 16));
+    const tile = at(sim.map, 19, 16);
+    runUntil(sim, () => sim.fields.progress[tile]! >= 60, TICKS_PER_DAY);
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 0 });
+    expect(sim.villagers.task[0]).not.toBe(SOW);
+    expect(sim.fields.taker[tile]).toBe(-1);
+    expect(sim.fields.progress[tile]).toBe(60);
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
+    let firstWork = -1;
+    runUntil(sim, () => fieldState(sim.fields, tile) === FieldState.Sown, TICKS_PER_DAY, () => {
+      if (firstWork < 0 && sim.villagers.state[0] === VillagerState.Working) firstWork = sim.tick - 1;
+    });
+    expect(sim.fields.sownAt[tile]! - firstWork + 1).toBe(SOW_WORK_TICKS - 60);
+  });
+
   it('keeps the work on a half-sown tile through the night, and finishes it at dawn', () => {
     const sim = createSim(grass(30), { villagers: 1, monsters: 0 });
     finishedFarm(sim, 16, 16);

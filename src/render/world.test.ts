@@ -10,6 +10,12 @@ import {
 import { describe, expect, it } from 'vitest';
 import { TileKind, WATER_LEVEL, type TileMap } from '../sim/map';
 import { generateMap } from '../sim/mapgen';
+import { finishBuilding } from '../sim/building';
+import { Building } from '../sim/buildings';
+import { NOT_SOWN } from '../sim/fields';
+import { applyCommand, createSim, step } from '../sim/sim';
+import { at, mapFrom } from '../sim/testMaps';
+import { takeTileChanges } from '../sim/tileChanges';
 import { TALLEST_TREE, TREE_MESHES } from './scenery';
 import { primitiveShapes } from './shapes';
 import { createWorld as createWorldFrom } from './world';
@@ -177,3 +183,30 @@ describe('createWorld', () => {
     expect(vertices(8)).not.toEqual(vertices(7));
   });
 });
+
+describe('the field tiles of the main thread', () => {
+  it('follow the simulation through a sowing, a cancel, a new mark, and a second sowing', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 1, monsters: 0 });
+    const world = createWorld(sim.map);
+    applyCommand(sim, { kind: 'place', building: Building.Farm, x: 16, y: 16 });
+    finishBuilding(sim, sim.orders.siteOf[at(sim.map, 16, 16)]!);
+    const tile = at(sim.map, 19, 16);
+    const mark = (order: 'field' | 'cancel') => applyCommand(sim, { kind: 'markArea', order, area: { x0: 19, y0: 16, x1: 19, y1: 16 } });
+    const sow = () => {
+      while (sim.fields.sownAt[tile] === NOT_SOWN) step(sim);
+      world.changeTiles(takeTileChanges(sim));
+    };
+    mark('field');
+    sow();
+    const first = sim.fields.sownAt[tile]!;
+    expect(world.fields.sownAt[tile]).toBe(first);
+    mark('cancel');
+    world.changeTiles(takeTileChanges(sim));
+    expect(world.fields.sownAt[tile]).toBe(NOT_SOWN);
+    mark('field');
+    sow();
+    expect(world.fields.sownAt[tile]).toBe(sim.fields.sownAt[tile]);
+    expect(world.fields.sownAt[tile]).toBeGreaterThan(first);
+  });
+});
+

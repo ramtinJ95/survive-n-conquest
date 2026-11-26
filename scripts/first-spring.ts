@@ -4,7 +4,7 @@
 import { BUILDINGS, Building, Job } from '../src/sim/buildings';
 import { DAYS_PER_SEASON, dateAt, seasonAt } from '../src/sim/calendar';
 import { isNight } from '../src/sim/daylight';
-import { SOWING } from '../src/sim/fields';
+import { SOWING, SOW_WORK_TICKS } from '../src/sim/fields';
 import { FIRST_SPRING_FARM, FIRST_SPRING_FIELD, FIRST_YEAR_SEED, firstSpringCommands } from '../src/sim/firstYear';
 import { jobOf } from '../src/sim/jobs';
 import { generateMap } from '../src/sim/mapgen';
@@ -50,10 +50,12 @@ interface Spent {
 const spent = new Map<number, Spent[]>();
 const sownByDay = Array.from({ length: DAYS_PER_SEASON }, () => 0);
 let stood = -1;
+const heldTile = new Int32Array(sim.villagers.count).fill(-1);
 while (seasonAt(sim.tick) === 'Spring') {
   const day = dateAt(sim.tick).day;
   const daylight = !isNight(sim.tick);
   const sown = sim.tally.sown;
+  for (let id = 0; id < sim.villagers.count; id++) heldTile[id] = sim.villagers.task[id] === SOW ? sim.villagers.taskTile[id]! : -1;
   step(sim);
   sownByDay[day - 1]! += sim.tally.sown - sown;
   if (stood < 0 && sim.orders.sites.state[farm] === SiteState.Built) {
@@ -67,13 +69,18 @@ while (seasonAt(sim.tick) === 'Spring') {
     if (!spent.has(id)) spent.set(id, Array.from({ length: DAYS_PER_SEASON }, () => ({ sowing: 0, walking: 0, idle: 0, other: 0 })));
     const counts = spent.get(id)![day - 1]!;
     const task = sim.villagers.task[id];
+    // The step that finishes a tile ends the task, so its last work tick shows as a tile sown on this tick.
+    const finished = heldTile[id]! >= 0 && sim.fields.sownAt[heldTile[id]!] === sim.tick - 1;
     if (task === SOW) counts[sim.villagers.state[id] === VillagerState.Working ? 'sowing' : 'walking']++;
+    else if (finished) counts.sowing++;
     else if (task === NO_TASK) counts.idle++;
     else counts.other++;
   }
 }
 
 const farmers = spent.size;
+const sowingTicks = [...spent.values()].flat().reduce((sum, { sowing }) => sum + sowing, 0);
+if (sowingTicks !== sim.tally.sown * SOW_WORK_TICKS) throw new Error(`${sowingTicks} sowing ticks counted for ${sim.tally.sown} tiles of ${SOW_WORK_TICKS} ticks`);
 console.log(`  tiles sown: ${sownByDay.map((tiles, day) => `day ${day + 1} ${tiles}`).join(', ')}; ${sim.tally.sown} of ${fieldTiles} in the spring`);
 console.log(
   `  the brief's estimate: ${ESTIMATE_PER_FARMER_DAY} tiles a farmer on each spring day, ${ESTIMATE_PER_FARMER_DAY * farmers} a day for ${farmers} farmers`,
