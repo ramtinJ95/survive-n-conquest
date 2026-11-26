@@ -17,7 +17,7 @@ The game draws a working settlement and the swarm of 1500 villagers and 3000 mon
 Preconditions:
 
 - `$V doctor` passes, or you use `$V run frames`, which runs doctor itself.
-- The machine has a GPU that Chromium can draw on, as the owner's Mac has. `launchGpuBrowser` launches Playwright's own Chromium, headless first and in a window second. When that Chromium is not installed, or both draw on the CPU, `drive frames` prints `frames: did not run, and counts no failure` with the reason, writes no evidence, and exits with status 0. That is what it does in a pylon, which has no GPU and cannot install Playwright's Chromium.
+- The machine has a GPU that Chromium can draw on, as the owner's Mac has. `launchGpuBrowser` launches Playwright's own Chromium, headless first and in a window second. When that Chromium is not installed, as in a pylon, which has no GPU and cannot install it, `drive frames` prints `frames: did not run, and counts no failure` with the reason, writes no evidence, and exits with status 0. When it is installed but both launches draw on the CPU, the drive fails as before, because on the owner's Mac that is a broken GPU, not a missing one.
 - No sweep drives it: `$V list` leaves it out. Run it by name on the owner's Mac. Until the owner does, the game's real frame rate is unmeasured, and a pull request built in a pylon says so.
 - The browser runs with no cap on its frame rate, and without the frame pacer of the other scenarios.
 
