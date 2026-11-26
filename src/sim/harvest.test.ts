@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { finishBuilding } from './building';
-import { Building } from './buildings';
+import { BUILDINGS, Building, siteMidX } from './buildings';
 import { TICKS_PER_DAY, dateAt } from './calendar';
 import { isDawn, isNight } from './daylight';
 import { CUT_WORK_TICKS, FOOD_PER_TILE, FieldState, fieldState } from './fields';
@@ -117,15 +117,15 @@ describe('a farmer at the harvest', () => {
 
   it('cuts the nearest ripe tile first, one after another, and none beyond its farm’s reach', () => {
     const sim = createSim(grass(60), { villagers: 2, monsters: 0, animals: false });
-    // The west farm's middle is (21, 31). A tile at x = 41 has its center 20.5 tiles away, one at x = 40 19.5, and the tile at
-    // (36, 46) lies in the square of the reach and 21.9 tiles away. The east farm sows both.
     const west = finished(sim, Building.Farm, 20, 30);
+    const edge = siteMidX(sim.orders.sites, west) + BUILDINGS[Building.Farm].reach;
     applyCommand(sim, { kind: 'setPlaces', slot: west, places: 1 });
     const east = finished(sim, Building.Farm, 44, 30);
     applyCommand(sim, { kind: 'setPlaces', slot: east, places: 1 });
-    field(sim, square(36, 31, 41, 31));
+    field(sim, square(36, 31, edge, 31));
+    // In the square of the west farm's reach, and 21.9 tiles from its middle.
     field(sim, square(36, 46));
-    const beyond = at(sim.map, 41, 31);
+    const beyond = at(sim.map, edge, 31);
     const corner = at(sim.map, 36, 46);
     runUntil(sim, () => sim.fields.sownAt[beyond] !== -1 && sim.fields.sownAt[corner] !== -1, TICKS_PER_DAY);
     applyCommand(sim, { kind: 'setPlaces', slot: east, places: 0 });
@@ -133,15 +133,11 @@ describe('a farmer at the harvest', () => {
     runUntil(sim, () => sim.tally.sown === 7, TICKS_PER_DAY);
     toDawnOf(sim, 6);
     expect([fieldState(sim.fields, beyond, sim.tick), fieldState(sim.fields, corner, sim.tick)]).toEqual([FieldState.Ripe, FieldState.Ripe]);
-    const taken: number[] = [];
-    let held: number = NO_TASK;
+    const taken = new Set<number>();
     runUntil(sim, () => dateAt(sim.tick).day === 9, 4 * TICKS_PER_DAY, () => {
-      const task = sim.villagers.task[farmer]!;
-      // Dusk ends a cut that is half done, and the farmer takes the same tile again the next morning.
-      if (task === CUT && held !== CUT && !taken.includes(sim.villagers.taskTile[farmer]!)) taken.push(sim.villagers.taskTile[farmer]!);
-      held = task;
+      if (sim.villagers.task[farmer] === CUT) taken.add(sim.villagers.taskTile[farmer]!);
     });
-    expect(taken).toEqual([36, 37, 38, 39, 40].map((x) => at(sim.map, x, 31)));
+    expect([...taken]).toEqual([36, 37, 38, 39, 40].map((x) => at(sim.map, x, 31)));
     expect([fieldState(sim.fields, beyond, sim.tick), fieldState(sim.fields, corner, sim.tick)]).toEqual([FieldState.Ripe, FieldState.Ripe]);
     expect(sim.tally.cut).toBe(5);
   });

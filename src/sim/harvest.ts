@@ -22,7 +22,7 @@ function toCut(sim: Sim, tile: number): boolean {
 /**
  * Sends a farmer with empty hands to the unit of food nearest it on the field
  * tiles in its farm's reach, and reserves the unit and a place in the common
- * store nearest the unit with room, as a hunter carries its kill in. A farmer
+ * store nearest the unit with room. A farmer
  * that still holds a unit, because the land had no room to put it down, takes
  * it to a store.
  */

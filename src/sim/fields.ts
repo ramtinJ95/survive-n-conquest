@@ -22,8 +22,8 @@ const SPRING = SEASONS.indexOf('Spring');
 export const NOT_SOWN = -1;
 /** `cutAt` of a tile whose crop was not cut. */
 export const NOT_CUT = -1;
-/** The slots of `Fields.ripening`, more than the dawns a crop takes to ripen. */
-const RIPENING_SLOTS = 8;
+/** The slots of `Fields.ripening`. */
+const RIPENING_SLOTS = 2 ** Math.ceil(Math.log2(RIPE_DAWNS + 1));
 
 /** The state of a field tile's crop, read from what the tile stores against the clock. */
 export const FieldState = { Bare: 0, Sown: 1, Ripe: 2, Cut: 3 } as const;
@@ -47,7 +47,7 @@ export interface Fields extends TileSet, FieldTiles {
   readonly taker: Int32Array;
   /** Work ticks done on each tile toward its sowing or its cut. Work stays when the farmer leaves, and goes with the field. */
   readonly progress: Uint16Array;
-  /** By the day index of a dawn, at `day & 7`: the sown tiles that turn ripe at that dawn, so no dawn walks the fields. */
+  /** The sown tiles that turn ripe at each dawn, in the slot of the dawn's day index modulo `RIPENING_SLOTS`. */
   readonly ripening: Uint32Array;
   /** The day index of the last dawn whose tiles `ripenFields` counted ripe. */
   ripenedDay: number;

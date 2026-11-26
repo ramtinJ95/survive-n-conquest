@@ -61,10 +61,9 @@ const CLAIM_COLORS: Record<Claim, string> = {
 };
 
 /**
- * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of green shoots across it, and at each
- * dawn the shadow the rows cast on the soil grows by `shadowPerDawn` of a row's third, so a player reads how tall the
- * crop stands. The shadow is a darker soil, so the soil and the shoots of a sown tile keep their share. A ripe tile
- * bears wide golden rows, and a cut one thin rows of pale stubble.
+ * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of green shoots across it, with a
+ * shadow on the soil that grows by `shadowPerDawn` of a row's third at each dawn. A ripe tile bears wide golden rows,
+ * and a cut one thin rows of pale stubble.
  */
 const FIELD_LOOK = {
   soil: '#6b4a2b',
@@ -89,6 +88,9 @@ const PREVIEW_COLORS: Record<Preview, string> = {
   [Preview.Blocks]: ORDER_COLORS.cancel,
   [Preview.Refused]: '#ff9d8a',
 };
+
+/** The crop texture stores a day index one up, so that 0 means no crop. */
+const CROP_DAY_OFFSET = 1;
 
 const linear = (hex: string) => new Color(hex);
 
@@ -115,8 +117,6 @@ float twoBytes(float low, float high) {
   return floor(low * 255.0 + 0.5) + 256.0 * floor(high * 255.0 + 0.5);
 }
 
-// A field tile's crop from the day of its sowing and the day it is bare again after its cut, both against the day of
-// the last dawn, so a dawn changes one uniform and no texel.
 void drawCrop(inout vec3 color, ivec2 tile, vec2 inTile) {
   vec4 crop = texelFetch(cropMap, tile, 0);
   float sown = twoBytes(crop.r, crop.g);
@@ -127,7 +127,7 @@ void drawCrop(inout vec3 color, ivec2 tile, vec2 inTile) {
     return;
   }
   if (sown == 0.0) return;
-  float grown = clamp(cropDay - (sown - 1.0), 0.0, ${RIPE_DAWNS.toFixed(1)});
+  float grown = clamp(cropDay - (sown - ${CROP_DAY_OFFSET.toFixed(1)}), 0.0, ${RIPE_DAWNS.toFixed(1)});
   bool ripe = grown >= ${RIPE_DAWNS.toFixed(1)};
   float width = ripe ? ${FIELD_LOOK.ripeWidth.toFixed(2)} : ${FIELD_LOOK.rowWidth.toFixed(2)};
   float shadow = ripe ? ${FIELD_LOOK.ripeShadow.toFixed(2)} : grown * ${FIELD_LOOK.shadowPerDawn.toFixed(2)};
@@ -365,7 +365,7 @@ export function createOrderMarks(
 
     /** Draws a field tile's crop from the tick it was sown at and the tick it was cut at, as the simulation stores them. */
     showCrop(tile: number, sownAt: number, cutAt: number) {
-      const sown = sownAt === NOT_SOWN ? 0 : dawnDayAt(sownAt) + 1;
+      const sown = sownAt === NOT_SOWN ? 0 : dawnDayAt(sownAt) + CROP_DAY_OFFSET;
       const bare = cutAt === NOT_CUT ? 0 : bareAgainDay(cutAt);
       cropTexels[tile * 4] = sown & 0xff;
       cropTexels[tile * 4 + 1] = sown >> 8;
@@ -374,7 +374,7 @@ export function createOrderMarks(
       cropTexture.needsUpdate = true;
     },
 
-    /** Grows every crop to the dawn before `tick`. */
+    /** Grows every crop to the latest dawn at or before `tick`. */
     showCropDay(tick: number) {
       uniforms.cropDay.value = dawnDayAt(tick);
     },

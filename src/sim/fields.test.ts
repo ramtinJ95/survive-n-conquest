@@ -361,13 +361,9 @@ describe('the ripe tiles of a year', () => {
       if (startsYear(sim.tick)) expect(ripe).toBe(0);
       last = ripe;
     });
-    // The last step of day 12 ends on the first tick of year 2. The three tiles were cut in year 1 and sown again on day 13.
-    expect(counts).toEqual([
-      { day: 6, ripe: 2 },
-      { day: 7, ripe: 3 },
-      { day: DAYS_PER_YEAR, ripe: 0 },
-      { day: DAYS_PER_YEAR + 6, ripe: 3 },
-    ]);
+    const yearTwoStarts = { day: DAYS_PER_YEAR, ripe: 0 };
+    const cutAndSownAgain = { day: DAYS_PER_YEAR + 6, ripe: 3 };
+    expect(counts).toEqual([{ day: 6, ripe: 2 }, { day: 7, ripe: 3 }, yearTwoStarts, cutAndSownAgain]);
     expect(sim.tally.ripened).toBe(6);
   });
 });

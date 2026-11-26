@@ -1,9 +1,10 @@
-// The first year on seed 7 with stage 3's hut, barn, and lodge and 6.1's field with a farm, played in src/sim: `bun scripts/farm-year.ts`.
-// It runs the year twice: as ordered, and with no settler free to carry, where 7 more trees are felled from the start
-// and a woodshed and a tailor's hut are ordered once the farm, the barn, and the lodge stand, so the two settlers left
-// without a job build them from those logs, take their places, and do no common work after them. For each day it prints the field tiles sown, ripened, and cut, the food cut, the food the
-// farmers and the settlers without a job carried in from the fields, the food spoiled on the fields, and the food in
-// the barn and at the camp at the day's end.
+// The first year on seed 7 with stage 3's hut, barn, and lodge and 6.1's field with a farm, played in src/sim: `bun
+// scripts/farm-year.ts`. It runs the year twice: as ordered, and with no settler free to carry, where 7 more trees are
+// felled from the start and a woodshed and a tailor's hut are ordered once the farm, the barn, and the lodge stand, so
+// the two settlers left without a job build them from those logs, take their places, and do no common work after them.
+// For each day it prints the field tiles sown, ripened, and cut, the food cut, the food the farmers and the settlers
+// without a job carried in from the fields, the food spoiled on the fields, and the food in the barn and at the camp at
+// the day's end.
 import { Building } from '../src/sim/buildings';
 import { DAYS_PER_SEASON, SEASONS, dateAt } from '../src/sim/calendar';
 import { FIRST_SPRING_FIELD, FIRST_YEAR_BARNS, FIRST_YEAR_LODGE, FIRST_YEAR_SEED, HIDES_LAYOUT, NOTHING_FOR_WARMTH, WINTER_TREES, WOOD_LAYOUT } from '../src/sim/firstYear';
