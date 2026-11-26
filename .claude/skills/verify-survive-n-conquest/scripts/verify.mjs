@@ -7687,6 +7687,120 @@ SCENARIOS.pairing = async (session) => {
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
+/**
+ * Four households on seed 7 with the camp's own food. Household 3, a couple of 70 whose span is 72, gets the house in
+ * slot 3 on day 4 and dies out at the dawn of day 6 with food in it. Household 1's house, slot 6, stands 4 tiles from
+ * it and 5.7 from the camp, so the empty house is the nearest source of its food.
+ */
+const EMPTY_SETTLERS = 'm30,w28;m32,w30;m70:72,w70:72;m29,w27';
+const EMPTY_HOUSES = { empty: 3, neighbor: 6 };
+const EMPTY_STOPS = {
+  night: { day: 5, time: '22:00' },
+  dawn: { day: 6, time: '03:30' },
+  dawnUntil: { day: 6, time: '04:10' },
+  next: { day: 7, time: '05:00' },
+  nextUntil: { day: 7, time: '05:20' },
+};
+/** Wheel pixels in over the empty house, so the carriers at its door and the neighbor's door read on the map. */
+const EMPTY_CLOSER = -1100;
+/** At `EMPTY_CLOSER` over the empty house: the clock panel, the two houses, the selection panel, and the news log. */
+const EMPTY_CLIP = { crop: { x: 0, y: 0, width: 800, height: 540 }, width: 640, colors: 64, decimate: true };
+
+SCENARIOS['empty-house'] = async (session) => {
+  const { said } = siteDriver(session);
+  const { lines } = hungerDriver(session);
+  const { reads, text, click, house, closer } = birthsDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const ran = spawnSync('bun', [PAIRING_SCRIPT, EMPTY_SETTLERS, '-', '5'], { cwd: ROOT, encoding: 'utf8' });
+  if (ran.status !== 0) fail(`pairing.ts failed: ${ran.stderr}`);
+  const { dawns } = JSON.parse(ran.stdout);
+  const [night, dawn] = [dawns[3], dawns[4]];
+  const old = (entry) => entry?.households.find(({ household }) => household === 3);
+  const neighbor = (entry) => entry?.households.find(({ household }) => household === 1);
+  session.check(
+    'in src/sim the setting gives the case: household 3 lives in the house in slot 3 on the night of day 5 and dies out at the dawn of day 6, while household 1 lives in slot 6',
+    old(night)?.slot === EMPTY_HOUSES.empty && old(night).living === 2 && dawn?.news === 'Day 6, 03:36' && old(dawn)?.living === 0 && neighbor(dawn)?.slot === EMPTY_HOUSES.neighbor && neighbor(dawn).living === 2,
+    JSON.stringify({ night: night?.households ?? null, dawn: dawn ?? null }),
+  );
+
+  const a = await session.open(CLIP, { record: true, search: `?seed=7&settlers=${EMPTY_SETTLERS}`, clock: 'paused' });
+  const { page } = a;
+  await takeForageView(session, page, HIDES_YEAR_VIEW);
+  const wrong = await giveYearOrders(session, page, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(page)} the year's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrong.length === 0, wrong.join(' | ') || 'all said');
+
+  await session.reach(page, EMPTY_STOPS.night);
+  const lived = await house(page, EMPTY_HOUSES.empty);
+  session.check(
+    `at ${await at(page)} the house in slot 3 is household 3's, ${old(night)?.couple}, and holds food`,
+    lived?.title === 'House' && lived.rows.Household === old(night)?.couple && Number.parseInt(lived.rows.Food, 10) > 0,
+    text(lived),
+  );
+
+  const readings = [];
+  const watch = (until) =>
+    session.runUntil(
+      page,
+      async () => {
+        const read = await reads(page);
+        readings.push({ at: await at(page), household: read?.rows.Household ?? null, food: read ? Number.parseInt(read.rows.Food, 10) : null });
+        return null;
+      },
+      { every: 1, until },
+    );
+  await session.reach(page, EMPTY_STOPS.dawn);
+  await click(page, BIRTH_HOUSES[EMPTY_HOUSES.empty]);
+  await closer(page, EMPTY_HOUSES.empty, EMPTY_CLOSER);
+  const dawnStart = a.since();
+  await watch(EMPTY_STOPS.dawnUntil);
+  await session.still(page);
+  await session.screenshot(page, 'empty-house-day6-0410');
+  const dawnEnd = a.since();
+  const news = await lines(page);
+  const deaths = news.filter((line) => line.startsWith(`${dawn?.news}.`) && line.includes('died of old age'));
+  session.check(`the news names household 3's deaths of old age at ${dawn?.news}`, deaths.length > 0, deaths.join(' | ') || news.join(' | ') || 'no news');
+
+  await session.reach(page, EMPTY_STOPS.next);
+  const nextStart = a.since();
+  await watch(EMPTY_STOPS.nextUntil);
+  await session.still(page);
+  await session.screenshot(page, 'empty-house-day7-0520');
+  const nextEnd = a.since();
+
+  const shown = readings.filter((read, i) => i === 0 || read.household !== readings[i - 1].household || read.food !== readings[i - 1].food).map(({ at: when, household, food }) => `${when} ${household}: ${food}`);
+  const emptied = readings.findIndex(({ household }) => household === 'Nobody');
+  const after = emptied < 0 ? [] : readings.slice(emptied);
+  const left = after[0]?.food ?? null;
+  const byDay6 = readings.find(({ at: when }) => when === clockText(clockMinutes(EMPTY_STOPS.dawnUntil)));
+  session.check(
+    "the house's panel, open through the dawn of day 6, reads Nobody from the stop after the deaths on",
+    emptied >= 0 && after.every(({ household }) => household === 'Nobody'),
+    shown.join('; '),
+  );
+  session.check(
+    'nothing is carried into the empty house: its food never rises after the deaths',
+    after.length > 0 && after.every(({ food }, i) => i === 0 || food <= after[i - 1].food),
+    shown.join('; '),
+  );
+  session.check(
+    `a neighbor takes food out of the empty house on the morning its household died: it holds ${left} at the deaths and less by ${clockText(clockMinutes(EMPTY_STOPS.dawnUntil))}`,
+    left !== null && byDay6 !== undefined && byDay6.food < left,
+    shown.join('; '),
+  );
+  session.check(
+    `by ${clockText(clockMinutes(EMPTY_STOPS.nextUntil))} every unit has left the empty house, and its panel reads Food 0 of 16`,
+    readings.at(-1)?.household === 'Nobody' && readings.at(-1)?.food === 0,
+    shown.join('; '),
+  );
+  await page.keyboard.press('Escape');
+  await closer(page, EMPTY_HOUSES.empty, -EMPTY_CLOSER);
+  const home = await house(page, EMPTY_HOUSES.neighbor);
+  session.check(`at ${await at(page)} the neighbor's house in slot 6 is household 1's, ${neighbor(dawn)?.couple}`, home?.rows.Household === neighbor(dawn)?.couple, text(home));
+
+  await session.finishClips(a.context, page, [{ label: 'empty-house-dawns', spans: [[dawnStart, dawnEnd], [nextStart, nextEnd]], ...EMPTY_CLIP }]);
+  session.check('no page errors', a.errors.length === 0, a.errors.join(' | ') || 'none');
+};
+
 const WOOD_YEAR_SAID = { ...FIREWOOD_YEAR_SAID };
 const WOOD_YEAR_SHED = [{ x: 518, y: 236 }, { x: 522, y: 246 }, { x: 521, y: 262 }, { x: 512, y: 257 }];
 const WOOD_YEAR_STOPS = { dusk: { day: 2, time: '19:00' }, duskUntil: { day: 2, time: '20:00' }, panel: { day: 3, time: '12:00' } };
