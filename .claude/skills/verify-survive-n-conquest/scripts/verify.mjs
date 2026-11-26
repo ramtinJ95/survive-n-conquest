@@ -7518,6 +7518,17 @@ const PAIRING_ROOF_DUSK = { from: { day: 6, time: '20:10' }, until: { day: 6, ti
 /** The whole page with the clock and the news log, so the two walking home are in the picture with the minute. */
 const PAIRING_ROOF_CLIP = { width: 640, colors: 64, decimate: true };
 
+/**
+ * Two households in which nobody is single but Pell, 24, the son of the second. Merek's span of 46 ends at the dawn of
+ * day 6, so Elsi, 44 by then, is widowed at that dawn with her two children and her house, and the rule pairs her with
+ * Pell, 26, at it, before the births. Every woman is 40 or older, so no child is born.
+ */
+const PAIRING_WIDOW = 'm44:46,w42,w8,m6@6;m50,w48,m24@6';
+/** The widow page's houses by site slot: Merek and Elsi's, finished at 16:59 on day 5, and Pell's parents', at 18:21. */
+const PAIRING_WIDOW_HOUSES = { hers: 5, his: 6 };
+/** The dusk the widow page watches, from before nightfall at 20:24 to after the household is in. */
+const PAIRING_WIDOW_DUSK = { from: { day: 6, time: '20:10' }, until: { day: 6, time: '22:05' } };
+
 SCENARIOS.pairing = async (session) => {
   const seen = [];
   const { said } = siteDriver(session);
@@ -7856,6 +7867,116 @@ SCENARIOS.pairing = async (session) => {
   );
   await d.context.close();
   seen.push(...d.errors);
+
+  const widow = expected(PAIRING_WIDOW, PAIRING_FOOD, 6);
+  const widowDawn = widow.dawns.find((dawn) => dawn.news.startsWith('Day 6,'));
+  const again = widowDawn?.pairedAgain?.[0];
+  const widowHouses = widow.houses.map(({ slot }) => slot);
+  session.check(
+    "in src/sim the widow page's Merek dies at the dawn of day 6, and at that dawn his widow Elsi pairs with Pell, who never had a partner, into her household and her house, and no household forms",
+    widowDawn?.pairings.length === 0 && widowDawn.pairedAgain?.length === 1 && again.household === 1 && again.slot === PAIRING_WIDOW_HOUSES.hers && again.woman.id === 1 && again.man.left === 2 && again.man.livesIn === PAIRING_WIDOW_HOUSES.hers &&
+      widowHouses[0] === PAIRING_WIDOW_HOUSES.hers && widowHouses[1] === PAIRING_WIDOW_HOUSES.his,
+    JSON.stringify({ houses: widow.houses, dawn: widowDawn ?? null }),
+  );
+  const widowNight = widow.dawns.find((dawn) => dawn.news.startsWith('Day 5,'))?.households ?? [];
+  const [widowCouple, singleParents] = [widowNight[0]?.couple, widowNight[1]?.couple];
+  const [husband, widowName] = (widowCouple ?? ' and ').split(' and ');
+  const single = again?.man.name ?? 'Pell';
+  const newCouple = `${single} and ${widowName}`;
+  const widowLine = `${widowDawn?.news}. ${newCouple} formed a couple.`;
+  const deathLine = `${widowDawn?.news}. ${husband} died of old age.`;
+  const widowed = `${widowName}, 2 children, 1 died`;
+  const remarried = `${newCouple}, 2 children, 1 died`;
+
+  const w = await session.open(CLIP, { record: true, search: `?seed=7&food=${PAIRING_FOOD}&settlers=${PAIRING_WIDOW}`, clock: 'paused' });
+  const wp = w.page;
+  await takeForageView(session, wp, HIDES_YEAR_VIEW);
+  const wrongW = await giveYearOrders(session, wp, FIREWOOD_YEAR_START, said);
+  session.check(`at ${await at(wp)} the widow page's ${FIREWOOD_YEAR_START.length} orders are given, each as its status line says`, wrongW.length === 0, wrongW.join(' | ') || 'all said');
+  await session.reach(wp, { day: 5, time: '22:00' });
+  const widowBefore = { hers: await housePanel(wp, PAIRING_WIDOW_HOUSES.hers, 'pairing-widow-house-night'), his: await housePanel(wp, PAIRING_WIDOW_HOUSES.his, 'pairing-widow-his-house-night') };
+  session.check(
+    `at ${await at(wp)}, the night before Merek's last dawn, his house reads "${widowCouple}, 2 children" and ${single}'s parents' house counts him among its children`,
+    widowBefore.hers?.rows.Household === `${widowCouple}, 2 children` && widowBefore.his?.rows.Household === `${singleParents}, 1 child`,
+    `${text(widowBefore.hers)} | ${text(widowBefore.his)}`,
+  );
+
+  const widowStop = clockMinutes(widowDawn.stop);
+  const widowFrom = clockAt(widowStop - 10);
+  await session.reach(wp, widowFrom);
+  await click(wp, BIRTH_HOUSES[PAIRING_WIDOW_HOUSES.hers]);
+  await wp.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const widowDawnStart = w.since();
+  const widowHeard = await listen(wp, widowFrom, clockAt(widowStop + 3));
+  const heardText = [...widowHeard.entries()].map(([words, when]) => `"${words}" by ${when}`).join('; ') || 'nothing';
+  session.check(`at the dawn of day 6 the news says "${deathLine}"`, widowHeard.get(deathLine) === clockText(widowStop), heardText);
+  session.check(
+    `at the same dawn the news says "${widowLine}", and no line says a household formed`,
+    widowHeard.get(widowLine) === clockText(widowStop) && ![...widowHeard.keys()].some((words) => words.includes('formed a household')),
+    heardText,
+  );
+  await session.reach(wp, clockAt(widowStop + 20));
+  const widowWatched = await reads(wp);
+  session.check(`the widow's house, open through the dawn, reads "${remarried}" at ${await at(wp)}`, widowWatched?.title === 'House' && widowWatched.rows.Household === remarried, text(widowWatched));
+  const widowDawnEnd = w.since();
+  await wp.keyboard.press('Escape');
+
+  await session.reach(wp, { day: 6, time: '09:00' });
+  const herHouse = await housePanel(wp, PAIRING_WIDOW_HOUSES.hers, 'pairing-widow-house-panel');
+  const hisHouse = await housePanel(wp, PAIRING_WIDOW_HOUSES.his, 'pairing-widow-his-house-panel');
+  session.check(
+    `at ${await at(wp)} the widow's house reads "${remarried}", and ${single}'s parents' house no longer counts him`,
+    herHouse?.rows.Household === remarried && hisHouse?.rows.Household === singleParents,
+    `${text(herHouse)} | ${text(hisHouse)}`,
+  );
+  const widowFound = await selectTitled(wp, widowName, PAIRING_WIDOW_HOUSES.hers, 'pairing-widow-aim');
+  session.check(
+    `at ${await at(wp)} the panel of ${widowName} reads her household by its new couple, her two children and her dead husband, in her house`,
+    widowFound.read?.rows.Household === remarried && widowFound.read.rows.Home === 'A house',
+    widowFound.read ? text(widowFound.read) : `tried ${widowFound.tried.join(', ')}`,
+  );
+  await session.screenshot(wp, 'pairing-widow-panel');
+  for (const size of READY_SIZES) {
+    await wp.setViewportSize(size);
+    await session.settle(wp);
+    await session.still(wp);
+    const { ok, detail } = apart(await uiBoxes(wp));
+    session.check(`at ${size.width}x${size.height} the panel of a widow who paired again covers no other panel`, ok, detail);
+  }
+  await wp.setViewportSize(CLIP);
+  await session.settle(wp);
+  await wp.keyboard.press('Escape');
+  const singleFound = await selectTitled(wp, `${single}, son of ${singleParents}`, PAIRING_WIDOW_HOUSES.hers, 'pairing-widow-single-aim');
+  await wp.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  session.check(
+    `at ${await at(wp)} the panel of ${single} reads the widow's household as his and its house as his home`,
+    singleFound.read?.rows.Household === remarried && singleFound.read.rows.Home === 'A house',
+    singleFound.read ? text(singleFound.read) : `tried ${singleFound.tried.join(', ')}`,
+  );
+  await session.screenshot(wp, 'pairing-widow-single-panel');
+
+  await session.reach(wp, PAIRING_WIDOW_DUSK.from);
+  const widowDuskStart = w.since();
+  const singleHome = await session.runUntil(
+    wp,
+    async () => {
+      const read = await reads(wp);
+      return read?.rows.Doing === 'At home' ? { read, at: await at(wp) } : null;
+    },
+    { every: 1, until: PAIRING_WIDOW_DUSK.until },
+  );
+  await session.reach(wp, PAIRING_WIDOW_DUSK.until);
+  await wp.keyboard.press('Escape');
+  const duskHouses = { hers: await housePanel(wp, PAIRING_WIDOW_HOUSES.hers, 'pairing-widow-dusk'), his: await housePanel(wp, PAIRING_WIDOW_HOUSES.his, 'pairing-widow-his-house-dusk') };
+  const widowDuskEnd = w.since();
+  session.check(
+    `at the dusk of day 6 ${single} goes in to the widow's house, his household's own, and eats there, and at ${clockText(clockMinutes(PAIRING_WIDOW_DUSK.until))} her house reads "${remarried}" and his parents' "${singleParents}"`,
+    singleFound.read !== null && singleHome !== null && singleHome.read.rows['Missed meals'] === 'None' && singleHome.read.rows.Household === remarried &&
+      duskHouses.hers?.rows.Household === remarried && duskHouses.his?.rows.Household === singleParents,
+    `${singleHome ? `${text(singleHome.read)} by ${singleHome.at}` : `never at home by ${clockText(clockMinutes(PAIRING_WIDOW_DUSK.until))}`} | ${text(duskHouses.hers)} | ${text(duskHouses.his)}`,
+  );
+  await session.finishClips(w.context, wp, [{ label: 'pairing-widow-dawn-to-dusk', spans: [[widowDawnStart, widowDawnEnd], [widowDuskStart, widowDuskEnd]], ...PAIRING_ROOF_CLIP }]);
+  seen.push(...w.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
 
