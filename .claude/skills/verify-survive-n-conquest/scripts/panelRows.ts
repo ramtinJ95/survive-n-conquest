@@ -9,7 +9,7 @@ import { MAX_BUILDERS } from '../../../../src/sim/building';
 import { BUILDINGS, Building } from '../../../../src/sim/buildings';
 import { NAMES, Sex } from '../../../../src/sim/names';
 import { BENCHMARK_POPULATION } from '../../../../src/sim/sim';
-import { BUILDING_WORDS, JOB_WORDS, neededGoods } from '../../../../src/ui/buildings';
+import { BUILDING_WORDS, JOB_WORDS, capital, neededGoods } from '../../../../src/ui/buildings';
 import {
   ANY_SITE,
   BORN_WORDS,
@@ -80,11 +80,16 @@ const words: Record<string, Record<string, string[]>> = {
     'Missed meals': values(ROW_WORDS.count),
     'Cold nights': values(ROW_WORDS.count),
   },
-  house: { 'Fire last night': values(ROW_WORDS.fire) },
+  house: { 'Fire last night': values(ROW_WORDS.fire), Household: values(ROW_WORDS.people) },
   farm: { Doing: [...spelled(DOING_WORDS.farmer), ...anyone, ROW_WORDS.doing.nobody] },
   site: { Work: values(ROW_WORDS.work) },
   ...Object.fromEntries(workshops.map((building) => [BUILDINGS[building].name, { Doing: [...workshopWords(building), ...anyone, ROW_WORDS.doing.nobody] }])),
 };
+for (const { name, places, job } of Object.values(BUILDINGS)) {
+  if (!places) continue;
+  const workers = places === 1 ? JOB_WORDS[job].title : capital(JOB_WORDS[job].many);
+  words[name] = { ...words[name], [workers]: values(ROW_WORDS.people) };
+}
 
 console.log(
   JSON.stringify({

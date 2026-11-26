@@ -306,7 +306,7 @@ export const ROW_WORDS = {
   home: { own: 'A house', none: 'None, sleeps at the camp', parents: "Parents' house" },
   fire: { none: 'No winter night yet', burned: 'Burned', out: 'Did not burn' },
   work: { waiting: 'Waiting for materials' },
-  workers: { nobody: 'Nobody' },
+  people: { nobody: 'Nobody' },
   doing: { nobody: 'Nobody works here' },
   count: { none: 'None' },
 } as const;
@@ -611,14 +611,14 @@ function householdLine(facts: Facts, household: number, house = NO_HOME): string
 
 function livingIn(facts: Facts, slot: number): string {
   const household = facts.frame.homes.indexOf(slot);
-  return household < 0 ? ROW_WORDS.workers.nobody : householdLine(facts, household, slot);
+  return household < 0 ? ROW_WORDS.people.nobody : householdLine(facts, household, slot);
 }
 
 /** The names of the workers at a workplace in the order they came, or Nobody. */
 function workersAt(facts: Facts, slot: number): string {
   const { workplaces, hired } = facts.frame;
   const ids = [...workplaces.keys()].filter((id) => workplaces[id] === slot).sort((a, b) => hired[a]! - hired[b]!);
-  return ids.length === 0 ? ROW_WORDS.workers.nobody : listNames(ids.map((id) => nameOfSettler(facts, id)));
+  return ids.length === 0 ? ROW_WORDS.people.nobody : listNames(ids.map((id) => nameOfSettler(facts, id)));
 }
 
 /** The panel of a site of a building kind: what has arrived of each good it needs, its work, and its builders. */
