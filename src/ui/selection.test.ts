@@ -495,6 +495,65 @@ describe("a farm's panel and a farmer's panel", () => {
   });
 });
 
+describe("a farmer's panel through the harvest", () => {
+  /** Two settlers, both farmers of a farm 4 tiles east of the camp, and a field of 2 tiles they sow on day 1, so none but they carry its food. */
+  function harvest(campFood: number): { sim: Sim; slot: number; farmers: number[]; selection: Selection } {
+    const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48)), SEED), { villagers: 2, monsters: 0, campFood, animals: false });
+    const x = (sim.camp % sim.map.size) + 4;
+    const y = Math.floor(sim.camp / sim.map.size);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x, y })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
+    finishBuilding(sim, slot);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: x, y0: y + 4, x1: x + 1, y1: y + 4 } })).toMatchObject({ ok: true });
+    while (sim.tally.sown < 2) step(sim);
+    return { sim, slot, farmers: workersOf(sim, slot), selection: { kind: 'building', slot, anchor: at(sim.map, x, y) } };
+  }
+  const doing = (sim: Sim, selection: Selection) => readPanel(selection, factsOf(sim)).rows.find((row) => row.label === 'Doing')!.value;
+
+  it('reads that the crop is growing in summer, then walking to cut, cutting, fetching and carrying the food in, and nothing to do once all is in', () => {
+    const { sim, farmers, selection } = harvest(60);
+    while (dateAt(sim.tick).day < 4 || dateAt(sim.tick).minuteOfDay < 12 * 60) step(sim);
+    expect(farmers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, the crop is growing', 'Idle, the crop is growing']);
+    expect(doing(sim, selection)).toBe('Idle, the crop is growing');
+    const seen = new Set<string>();
+    const farm = new Set<string>();
+    while (sim.tally.reapedIn < 8) {
+      step(sim);
+      if (isNight(sim.tick)) continue;
+      for (const id of farmers) seen.add(settler(factsOf(sim), id));
+      farm.add(doing(sim, selection));
+    }
+    expect(seen).toEqual(
+      new Set([
+        'Idle, the crop is growing',
+        'Resting at the camp',
+        'Looking for a crop to cut',
+        'Walking to a field to cut',
+        'Cutting the crop',
+        'Walking to a field to pick up food',
+        'Carrying food to the camp',
+        'Idle, nothing is sown until spring',
+      ]),
+    );
+    expect(farm).toContain('Cutting the crop');
+    expect(farm).toContain('Carrying food to the camp; Walking to a field to pick up food');
+    step(sim);
+    expect(farmers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, nothing is sown until spring', 'Idle, nothing is sown until spring']);
+  });
+
+  it('waits for room in a store while a ripe tile stands and every store is full, and looks for a crop to cut once there is room', () => {
+    const { sim, farmers } = harvest(60);
+    while (dateAt(sim.tick).day < 6 || dateAt(sim.tick).minuteOfDay < 12 * 60) {
+      step(sim);
+      if (dateAt(sim.tick).day >= 6) sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit;
+    }
+    expect(sim.tally.cut).toBe(0);
+    expect(farmers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, waiting for room in a store', 'Idle, waiting for room in a store']);
+    sim.stores.held[Good.Food - 1]![CAMP_STORE] = 0;
+    expect(settler(factsOf(sim), farmers[0]!)).toBe('Looking for a crop to cut');
+  });
+});
+
 describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says what the lodge does and names its hunter, with its places', () => {
     const { sim, slot, hunter } = lodgeSettlement();
