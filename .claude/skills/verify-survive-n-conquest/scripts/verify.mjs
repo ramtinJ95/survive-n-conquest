@@ -294,7 +294,7 @@ const rendererOf = (page) =>
     return gl && info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown renderer';
   });
 
-/** A browser that draws on the machine's GPU, with its renderer, or why this machine has none. */
+/** A browser that draws on the machine's GPU, with its renderer, or `missing` when Playwright's own Chromium is not installed, as in a pylon. */
 async function launchGpuBrowser() {
   const chromium = playwright().chromium;
   if (!existsSync(chromium.executablePath())) return { missing: `Playwright's own Chromium is not installed at ${chromium.executablePath()}` };
@@ -309,7 +309,7 @@ async function launchGpuBrowser() {
     seen.push(`${headless ? 'headless' : 'a window'}: ${renderer}`);
     await browser.close();
   }
-  return { missing: `no browser here draws on a GPU (${seen.join('; ')})` };
+  fail(`no browser here draws on a GPU (${seen.join('; ')})`);
 }
 
 async function probeBrowser() {
