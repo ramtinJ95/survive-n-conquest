@@ -4225,7 +4225,7 @@ const SOW_STOPS = {
   summer: { day: 4, time: '12:00' },
   cancel: { day: 5, time: '00:00' },
 };
-const SOW_FINISHED = { after: { day: 1, time: '11:30' }, before: { day: 1, time: '13:30' } };
+const SOW_FINISHED = { day: 1, time: '13:30' };
 const SOW_STEP = 5;
 const FARMER_WORDS = /^(Walking to a field to sow|Sowing a field|Looking for a field to sow|Idle, the fields are sown|Idle, nothing is sown until spring|Idle, no field within 20 tiles of the farm)$/;
 /**
@@ -4439,12 +4439,12 @@ SCENARIOS.sowing = async (session) => {
   const clipFrom = play.since();
   const finished = await session.runUntil(page, async () => (await page.getByRole('status', { name: 'Farm site' }).count()) === 0 && session.gameMinutes(page), {
     every: SOW_STEP,
-    until: SOW_FINISHED.before,
+    until: SOW_FINISHED,
   });
   await session.still(page);
   session.check(
-    `the farm is finished on day 1 between ${SOW_FINISHED.after.time} and ${SOW_FINISHED.before.time}, as the rules finish it at ${sim.stands?.at}`,
-    finished !== null && finished >= clockMinutes(SOW_FINISHED.after),
+    `the farm's label goes at the first stop after ${sim.stands?.at}, when the rules finish it`,
+    finished !== null && sim.stands !== null && finished > sim.stands.minute && finished <= sim.stands.minute + SOW_STEP,
     finished === null ? `the label still stood at ${await at(page)}` : `the label was gone at the stop at ${clockText(finished)}`,
   );
 
@@ -4516,6 +4516,7 @@ SCENARIOS.sowing = async (session) => {
   await session.still(page);
   const clipTo = play.since();
   const followed = await reads(page);
+  await expectField('clipTo', 'sowing-field-clip-end', 'at the end of the clip the field is part sown');
   session.check(
     `at ${await at(page)} the followed farmer still sows, and the rules have sown ${simAt.clipTo.sown.length} tiles`,
     followed?.title === farmer?.title && /^(Walking to a field to sow|Sowing a field)$/.test(followed?.rows?.Doing ?? '') && simAt.clipTo.sown.length >= 3,

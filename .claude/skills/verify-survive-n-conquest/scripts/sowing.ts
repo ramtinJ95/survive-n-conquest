@@ -36,11 +36,11 @@ const farmerIds = () =>
     .filter((id) => sim.villagers.workplace[id] === farm && jobOf(sim, id) === Job.Farmer)
     .sort((a, b) => sim.villagers.hired[a]! - sim.villagers.hired[b]!);
 
-let stands: { tick: number; at: string } | null = null;
+let stands: { tick: number; minute: number; at: string } | null = null;
 const advance = (tick: number) => {
   while (sim.tick < tick) {
     step(sim);
-    if (!stands && sim.orders.sites.state[farm] === SiteState.Built) stands = { tick: sim.tick - 1, at: clock(minuteOf(sim.tick - 1)) };
+    if (!stands && sim.orders.sites.state[farm] === SiteState.Built) stands = { tick: sim.tick - 1, minute: minuteOf(sim.tick - 1), at: clock(minuteOf(sim.tick - 1)) };
   }
 };
 const read = stops.map(({ day, time }) => {
