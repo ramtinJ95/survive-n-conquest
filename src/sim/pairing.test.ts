@@ -669,6 +669,27 @@ describe('a settler whose partner died', () => {
     audit(sim);
   });
 
+  it('as one of two widowed settlers, takes the house of the other into the lower household, though a third household lodges there and has a lower number', () => {
+    const sim = settlement([[...PARENTS, man(20), woman(21)], [...PARENTS, man(21)], [...PARENTS, man(22)], [...PARENTS], [...PARENTS, woman(22), woman(20)]]);
+    const home = house(sim, 0);
+    const { households, villagers } = sim;
+    pairSettlers(sim);
+    expect([5, 6, 7].map((h) => [households.man[h], households.woman[h]])).toEqual([[9, 14], [6, 3], [2, 15]]);
+    die(sim, 0, Cause.Hunger);
+    die(sim, 1, Cause.Hunger);
+    expect([households.home[6], villagers.lodging[2]]).toEqual([home, home]);
+    die(sim, 10, Cause.Hunger);
+    die(sim, 15, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[3], households.woman[3], villagers.lodging[2], households.home[6]]).toEqual([2, 11, home, home]);
+    die(sim, 6, Cause.Hunger);
+    die(sim, 14, Cause.Hunger);
+    pairSettlers(sim);
+    expect([households.man[5], households.woman[5], households.home[5], households.householdIn[home], households.home[3], households.home[6]]).toEqual([9, 3, home, 5, NO_HOME, NO_HOME]);
+    expect([villagers.lodging[2], villagers.lodging[3], villagers.lodging[9], households.lodgers[home]]).toEqual([home, NO_HOME, NO_HOME, 1]);
+    audit(sim);
+  });
+
   it('as a widow who lodges, stops lodging when she joins a widower of the lower number in his house', () => {
     const sim = settlement([[man(40), woman(38), man(8)], [...PARENTS, woman(20)], [...PARENTS, man(20)]]);
     const his = house(sim, 0);

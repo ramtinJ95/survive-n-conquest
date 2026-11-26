@@ -250,10 +250,16 @@ export function loseMember(households: Households, villagers: Villagers, id: num
   households.unattended += Number(isUnattended(households, h)) - Number(was);
   if (living[h] !== 0 || home[h] === NO_HOME) return;
   const slot = home[h]!;
-  home[h] = NO_HOME;
+  vacate(households, h);
+  moveInto(households, villagers, slot);
+}
+
+/** Household `h` leaves its house, which joins the vacant houses with what it holds. */
+function vacate(households: Households, h: number): void {
+  const slot = households.home[h]!;
+  households.home[h] = NO_HOME;
   households.householdIn[slot] = -1;
   households.vacant[households.vacantCount++] = slot;
-  moveInto(households, villagers, slot);
 }
 
 /** Whether villager `id`, alive or not, holds a place in the couple of household `h`. */
@@ -303,8 +309,8 @@ function join(households: Households, villagers: Villagers, h: number, id: numbe
  * - Two whose partners died make one household of their two. The household
  *   with the lower number stays, and everyone of the other joins it, the
  *   widowed one first. It keeps its house, or, with none, takes the house of
- *   the other, which its new partner was the last to leave. A house the two
- *   leave empty is freed by `loseMember`.
+ *   the other at once, with anyone lodging in it. A house the two leave empty
+ *   is freed by `loseMember`.
  *
  * The household's couple is the two from then on, and it waits for a birth
  * from this dawn, as a new household does. Without a house it takes the empty
@@ -323,8 +329,17 @@ export function pair(households: Households, villagers: Villagers, man: number, 
     households.man[h] = man;
     households.woman[h] = woman;
     households.lastBirth[h] = dawn;
+    const merge = hisWidowed && herWidowed;
+    if (merge && households.home[h] === NO_HOME && households.home[other] !== NO_HOME) {
+      const was = isUnattended(households, other);
+      const slot = households.home[other]!;
+      vacate(households, other);
+      households.atCamp += households.living[other]!;
+      households.unattended += Number(isUnattended(households, other)) - Number(was);
+      moveIn(households, villagers, h, slot);
+    }
     join(households, villagers, h, joining);
-    if (hisWidowed && herWidowed) {
+    if (merge) {
       for (let id = 0; id < villagers.count && households.living[other]! > 0; id++) {
         if (villagers.household[id] === other && villagers.state[id] !== VillagerState.Dead) join(households, villagers, h, id);
       }
