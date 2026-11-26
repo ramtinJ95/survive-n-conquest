@@ -3506,83 +3506,38 @@ const settlerPanel = (read) =>
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
 /**
- * The longest words of the worker at each kind of workshop, at its own work and idle there. The tailor never reads
- * `Idle, the building sites need the hides`, because no kind of building needs hides.
+ * The readings of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as candidates of which
+ * the page keeps the tallest, and the first of those as tall. `words` holds every reading that the game builds from its
+ * word tables, as `panelRows.ts` prints them, and the rows here add the readings that the game builds at run time from
+ * names and counts, at their longest. `name`, `woman`, and `man` are the widest names of any settler, of a woman, and of
+ * a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names repeat, so two workers can share
+ * a name. A household reads as its living couple, a man and a woman named in that order, then its other members and its
+ * dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts its dead with two digits. A
+ * child's title names its parents. The camp's people split the 1,500 living between children and workers with four
+ * digits on one side, the other in the plural or the singular. Its year counts each birth and each death in a row of the
+ * villagers table's 4,096, one of which at least holds a settler the map started with, so a year has at most 4,095
+ * births and 4,096 deaths. A farm's doing names each doing of its two farmers once, so every pair of its words is a
+ * candidate. A site's goods read what it needs of each, and its builders the most a site takes, as `panelRows.ts`
+ * prints them.
  */
-const WORKSHOP_DOING = {
-  woodshed: [
-    'Idle, no log in a stockpile within 30 tiles of the woodshed',
-    'Idle, the building sites need the logs',
-    'Idle, no log carried to a stockpile yet',
-    'Walking to the woodshed to split a log',
-    'Carrying a log to the woodshed',
-  ],
-  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", 'Idle, no hide carried to a stockpile yet', "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
-};
-/** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
-const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
-/** Every word of a farmer at its own work and idle, the longest first. */
-const FARMER_DOING = ['Idle, no field within 20 tiles of the farm', 'Idle, nothing is sown until spring', 'Looking for a field to sow', 'Walking to a field to sow', 'Idle, the fields are sown', 'Sowing a field'];
-/** What a settler does by night, whatever its job. */
-const NIGHT_DOING = ['Resting at the camp', 'Walking to the camp', 'Walking home', 'At home'];
-/** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
-const DOING_LONGEST = [
-  ...WORKSHOP_DOING.tailor,
-  'Died of old age at 80',
-  'Died of hunger at 79',
-  'Died of cold at 79',
-  ...WORKSHOP_DOING.woodshed,
-  ...ANYONE_DOING,
-  'Idle, no deer within 40 tiles of the lodge',
-  'Idle, waiting for room in a store',
-  'Idle, no field within 20 tiles of the farm',
-  'Idle, nothing is sown until spring',
-  "Walking to fetch stone for a hunter's lodge site",
-  "Walking to fetch a log for a hunter's lodge site",
-  "Carrying stone to a hunter's lodge site",
-];
-
-/**
- * The longest reading of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as
- * candidates of which the page keeps the tallest, and the first of those as tall. `name`, `woman`, and `man` are the widest names of
- * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
- * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
- * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
- * its dead with two digits. A child's title names its parents. The camp's people split the 1,500 living between
- * children and workers with four digits on one side, the other in the plural or the singular. Its year counts each birth
- * and each death in a row of the villagers table's 4,096, one of which at least holds a settler the map started with, so
- * a year has at most 4,095 births and 4,096 deaths. A farm's doing names each doing of its two farmers once, so every
- * pair of a farmer's words, a settler's tasks, and the night's words is a candidate. A site's goods read what it
- * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
- */
-const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
+const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders, words, born }) => {
   const settlers = [String(mostSettlers)];
   const couple = `${man} and ${woman}`;
   const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`, `${couple}, 3 kin, 12 died`];
-  const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
-  const farmerDoing = [...FARMER_DOING, ...ANYONE_DOING, ...NIGHT_DOING];
+  const farmerDoing = words.farm.Doing;
   const farmersDoing = farmerDoing.flatMap((first) => farmerDoing.filter((second) => second !== first).map((second) => `${first}; ${second}`));
   const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
-  return {
+  const counted = {
     villager: {
-      title: [`${name}, daughter of ${couple}`, `${name}, son of ${couple}`, name],
-      rows: {
-        Doing: [...DOING_LONGEST, 'Playing by the house', 'Playing at the camp'],
-        Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
-        Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'Farmer', 'None'],
-        'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 15', 'Boy, 15'],
-        Household: household,
-        Home: ['None, sleeps at the camp', "Parents' house", 'A house'],
-        'Missed meals': ['2, hungry'],
-        'Cold nights': ['2, cold, clothed'],
-      },
+      title: [...born.map((word) => `${name}, ${word} of ${couple}`), name],
+      rows: { Household: household, 'Missed meals': ['2, hungry'], 'Cold nights': ['2, cold, clothed'] },
     },
-    house: { rows: { Household: household, Food: ['16 of 16'], Firewood: ['6 of 6'], 'Fire last night': ['No winter night yet', 'Did not burn', 'Burned'] } },
+    house: { rows: { Household: household, Food: ['16 of 16'], Firewood: ['6 of 6'] } },
     hut: workplace('Foragers', 2),
     lodge: workplace('Hunters', 2),
-    woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
-    tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
-    farm: workplace('Farmers', 2, { Doing: [...farmerDoing, ...farmersDoing, 'Nobody works here'] }),
+    woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'] }),
+    tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'] }),
+    farm: workplace('Farmers', 2, { Doing: farmersDoing }),
     barn: { rows: { Food: ['120 of 120'] } },
     camp: {
       rows: {
@@ -3595,8 +3550,15 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         'This year': ['4095 born, 4096 died'],
       },
     },
-    site,
+    site: { rows: { Work: ['100%'], Builders: [String(mostBuilders)] } },
   };
+  return Object.fromEntries(
+    [...new Set([...Object.keys(counted), ...Object.keys(words)])].map((kind) => {
+      const rows = { ...counted[kind]?.rows };
+      for (const [label, read] of Object.entries(words[kind] ?? {})) rows[label] = [...read, ...(rows[label] ?? [])];
+      return [kind, { ...counted[kind], rows }];
+    }),
+  );
 };
 
 /**
@@ -3623,11 +3585,11 @@ async function measurePanels(page, kinds = null, keep = false) {
     copy.remove();
     return widths.sort((x, y) => y.width - x.width).map(({ name }) => name);
   }, [...listed.women, ...listed.men]);
-  const readings = panelReadings({ name: widest[0], woman: widest.find((name) => listed.women.includes(name)), man: widest.find((name) => listed.men.includes(name)), mostSettlers: listed.mostSettlers, mostBuilders: listed.mostBuilders });
+  const readings = panelReadings({ name: widest[0], woman: widest.find((name) => listed.women.includes(name)), man: widest.find((name) => listed.men.includes(name)), mostSettlers: listed.mostSettlers, mostBuilders: listed.mostBuilders, words: listed.words, born: listed.born });
   const panels = listed.kinds
     .filter(({ kind }) => !kinds || kinds.includes(kind))
     .map(({ kind, title, note, rows, needs }) => {
-      const table = needs ? { rows: { ...Object.fromEntries(Object.entries(needs).map(([good, count]) => [good, [`${count}/${count}`]])), ...readings.site } } : readings[kind];
+      const table = needs ? { rows: { ...Object.fromEntries(Object.entries(needs).map(([good, count]) => [good, [`${count}/${count}`]])), ...readings.site.rows } } : readings[kind];
       const titles = title === null ? table?.title : [title];
       if (!titles) fail(`panelReadings has no longest title for the ${kind} panel`);
       const missing = rows.filter(({ label }) => !table.rows[label]).map(({ label }) => label);

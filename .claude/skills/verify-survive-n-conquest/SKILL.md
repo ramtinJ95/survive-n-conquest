@@ -93,7 +93,7 @@ A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` take
 
 `scripts/sowing.ts '<stops>'` plays the `sowing` scenario's first spring on seed 7 in `src/sim` and prints, as JSON, the field's tiles, the minute the farm stands, its farmers in the order they came, and at each stop the field tiles sown and where each farmer stands. `sowing` runs it, and `aim.ts` for those tiles and farmers, before it drives the page.
 
-`scripts/panelRows.ts` prints every kind of selection panel in the game's `PANELS`, with its rows and their buttons and what a site needs of each good, and the names a woman and a man can have. `readiness` and `selecting` fill a copy of the panel with the longest reading of each row and measure it.
+`scripts/panelRows.ts` prints every kind of selection panel in the game's `PANELS`, with its rows and their buttons and what a site needs of each good, and the names a woman and a man can have. It also prints every reading that the game builds from the word tables of `src/ui/selection.ts`, row by row, with each word that names a good, a store, a site, or a cause filled from that part's table. `panelReadings` in `verify.mjs` adds the readings built at run time from names and counts, at their longest. `readiness`, `selecting`, and `people` fill a copy of the panel with the tallest reading of each row and measure it.
 
 ## Evidence
 
