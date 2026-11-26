@@ -393,6 +393,17 @@ describe("the list of vacant houses through a pairing's cases", () => {
     expect([sim.households.home[3], sim.households.lodgers[parents], recount(sim)]).toEqual([parents, 1, []]);
   });
 
+  it('gives the house a man of a starting household of one was the last of to his new household, not to the empty household he left', () => {
+    const sim = settlement([[man(20)], [...PARENTS, woman(21)]]);
+    const his = house(sim, 0);
+    house(sim, 1);
+    expect(isSingle(sim, 0)).toBe(true);
+    pairSettlers(sim);
+    const { households } = sim;
+    expect([households.man[2], households.woman[2], households.living[0]]).toEqual([0, 3, 0]);
+    expect([households.home[0], households.home[2], households.householdIn[his], sim.villagers.lodging[0], recount(sim)]).toEqual([NO_HOME, his, 2, NO_HOME, []]);
+  });
+
   it('takes an empty house that holds food off the list when a pair moves into it, with its food', () => {
     const sim = settlement([[...PARENTS, man(20)], [...PARENTS, woman(21)]]);
     house(sim, 0);

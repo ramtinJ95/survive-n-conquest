@@ -147,9 +147,18 @@ export function formHousehold(households: Households, villagers: Villagers, man:
   return h;
 }
 
-/** Villager `id`, or `NO_VILLAGER`, lodges no longer if it did. Returns whether it did. */
-function leaveLodging(households: Households, villagers: Villagers, id: number): boolean {
-  if (id === NO_VILLAGER || villagers.lodging[id] === NO_HOME) return false;
+/**
+ * Whether `id`, one of the couple of household `h` or `NO_VILLAGER`, still
+ * belongs to it and lodges in the house in `slot`, or in any house for
+ * NO_HOME. A man of a starting household of one stays its man after he pairs
+ * and leaves it, so the couple alone does not say who belongs.
+ */
+const lodgerOf = (villagers: Villagers, h: number, id: number, slot = NO_HOME) =>
+  id !== NO_VILLAGER && villagers.household[id] === h && villagers.lodging[id] !== NO_HOME && (slot === NO_HOME || villagers.lodging[id] === slot);
+
+/** Villager `id` of household `h`'s couple lodges no longer if it did. Returns whether it did. */
+function leaveLodging(households: Households, villagers: Villagers, h: number, id: number): boolean {
+  if (!lodgerOf(villagers, h, id)) return false;
   unlodge(households, villagers, id);
   return true;
 }
@@ -162,7 +171,7 @@ function leaveLodging(households: Households, villagers: Villagers, id: number):
  */
 function moveIn(households: Households, villagers: Villagers, h: number, slot: number): void {
   const was = isUnattended(households, h);
-  const lodged = Number(leaveLodging(households, villagers, households.man[h]!)) + Number(leaveLodging(households, villagers, households.woman[h]!));
+  const lodged = Number(leaveLodging(households, villagers, h, households.man[h]!)) + Number(leaveLodging(households, villagers, h, households.woman[h]!));
   households.home[h] = slot;
   households.householdIn[slot] = h;
   const { vacant } = households;
@@ -174,10 +183,9 @@ function moveIn(households: Households, villagers: Villagers, h: number, slot: n
   households.unattended += Number(isUnattended(households, h)) - Number(was);
 }
 
-/** Whether household `h` has no home, and one of its couple lodges in the house in `slot`. */
+/** Whether household `h` has no home, and one of its couple who still belongs to it lodges in the house in `slot`. */
 function lodgesIn(households: Households, villagers: Villagers, h: number, slot: number): boolean {
-  const { man, woman } = households;
-  return households.home[h] === NO_HOME && ((man[h] !== NO_VILLAGER && villagers.lodging[man[h]!] === slot) || (woman[h] !== NO_VILLAGER && villagers.lodging[woman[h]!] === slot));
+  return households.home[h] === NO_HOME && (lodgerOf(villagers, h, households.man[h]!, slot) || lodgerOf(villagers, h, households.woman[h]!, slot));
 }
 
 /**
