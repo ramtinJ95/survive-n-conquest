@@ -1,5 +1,5 @@
 import { GROWN_AGE, ageAt } from './aging';
-import { NO_VILLAGER, pair } from './households';
+import { NO_VILLAGER, pair, partnerOf } from './households';
 import { Sex } from './names';
 import type { Sim } from './sim';
 import { VILLAGER_ROWS, VillagerState } from './villagerState';
@@ -13,17 +13,14 @@ const firstOfAge = new Int32Array(2 * AGES);
 const nextOfAge = new Int32Array(VILLAGER_ROWS);
 
 /**
- * Whether villager `id` is single at this tick: alive, `GROWN_AGE` or older, and
- * never a partner. A settler is partnered when it is one of its household's
- * couple and the other place is held, though its partner died since.
+ * Whether villager `id` is single at this tick: alive, `GROWN_AGE` or older,
+ * and with no living partner. One whose partner died is single again.
  */
 export function isSingle(sim: Sim, id: number): boolean {
   const { villagers, households } = sim;
   if (villagers.state[id] === VillagerState.Dead || ageAt(villagers, id, sim.tick) < GROWN_AGE) return false;
-  const h = villagers.household[id]!;
-  if (households.man[h] === id) return households.woman[h] === NO_VILLAGER;
-  if (households.woman[h] === id) return households.man[h] === NO_VILLAGER;
-  return true;
+  const partner = partnerOf(households, villagers, id);
+  return partner === NO_VILLAGER || villagers.state[partner] === VillagerState.Dead;
 }
 
 /** Whether villagers `a` and `b` can pair: a man and a woman, neither the other's parent, who share no parent. */
@@ -65,8 +62,8 @@ function takeNearestMan(villagers: Villagers, woman: number, age: number): numbe
  * The pairings of a dawn, step 4 of its order. The single women go from the
  * oldest to the youngest, by the lower id at one age, and each takes the
  * single man she can pair with nearest her in age, the older when two are as
- * near, then the lower id. The two leave their households and form one of
- * their own, by `pair`. Pairing stops once the household table is full.
+ * near, then the lower id. `pair` puts the two in one household. Pairing
+ * stops when two who never had a partner find the household table full.
  */
 export function pairSettlers(sim: Sim): void {
   const { villagers, households } = sim;
@@ -81,8 +78,11 @@ export function pairSettlers(sim: Sim): void {
     for (let woman = firstOfAge[Sex.Woman * AGES + age]!; woman >= 0; woman = nextOfAge[woman]!) {
       const man = takeNearestMan(villagers, woman, age);
       if (man < 0) continue;
+      const count = households.count;
+      const widowed = Number(partnerOf(households, villagers, man) !== NO_VILLAGER) + Number(partnerOf(households, villagers, woman) !== NO_VILLAGER);
       if (pair(households, villagers, man, woman, sim.dawns) < 0) return;
-      sim.tally.paired += 1;
+      sim.tally.paired += households.count - count;
+      sim.tally.widowedPaired += widowed;
     }
   }
 }

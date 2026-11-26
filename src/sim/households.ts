@@ -1,5 +1,6 @@
 import { works } from './jobs';
 import { MAX_SITES } from './orders';
+import { VillagerState } from './villagerState';
 import type { Villagers } from './villagers';
 
 /** At most this many households on a map, half the villagers table's rows, so the households cannot run out first. */
@@ -12,7 +13,9 @@ export const NO_VILLAGER = -1;
  * The household table. Every column has `MAX_HOUSEHOLDS` rows, and the first
  * `count` are households that formed. A household's number is never used
  * twice. Its members are the villagers whose household column names it: its
- * couple while they live, and their children.
+ * couple while they live, and the children of its couples. A household that
+ * joined another at a pairing keeps its number and its last couple, and has
+ * no member.
  */
 export interface Households {
   count: number;
@@ -30,10 +33,15 @@ export interface Households {
   readonly living: Uint8Array;
   /** The living members of each household who work, and so can carry for it. */
   readonly workers: Uint8Array;
-  /** The couple that formed each household: the man and the woman, or `NO_VILLAGER`. */
+  /**
+   * The couple of each household: the man and the woman who formed it, or
+   * `NO_VILLAGER`, until one whose partner died pairs again. Then the new
+   * pair holds both places. A household's earlier couple lives on only in its
+   * children's parents.
+   */
   readonly man: Int32Array;
   readonly woman: Int32Array;
-  /** The dawn of each household's last birth, as a count of `Sim.dawns`, or the dawn it formed at until its first. One that formed before the map's first tick has a negative one. */
+  /** The dawn of each household's last birth or the later dawn its couple paired, as a count of `Sim.dawns`. One that formed before the map's first tick has a negative one. */
   readonly lastBirth: Int32Array;
   /** Scratch for a dawn's births, not part of the state: 1 for each household one of whose living members is wanting. */
   readonly wanting: Uint8Array;
@@ -248,23 +256,87 @@ export function loseMember(households: Households, villagers: Villagers, id: num
   moveInto(households, villagers, slot);
 }
 
+/** Whether villager `id`, alive or not, holds a place in the couple of household `h`. */
+const inCouple = (households: Households, h: number, id: number) => households.man[h] === id || households.woman[h] === id;
+
 /**
- * Single settlers `man` and `woman` leave their households and form one of
- * their own at the dawn `dawn`, and its number is returned, or -1 when the
- * table is full. Each goes on living where it lived: one from a house lodges
- * in it, and one from the camp stays there. A house that one of them was the
- * last member of goes to the new household at once. Without one, the new
- * household takes the empty house finished first, or none while none stands.
+ * The partner of villager `id`: the other place of its own household's couple
+ * when it holds one, or `NO_VILLAGER`. The partner can have died.
+ */
+export function partnerOf(households: Households, villagers: Villagers, id: number): number {
+  const h = villagers.household[id]!;
+  if (households.man[h] === id) return households.woman[h]!;
+  if (households.woman[h] === id) return households.man[h]!;
+  return NO_VILLAGER;
+}
+
+/**
+ * Living villager `id` leaves its household and joins household `h`, and
+ * lives where `h` lives: in its house, or, while `h` has none, where it lived
+ * before. One of the couple of `h` from a house lodges in it, and a lodger
+ * lodges on. Anyone else of a household with no house is at the camp. A house
+ * it was the last member of goes at once to a household lodging in it.
+ */
+function join(households: Households, villagers: Villagers, h: number, id: number): void {
+  const from = villagers.household[id]!;
+  const lodged = villagers.lodging[id]!;
+  const houseless = households.home[h] === NO_HOME;
+  if (houseless && households.home[from] !== NO_HOME && inCouple(households, h, id)) lodge(households, villagers, id, households.home[from]!);
+  addMember(households, villagers, h, id);
+  loseMember(households, villagers, id, from);
+  if (houseless && households.home[h] === NO_HOME && lodged !== NO_HOME) lodge(households, villagers, id, lodged);
+}
+
+/**
+ * Single settlers `man` and `woman` pair at the dawn `dawn`, and the number of
+ * the household whose couple they are is returned, or -1 when they need a new
+ * household and the table is full. This is the one place a pairing changes
+ * households, in one of three ways.
+ *
+ * - Two who never had a partner leave their households and form one of their
+ *   own. Each goes on living where it lived: one from a house lodges in it,
+ *   and one from the camp stays there. A house that one of them was the last
+ *   member of goes to the new household at once.
+ * - One whose partner died, and so still holds a place in its household's
+ *   couple, keeps its household, its number, its house and its children,
+ *   and the other joins it.
+ * - Two whose partners died make one household of their two. The household
+ *   with the lower number stays, and everyone of the other joins it, the
+ *   widowed one first. It keeps its house, or, with none, takes the house of
+ *   the other, which its new partner was the last to leave. A house the two
+ *   leave empty is freed by `loseMember`.
+ *
+ * The household's couple is the two from then on, and it waits for a birth
+ * from this dawn, as a new household does. Without a house it takes the empty
+ * house finished first, or none while none stands.
  */
 export function pair(households: Households, villagers: Villagers, man: number, woman: number, dawn: number): number {
-  if (households.count >= MAX_HOUSEHOLDS) return -1;
-  const manLeaves = villagers.household[man]!;
-  const womanLeaves = villagers.household[woman]!;
-  lodge(households, villagers, man, households.home[manLeaves]!);
-  lodge(households, villagers, woman, households.home[womanLeaves]!);
-  const h = formHousehold(households, villagers, man, woman, NO_HOME, dawn);
-  loseMember(households, villagers, man, manLeaves);
-  loseMember(households, villagers, woman, womanLeaves);
+  const hisWidowed = partnerOf(households, villagers, man) !== NO_VILLAGER;
+  const herWidowed = partnerOf(households, villagers, woman) !== NO_VILLAGER;
+  const his = villagers.household[man]!;
+  const hers = villagers.household[woman]!;
+  let h: number;
+  if (hisWidowed || herWidowed) {
+    h = hisWidowed && (!herWidowed || his < hers) ? his : hers;
+    const other = h === his ? hers : his;
+    const joining = h === his ? woman : man;
+    households.man[h] = man;
+    households.woman[h] = woman;
+    households.lastBirth[h] = dawn;
+    join(households, villagers, h, joining);
+    if (hisWidowed && herWidowed) {
+      for (let id = 0; id < villagers.count && households.living[other]! > 0; id++) {
+        if (villagers.household[id] === other && villagers.state[id] !== VillagerState.Dead) join(households, villagers, h, id);
+      }
+    }
+  } else {
+    if (households.count >= MAX_HOUSEHOLDS) return -1;
+    lodge(households, villagers, man, households.home[his]!);
+    lodge(households, villagers, woman, households.home[hers]!);
+    h = formHousehold(households, villagers, man, woman, NO_HOME, dawn);
+    loseMember(households, villagers, man, his);
+    loseMember(households, villagers, woman, hers);
+  }
   const empty = emptyHouse(households);
   if (households.home[h] === NO_HOME && empty !== NO_HOME) moveIn(households, villagers, h, empty);
   return h;
