@@ -1084,6 +1084,34 @@ describe("the panel of a house that a lodging household inherited", () => {
   });
 });
 
+describe('the panels of a household whose couple is whole again', () => {
+  it("read the widow and the man who joined her as its couple, her children as its children, and her dead husband as 1 died, and children of neither of a later couple as kin", () => {
+    const map = mapFrom(Array.from({ length: 32 }, () => '.'.repeat(32)), SEED);
+    const settlers = [
+      { members: [{ sex: Sex.Man, age: 40 }, { sex: Sex.Woman, age: 38 }, { sex: Sex.Woman, age: 8 }, { sex: Sex.Man, age: 6 }] },
+      { members: [{ sex: Sex.Man, age: 50 }, { sex: Sex.Woman, age: 48 }, { sex: Sex.Man, age: 30 }] },
+      { members: [{ sex: Sex.Man, age: 51 }, { sex: Sex.Woman, age: 49 }, { sex: Sex.Woman, age: 29 }] },
+    ];
+    const sim = createSim(map, { villagers: 10, monsters: 0, campFood: 100, animals: false, settlers });
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 6, y: 6 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, 6, 6)]!;
+    finishBuilding(sim, house);
+    const [husband, widow, joined, third] = [0, 1, 6, 9];
+    const row = (id: number, label: string) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((entry) => entry.label === label)!.value;
+    const panel = () => readPanel({ kind: 'building', slot: house, anchor: 0 }, factsOf(sim)).rows.find((entry) => entry.label === 'Household')!.value;
+    const name = (id: number) => nameOf(sim.villagers.sex[id] as Sex, sim.villagers.name[id]!);
+    die(sim, husband, Cause.Hunger);
+    expect([panel(), row(widow, 'Household')]).toEqual([`${name(widow)}, 2 children, 1 died`, `${name(widow)}, 2 children, 1 died`]);
+    while (sim.tally.widowedPaired === 0) step(sim);
+    const couple = `${name(joined)} and ${name(widow)}`;
+    expect([panel(), row(widow, 'Household'), row(joined, 'Household'), row(joined, 'Home')]).toEqual([`${couple}, 2 children, 1 died`, `${couple}, 2 children, 1 died`, `${couple}, 2 children, 1 died`, 'A house']);
+    die(sim, widow, Cause.Hunger);
+    expect(panel()).toBe(`${name(joined)}, 2 children, 2 died`);
+    while (sim.tally.widowedPaired === 1) step(sim);
+    expect([sim.households.man[0], sim.households.woman[0], panel()]).toEqual([joined, third, `${name(joined)} and ${name(third)}, 2 kin, 2 died`]);
+  });
+});
+
 describe("the camp's panel of the settlement's people", () => {
   const open = (size: number) => Array.from({ length: size }, () => '.'.repeat(size));
   const man = (age: number, span?: number): StartingSettler => (span === undefined ? { sex: Sex.Man, age } : { sex: Sex.Man, age, span });

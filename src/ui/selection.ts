@@ -440,8 +440,10 @@ const counted = (count: number, one: string, many: string) => `${count} ${count 
  * in `house`, it counts those who lodge there too: grown children of its
  * couple who paired while no house stood empty, among the children. A house
  * that a lodging household inherited can keep a sibling of that couple
- * lodging in it, who is no child of theirs. Then everyone beyond the couple
- * counts as kin, as `Sten and Tilde, 1 kin`, which is true of all of them.
+ * lodging in it, who is no child of theirs, and one whose partner died can
+ * pair again in a household that holds a child of neither of the new couple.
+ * Then everyone beyond the couple counts as kin, as `Sten and Tilde, 1 kin`,
+ * which is true of all of them.
  */
 function householdLine(facts: Facts, household: number, house = NO_HOME): string {
   const { frame } = facts;
@@ -452,15 +454,18 @@ function householdLine(facts: Facts, household: number, house = NO_HOME): string
   let children = 0;
   let died = 0;
   let kin = false;
+  const parent = (p: number) => p >= 0 && (p === man || p === woman);
   frame.households.forEach((of, id) => {
     if (house !== NO_HOME && frame.lodgings[id] === house) {
       children++;
-      const parent = (p: number) => p >= 0 && (p === man || p === woman);
       if (!parent(frame.mothers[id]!) && !parent(frame.fathers[id]!)) kin = true;
     }
     if (of !== household) return;
     if (frame.states[id] === VillagerState.Dead) died++;
-    else if (id !== man && id !== woman) children++;
+    else if (id !== man && id !== woman) {
+      children++;
+      if (!parent(frame.mothers[id]!) && !parent(frame.fathers[id]!)) kin = true;
+    }
   });
   const parts = couple.length > 0 ? [couple.join(' and ')] : [];
   if (children > 0) parts.push(kin ? `${children} kin` : counted(children, 'child', 'children'));
