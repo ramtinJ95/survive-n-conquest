@@ -7920,6 +7920,7 @@ SCENARIOS.pairing = async (session) => {
 
   const widowStop = clockMinutes(widowDawn.stop);
   const widowFrom = clockAt(widowStop - 10);
+  await session.reach(wp, widowFrom);
   const widowDawnStart = w.since();
   const widowHeard = await listen(wp, widowFrom, clockAt(widowStop + 3));
   const heardText = [...widowHeard.entries()].map(([words, when]) => `"${words}" by ${when}`).join('; ') || 'nothing';
