@@ -4,18 +4,18 @@ import type { Sites } from './orders';
 import type { Sim } from './sim';
 import type { Recipe } from './workshops';
 
-export const Building = { House: 0, Hut: 1, Barn: 2, Lodge: 3, Woodshed: 4, Tailor: 5 } as const;
+export const Building = { House: 0, Hut: 1, Barn: 2, Lodge: 3, Woodshed: 4, Tailor: 5, Farm: 6 } as const;
 export type Building = (typeof Building)[keyof typeof Building];
 
 /** The work a villager does in a place at a workplace. A villager with no place has none. */
-export const Job = { None: 0, Forager: 1, Hunter: 2, Woodcutter: 3, Tailor: 4 } as const;
+export const Job = { None: 0, Forager: 1, Hunter: 2, Woodcutter: 3, Tailor: 4, Farmer: 5 } as const;
 export type Job = (typeof Job)[keyof typeof Job];
 /** Where a rule takes a villager with any job, or with none. */
 export const ANYONE = -1;
 /** The job of a kind of task anyone takes, a child too, as eating. */
 export const EVERYONE = -2;
 
-export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge' | 'woodshed' | 'tailor';
+export type BuildingName = 'house' | 'hut' | 'barn' | 'lodge' | 'woodshed' | 'tailor' | 'farm';
 
 export interface BuildingKind {
   /** What a place order and its outcome call it. */
@@ -66,6 +66,7 @@ export const BUILDINGS: Readonly<Record<Building, BuildingKind>> = {
     reach: 30,
     recipe: { input: Good.Hide, inputs: 2, output: Good.Clothing, outputs: 1, workTicks: 60 * TICKS_PER_SECOND },
   },
+  [Building.Farm]: { name: 'farm', side: 2, needs: { [Good.Log]: 8 }, workTicks: 30 * TICKS_PER_SECOND, places: 2, job: Job.Farmer, reach: 20, recipe: null },
 };
 
 /** The longest side of any kind, so `MAX_SIDE * MAX_SIDE` tiles hold any footprint. */

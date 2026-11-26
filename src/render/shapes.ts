@@ -298,6 +298,34 @@ export function tailorShape(): BufferGeometry {
 }
 
 /**
+ * The farm: low walls of pale straw-yellow under a hipped roof of green turf,
+ * with two sheaves of grain beside its door. Its roof is the only green one,
+ * so it reads apart from every other building.
+ */
+export const FARM_LOOK = {
+  side: 1.7,
+  walls: 0.85,
+  roof: 0.8,
+  eave: 1.35,
+  door: { width: 0.4, height: 0.6 },
+  sheaf: { radius: 0.13, height: 0.5, x: 0.62 },
+  colors: { walls: 0xdcc58a, roof: 0x55703a, door: 0x5c3516, sheaf: 0xe2c25a },
+};
+
+/** The farm, with no model behind it, standing on the origin and centered on its footprint, its door facing +z. */
+export function farmShape(): BufferGeometry {
+  const { side, walls, roof, eave, door, sheaf, colors } = FARM_LOOK;
+  const stook = (x: number) => new CylinderGeometry(sheaf.radius * 0.6, sheaf.radius, sheaf.height, 6).translate(x, sheaf.height / 2, side / 2 + 0.2);
+  return mergeGeometries([
+    colored(new BoxGeometry(side, walls, side).translate(0, walls / 2, 0), colors.walls),
+    colored(new ConeGeometry(eave, roof, 4).rotateY(Math.PI / 4).translate(0, walls + roof / 2, 0), colors.roof),
+    colored(new BoxGeometry(door.width, door.height, 0.06).translate(0, door.height / 2, side / 2), colors.door),
+    colored(stook(-sheaf.x), colors.sheaf),
+    colored(stook(sheaf.x), colors.sheaf),
+  ]);
+}
+
+/**
  * A deer, about 1.2 m from nose to tail and facing +z: a tan-brown body on
  * four thin legs, a neck and head reaching forward and up, a pale tail, and
  * small antlers, so it reads as a deer and not as a settler from the game's camera.

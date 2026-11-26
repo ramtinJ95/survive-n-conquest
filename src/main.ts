@@ -37,7 +37,7 @@ const map = generateMap(parseSeed(params.get('seed')));
 const settlers = verifying ? parseSettlers(params.get('settlers')) : null;
 const population = populationFor(params.get('swarm'), params.get('food'), params.get('deer'), settlers);
 const look = await loadShapes();
-const { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires } = createWorld(map, look.shapes);
+const { scene, rig, show, camp, changeTiles, orders, fields, marks, changeOrders, showFires } = createWorld(map, look.shapes);
 const swarm = createSwarm(map, population, look.shapes, camp);
 scene.add(...swarm.meshes);
 const herds = createHerds(map);
@@ -85,6 +85,7 @@ const toolbar = mountOrders(document.body, sim, { map, orders, canvas: renderer.
 const selection = mountSelection(document.body, {
   map,
   orders,
+  fields,
   camp,
   canvas: renderer.domElement,
   camera,

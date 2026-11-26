@@ -3498,6 +3498,10 @@ const WORKSHOP_DOING = {
 };
 /** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
 const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
+/** Every word of a farmer at its own work and idle, the longest first. */
+const FARMER_DOING = ['Idle, no field within 20 tiles of the farm', 'Idle, nothing is sown until spring', 'Looking for a field to sow', 'Walking to a field to sow', 'Idle, the fields are sown', 'Sowing a field'];
+/** What a settler does by night, whatever its job. */
+const NIGHT_DOING = ['Resting at the camp', 'Walking to the camp', 'Walking home', 'At home'];
 /** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
 const DOING_LONGEST = [
   ...WORKSHOP_DOING.tailor,
@@ -3508,6 +3512,8 @@ const DOING_LONGEST = [
   ...ANYONE_DOING,
   'Idle, no deer within 40 tiles of the lodge',
   'Idle, waiting for room in a store',
+  'Idle, no field within 20 tiles of the farm',
+  'Idle, nothing is sown until spring',
   "Walking to fetch stone for a hunter's lodge site",
   "Walking to fetch a log for a hunter's lodge site",
   "Carrying stone to a hunter's lodge site",
@@ -3522,7 +3528,8 @@ const DOING_LONGEST = [
  * its dead with two digits. A child's title names its parents. The camp's people split the 1,500 living between
  * children and workers with four digits on one side, the other in the plural or the singular. Its year counts each birth
  * and each death in a row of the villagers table's 4,096, one of which at least holds a settler the map started with, so
- * a year has at most 4,095 births and 4,096 deaths. A site's goods read what it
+ * a year has at most 4,095 births and 4,096 deaths. A farm's doing names each doing of its two farmers once, so every
+ * pair of a farmer's words, a settler's tasks, and the night's words is a candidate. A site's goods read what it
  * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
  */
 const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
@@ -3530,6 +3537,8 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
   const couple = `${man} and ${woman}`;
   const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`, `${couple}, 3 kin, 12 died`];
   const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
+  const farmerDoing = [...FARMER_DOING, ...ANYONE_DOING, ...NIGHT_DOING];
+  const farmersDoing = farmerDoing.flatMap((first) => farmerDoing.filter((second) => second !== first).map((second) => `${first}; ${second}`));
   const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
   return {
     villager: {
@@ -3537,7 +3546,7 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
       rows: {
         Doing: [...DOING_LONGEST, 'Playing by the house', 'Playing at the camp'],
         Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
-        Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'None'],
+        Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'Farmer', 'None'],
         'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 15', 'Boy, 15'],
         Household: household,
         Home: ['None, sleeps at the camp', "Parents' house", 'A house'],
@@ -3550,6 +3559,7 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
     lodge: workplace('Hunters', 2),
     woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
     tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
+    farm: workplace('Farmers', 2, { Doing: [...farmerDoing, ...farmersDoing, 'Nobody works here'] }),
     barn: { rows: { Food: ['120 of 120'] } },
     camp: {
       rows: {
@@ -4166,6 +4176,406 @@ SCENARIOS.foraging = async (session) => {
     `${dusk.jobs.withJob} settlers with a job at ${dusk.at}; the followed forager's panel reads "${text(dusk.forager)}"`,
   );
   await session.finishClips(play.context, page, [{ label: 'foraging-day', from, to, ...FORAGE_CLIP }]);
+  seen.push(...play.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `sowing` scenario plays the first spring of `src/sim/firstYear.ts` `firstSpringCommands` through the page, on
+ * seed 7 with the camp's own 24 food: a farm anchored on (136, 127), the hut's anchor, a field of 24 tiles of grass
+ * from (129, 122) to (134, 125) north west of it, and a Chop on each of the four trees whose 8 logs build the farm, all
+ * at tick 0, in that order. It takes `FORAGE_VIEW`, which looks east from 23 m over the camp, the field, and the farm.
+ * `scripts/sowing.ts` plays the same commands in `src/sim` and gives the farm's farmers, the tiles sown at each stop,
+ * and where each farmer stands, and `scripts/aim.ts` gives the pixel of each tile and of each farmer at that view.
+ */
+const SOW_SEARCH = '?seed=7';
+const SOW_AIM = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/aim.ts');
+const SOW_SIM = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/sowing.ts');
+const SOW_TILES = {
+  farm: [136, 127],
+  roofs: [[136.5, 127.5, 1.5], [136.5, 127.5, 1.0]],
+  field: { from: [129, 122], to: [134, 125] },
+  forest: { from: [137, 123], to: [140, 124] },
+  camp: { from: [126, 126], to: [128, 128] },
+  onField: [131, 123],
+  trees: [[137, 129], [138, 130], [134, 131], [135, 134]],
+  // Grass beside the field on its north and west sides, which no order marks. The camp's trodden ground reaches the
+  // tiles (128, 124) and (128, 125) beside the field's south west corner, and reads as soil.
+  grass: [[128, 122], [128, 123], [129, 121], [130, 121], [131, 121], [132, 121], [133, 121], [134, 121], [135, 122], [135, 124]],
+  // The field's corner on the forest side.
+  cancel: [134, 122],
+};
+/** The middle of a settler's tunic over the ground it stands on, for a click that selects it. */
+const SOW_TUNIC_RISE = 0.9;
+/**
+ * The stops. The farm stands at 12:18 on day 1, so the stop at 12:20 is the first that finds its label gone, and
+ * from 12:40 both farmers sow the field's south east corner. Day 1 sows 10 tiles and day 2 the other 14. Day 3 is
+ * the last of spring and day 4 the first of summer. The camp's 24 food last the dusks of days 1 to 3. By day the
+ * settlers without a job wander over the field, so the cancel waits for the midnight after day 4, when everyone sits
+ * at the camp.
+ */
+const SOW_STOPS = {
+  bare: { day: 1, time: '12:00' },
+  clipFrom: { day: 1, time: '12:15' },
+  sowing: { day: 1, time: '13:00' },
+  clipTo: { day: 1, time: '16:00' },
+  midnight: { day: 2, time: '00:00' },
+  midnightSown: { day: 3, time: '00:00' },
+  daySown: { day: 3, time: '12:00' },
+  summer: { day: 4, time: '12:00' },
+  cancel: { day: 5, time: '00:00' },
+};
+const SOW_FINISHED = { day: 1, time: '13:30' };
+const SOW_STEP = 5;
+const FARMER_WORDS = /^(Walking to a field to sow|Sowing a field|Looking for a field to sow|Idle, the fields are sown|Idle, nothing is sown until spring|Idle, no field within 20 tiles of the farm)$/;
+/**
+ * A field tile draws soil at 75% over the lit ground and, once sown, 3 rows of shoots across it, each 40% of its third,
+ * in pure colors that no light changes. `SHOOTS` matches the shoots, and `SOIL` the soil's brown, whose red leads its
+ * green and blue as no grass, forest, or rock of the map does by day or by night.
+ */
+const SHOOTS = ([r, g, b]) => distance([r, g, b], [0xa6, 0xd6, 0x4a]) < ORDER_TOLERANCE;
+const SOIL = ([r, g, b]) => r > g + 10 && g > b && r - b > 25 && r < 150;
+const FIELD_OUTLINE = ([r, g, b]) => distance([r, g, b], [0xff, 0xe1, 0x4d]) < ORDER_TOLERANCE;
+/** The half side of the box around a tile's center that the pixel checks read: about half a tile at this view. */
+const SOW_HALF = 5;
+/**
+ * In the box of a sown tile the 3 rows of shoots take 40% of the tile, so about 48 of its 121 pixels, and the first
+ * run read 37 to 63. A bare tile and grass draw none. Soil takes the rest of a sown tile's box, about 60%, and all of a
+ * bare tile's, less the stones and tufts of grass that the scenery draws over a few tiles: the first run read a mean
+ * of 94% on the bare field and 50% on the sown one, and 19% on the sown tile (130, 123) under a stone.
+ */
+const SOW_LEAST = { shoots: 20, soilBare: 0.85, soilSown: 0.4, outline: 300 };
+const SOW_MOST = { shootsBare: 2, soilGrass: 0.05 };
+/** The clip keeps the clock, the field, the farm, and the panel of the farmer it follows. */
+const SOW_CLIP = { crop: { x: 0, y: 0, width: 640, height: 490 }, width: 560, colors: 48, decimate: true };
+
+/** The pixel of each point at `FORAGE_VIEW` on a 960 by 540 page, from the game's camera rig under `bun`. */
+function aimAt(points) {
+  const run = spawnSync('bun', [SOW_AIM, '7', JSON.stringify(FORAGE_VIEW), JSON.stringify(points)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`aim.ts failed: ${run.stderr}`);
+  const spots = run.stdout.split('\n').filter((line) => / at \{/.test(line)).map((line) => JSON.parse(/ at (\{[^}]*\})/.exec(line)[1]));
+  if (spots.length !== points.length) fail(`aim.ts printed ${spots.length} spots for ${points.length} points`);
+  return spots;
+}
+
+/** For each spot, the shoots, the soil, and the outline in the box of `SOW_HALF` around it, as counts and shares. */
+function fieldLook(png, width, spots) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  return spots.map(({ x, y }) => {
+    const found = { shoots: 0, soil: 0, all: 0 };
+    for (let row = y - SOW_HALF; row <= y + SOW_HALF; row++) {
+      for (let column = x - SOW_HALF; column <= x + SOW_HALF; column++) {
+        const i = (row * width + column) * 3;
+        const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+        found.all += 1;
+        if (SHOOTS(rgb)) found.shoots += 1;
+        else if (SOIL(rgb)) found.soil += 1;
+      }
+    }
+    return { shoots: found.shoots, soil: found.soil / found.all };
+  });
+}
+
+SCENARIOS.sowing = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes } = selectionDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const disjoint = (a, b) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+  const describe = (box) => (box ? `${box.x.toFixed(0)},${box.y.toFixed(0)} ${box.width.toFixed(0)}x${box.height.toFixed(0)}` : 'missing');
+  const tileName = ([x, y]) => `(${x}, ${y})`;
+  const label = (page) => page.getByRole('status', { name: 'Farm site', includeHidden: true });
+
+  const stops = Object.values(SOW_STOPS);
+  const run = spawnSync('bun', [SOW_SIM, JSON.stringify(stops)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`sowing.ts failed: ${run.stderr}`);
+  const sim = JSON.parse(run.stdout);
+  const simAt = Object.fromEntries(Object.keys(SOW_STOPS).map((name, index) => [name, sim.stops[index]]));
+  const fieldTiles = sim.field;
+  const [farmSpot, ...roofSpots] = aimAt([SOW_TILES.farm, ...SOW_TILES.roofs]);
+  const [fieldFrom, fieldTo, forestFrom, forestTo, campFrom, campTo, onField, cancelSpot] = aimAt([
+    SOW_TILES.field.from, SOW_TILES.field.to, SOW_TILES.forest.from, SOW_TILES.forest.to, SOW_TILES.camp.from, SOW_TILES.camp.to, SOW_TILES.onField, SOW_TILES.cancel,
+  ]);
+  const treeSpots = aimAt(SOW_TILES.trees);
+  const fieldSpots = aimAt(fieldTiles);
+  const grassSpots = aimAt(SOW_TILES.grass);
+  const farmerSpots = (stop) => (stop.farmers.length === 0 ? [] : aimAt(stop.farmers.map(({ x, y }) => [x - 0.5, y - 0.5, SOW_TUNIC_RISE])).map((spot, index) => ({ ...spot, name: stop.farmers[index].name })));
+  const sownKey = (tiles) => tiles.map(tileName).join(' ');
+
+  const play = await session.open(CLIP, { record: true, search: SOW_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page);
+  const toolbar = page.getByRole('toolbar', { name: 'Orders' });
+  const toToolbar = async () => {
+    const box = await toolbar.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 2);
+  };
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const pressedTool = async () => (await toolbar.getByRole('button', { pressed: true }).evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')))).join(', ');
+  const dragHeld = async (from, to, pending) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    const held = await said(page, pending);
+    await page.mouse.up();
+    return held;
+  };
+
+  await toToolbar();
+  await page.keyboard.press('KeyO');
+  const farmTool = { pressed: await pressedTool(), hint: await said(page, /farm on 2 by 2 tiles/) };
+  await page.mouse.move(farmSpot.x, farmSpot.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const farmPlaced = await said(page, /^Farm site placed\.$/);
+  session.check(
+    'O picks the Farm tool, and a click on (136, 127) places a farm site',
+    farmTool.pressed === 'Farm' && farmTool.hint === `Click to place a farm on 2 by 2 tiles of open, level ground. Its farmers sow the fields within 20 tiles in spring.` && farmPlaced === 'Farm site placed.',
+    `pressed: ${farmTool.pressed || 'no tool'}; the status line read "${farmTool.hint}", then "${farmPlaced}"`,
+  );
+  await page.keyboard.press('Escape');
+
+  await toToolbar();
+  await page.keyboard.press('KeyI');
+  const fieldTool = { pressed: await pressedTool(), hint: await said(page, /^Drag over grass/) };
+  const fieldPending = await dragHeld(fieldFrom, fieldTo, /^Release to add/);
+  const fieldDone = await said(page, /join the field\.$/);
+  session.check(
+    `I picks the Field tool, and a drag from ${tileName(SOW_TILES.field.from)} to ${tileName(SOW_TILES.field.to)} marks the field's ${fieldTiles.length} tiles`,
+    fieldTool.pressed === 'Field' &&
+      fieldTool.hint === 'Drag over grass to mark a field. Farmers sow it in spring.' &&
+      fieldPending === `Release to add ${fieldTiles.length} tiles to the field.` &&
+      fieldDone === `${fieldTiles.length} tiles join the field.`,
+    `pressed: ${fieldTool.pressed || 'no tool'}; the status line read "${fieldTool.hint}", then "${fieldPending}" while held, then "${fieldDone}"`,
+  );
+  const refused = [];
+  for (const [where, from, to] of [['the forest', forestFrom, forestTo], ['the camp', campFrom, campTo]]) {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
+    refused.push({ where, line: await said(page, /^No unmarked grass/) });
+  }
+  session.check(
+    `a Field drag over ${SOW_TILES.forest.from}-${SOW_TILES.forest.to} in the forest and over the camp marks nothing and says why`,
+    refused.every(({ line }) => line === 'No unmarked grass free of goods there can join a field.'),
+    refused.map(({ where, line }) => `over ${where} "${line}"`).join('; '),
+  );
+  await page.keyboard.press('Escape');
+
+  await toToolbar();
+  await page.keyboard.press('KeyO');
+  await page.mouse.move(onField.x, onField.y, { steps: 3 });
+  const onFieldHover = await said(page, /^Cannot build here/);
+  await page.mouse.down();
+  await page.mouse.up();
+  await session.settle(page);
+  const sites = await label(page).count();
+  session.check(
+    `the Farm tool aimed onto the field at ${tileName(SOW_TILES.onField)} is refused with the field's words`,
+    onFieldHover === 'Cannot build here. A field lies in the way. Cancel it first.' && sites === 1,
+    `the status line read "${onFieldHover}"; after the click ${sites} farm site${sites === 1 ? '' : 's'}`,
+  );
+  await page.keyboard.press('Escape');
+
+  await toToolbar();
+  await page.keyboard.press('KeyC');
+  const chopped = [];
+  for (const spot of treeSpots) {
+    await page.mouse.move(spot.x, spot.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    chopped.push(await said(page, /^1 tree marked for felling/));
+    await corner();
+    await said(page, /Drag over trees/);
+  }
+  session.check('a Chop click on each of the four trees marks one tree', chopped.every((line) => /^1 tree marked for felling/.test(line)), chopped.map((line) => `"${line}"`).join(', '));
+  await page.keyboard.press('Escape');
+  await corner();
+  await session.still(page);
+  await session.screenshot(page, 'sowing-orders');
+
+  const lookAt = async (shot) => {
+    await session.still(page);
+    const png = await session.screenshot(page, shot);
+    return { png, tiles: fieldLook(png, CLIP.width, fieldSpots), grass: fieldLook(png, CLIP.width, grassSpots) };
+  };
+  const shownSown = (look) => fieldTiles.filter((_, index) => look.tiles[index].shoots >= SOW_LEAST.shoots);
+  const percent = (share) => `${(share * 100).toFixed(0)}%`;
+  const tileReadings = (look) => fieldTiles.map((tile, index) => `${tileName(tile)} ${look.tiles[index].shoots}/${percent(look.tiles[index].soil)}`).join(', ');
+  const expectField = async (stop, shot, what) => {
+    const look = await lookAt(shot);
+    const sown = simAt[stop].sown;
+    const sownSet = new Set(sown.map(tileName));
+    const shown = shownSown(look);
+    const meanSoil = (sownOrNot) => {
+      const shares = fieldTiles.filter((tile) => sownSet.has(tileName(tile)) === sownOrNot).map((tile) => look.tiles[fieldTiles.indexOf(tile)].soil);
+      return shares.length === 0 ? null : shares.reduce((sum, share) => sum + share, 0) / shares.length;
+    };
+    const soil = { sown: meanSoil(true), bare: meanSoil(false) };
+    const bareOk = fieldTiles.every((tile, index) => sownSet.has(tileName(tile)) || look.tiles[index].shoots <= SOW_MOST.shootsBare);
+    session.check(
+      `at ${await at(page)} ${what}: the ${sown.length} tiles the rules sow show shoots on soil, the other ${fieldTiles.length - sown.length} bare soil`,
+      sownKey(shown) === sownKey(sown) && bareOk && (soil.sown === null || soil.sown >= SOW_LEAST.soilSown) && (soil.bare === null || soil.bare >= SOW_LEAST.soilBare),
+      `shoots on ${shown.length}: ${sownKey(shown) || 'none'}; the rules sow ${sown.length}: ${sownKey(sown) || 'none'}; mean soil share ${soil.sown === null ? '' : `${percent(soil.sown)} on the sown tiles, needs ${percent(SOW_LEAST.soilSown)}; `}${soil.bare === null ? '' : `${percent(soil.bare)} on the bare tiles, needs ${percent(SOW_LEAST.soilBare)}; `}shoot pixels/soil share by tile: ${tileReadings(look)}`,
+    );
+    return look;
+  };
+  const expectGrass = async (look) => {
+    const outline = pixelsIn(look.png, CLIP.width, { x: Math.min(...fieldSpots.map(({ x }) => x)) - 30, y: Math.min(...fieldSpots.map(({ y }) => y)) - 25, width: Math.max(...fieldSpots.map(({ x }) => x)) - Math.min(...fieldSpots.map(({ x }) => x)) + 60, height: Math.max(...fieldSpots.map(({ y }) => y)) - Math.min(...fieldSpots.map(({ y }) => y)) + 50 }, FIELD_OUTLINE).count;
+    const grassOk = look.grass.every(({ shoots, soil }) => shoots <= SOW_MOST.shootsBare && soil <= SOW_MOST.soilGrass);
+    session.check(
+      `at ${await at(page)} the field shows its outline, and the grass beside it shows no soil and no shoots`,
+      outline >= SOW_LEAST.outline && grassOk,
+      `${outline} pixels of the outline's color around the field, needs ${SOW_LEAST.outline}; grass shoot pixels/soil share: ${SOW_TILES.grass.map((tile, index) => `${tileName(tile)} ${look.grass[index].shoots}/${percent(look.grass[index].soil)}`).join(', ')}`,
+    );
+  };
+
+  await session.reach(page, SOW_STOPS.bare);
+  const bare = await expectField('bare', 'sowing-field-day-bare', 'before the farm stands the field is bare');
+  await expectGrass(bare);
+
+  await session.reach(page, SOW_STOPS.clipFrom);
+  const clipFrom = play.since();
+  const finished = await session.runUntil(page, async () => (await page.getByRole('status', { name: 'Farm site' }).count()) === 0 && session.gameMinutes(page), {
+    every: SOW_STEP,
+    until: SOW_FINISHED,
+  });
+  await session.still(page);
+  session.check(
+    `the farm's label goes at the first stop after ${sim.stands?.at}, when the rules finish it`,
+    finished !== null && sim.stands !== null && finished > sim.stands.minute && finished <= sim.stands.minute + SOW_STEP,
+    finished === null ? `the label still stood at ${await at(page)}` : `the label was gone at the stop at ${clockText(finished)}`,
+  );
+
+  let farm = null;
+  for (const spot of [...roofSpots, farmSpot]) {
+    farm = await click(page, spot);
+    if (farm?.title === 'Farm') break;
+  }
+  const farmers = (farm?.rows?.Farmers ?? '').split(' and ').filter(Boolean);
+  session.check(
+    `at ${await at(page)} the farm's panel says what it does and names its two farmers, ${sim.farmers.join(' and ')} as the rules hire them, with both places filled`,
+    farm?.title === 'Farm' &&
+      farm.note === 'Its farmers sow the fields within 20 tiles in spring.' &&
+      farmers.join() === sim.farmers.join() &&
+      farm.rows.Places === '2 of 2' &&
+      farm.rows.Doing.split('; ').every((words) => FARMER_WORDS.test(words)),
+    `the panel reads "${text(farm)}"`,
+  );
+  const boxes = {
+    clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),
+    hint: await page.getByRole('complementary', { name: 'Camera controls' }).boundingBox(),
+    stockpiles: await page.getByRole('status', { name: 'Stockpiles' }).boundingBox(),
+    selection: await page.getByRole('region', { name: 'Selection' }).boundingBox(),
+  };
+  const inside = (box) => box && box.x >= 0 && box.y >= 0 && box.x + box.width <= CLIP.width && box.y + box.height <= CLIP.height;
+  const tools = await toolbar.getByRole('button').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { name: node.getAttribute('aria-label'), box: { x, y, width, height } };
+    }),
+  );
+  const toolsApart = tools.every(({ box }, index) => tools.every((other, place) => place === index || disjoint(box, other.box)));
+  session.check(
+    `the toolbar holds its ${TOOLBAR_TOOLS.length} tools, Field and Farm among them, each inside the page and clear of the others, of the clock, of the camera hint, of the Stockpiles panel, and of the farm's panel, at ${CLIP.width}x${CLIP.height}`,
+    tools.map(({ name }) => name).join() === TOOLBAR_TOOLS.join() && tools.every(({ box }) => inside(box) && Object.values(boxes).every((other) => other && disjoint(box, other))) && toolsApart,
+    `${tools.map(({ name, box }) => `${name} ${describe(box)}`).join('; ')}; ${Object.entries(boxes).map(([part, box]) => `${part} ${describe(box)}`).join('; ')}`,
+  );
+  await session.screenshot(page, `sowing-toolbar-${CLIP.width}x${CLIP.height}`);
+
+  await session.reach(page, SOW_STOPS.sowing);
+  await session.still(page);
+  const farmSowing = await reads(page);
+  session.check(
+    `at ${await at(page)} the farm's panel reads what its farmers do`,
+    farmSowing?.title === 'Farm' && /^(Walking to a field to sow|Sowing a field)(; (Walking to a field to sow|Sowing a field))?$/.test(farmSowing.rows.Doing ?? ''),
+    `the panel reads "${text(farmSowing)}"`,
+  );
+  await session.screenshot(page, 'sowing-farm-panel');
+  await page.keyboard.press('Escape');
+  const clickFarmer = async (stop) => {
+    const boxesNow = Object.values(await uiBoxes(page)).filter(Boolean);
+    const clear = (spot) => spot.x > 0 && spot.y > 0 && spot.x < CLIP.width && spot.y < CLIP.height && boxesNow.every((box) => !(spot.x >= box.x && spot.x <= box.x + box.width && spot.y >= box.y && spot.y <= box.y + box.height));
+    let read = null;
+    for (const spot of farmerSpots(simAt[stop]).filter(clear)) {
+      read = await click(page, spot);
+      if (read?.rows?.Job === 'Farmer') return read;
+    }
+    return read;
+  };
+  const farmer = await clickFarmer('sowing');
+  session.check(
+    `at ${await at(page)} a farmer's panel reads its job and that it sows`,
+    farmer?.rows?.Job === 'Farmer' && sim.farmers.includes(farmer.title) && /^(Walking to a field to sow|Sowing a field)$/.test(farmer.rows.Doing ?? ''),
+    `the panel reads "${text(farmer)}"`,
+  );
+  await session.screenshot(page, 'sowing-farmer-panel');
+
+  await session.reach(page, SOW_STOPS.clipTo);
+  await session.still(page);
+  const clipTo = play.since();
+  const followed = await reads(page);
+  await expectField('clipTo', 'sowing-field-clip-end', 'at the end of the clip the field is part sown');
+  session.check(
+    `at ${await at(page)} the followed farmer still sows, and the rules have sown ${simAt.clipTo.sown.length} tiles`,
+    followed?.title === farmer?.title && /^(Walking to a field to sow|Sowing a field)$/.test(followed?.rows?.Doing ?? '') && simAt.clipTo.sown.length >= 3,
+    `the panel reads "${text(followed)}"; the rules sow ${sownKey(simAt.clipTo.sown)}`,
+  );
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, SOW_STOPS.midnight);
+  await expectField('midnight', 'sowing-field-midnight', 'at the first midnight the field is part sown');
+  await session.reach(page, SOW_STOPS.midnightSown);
+  await expectField('midnightSown', 'sowing-field-midnight-sown', 'at the second midnight the field is all sown');
+  await session.reach(page, SOW_STOPS.daySown);
+  const daySown = await expectField('daySown', 'sowing-field-day-sown', 'on the last day of spring the field is all sown');
+  await expectGrass(daySown);
+  const done = await clickFarmer('daySown');
+  session.check(
+    `at ${await at(page)}, the last day of spring, a farmer reads that the fields are sown`,
+    done?.rows?.Job === 'Farmer' && done.rows.Doing === 'Idle, the fields are sown',
+    `the panel reads "${text(done)}"`,
+  );
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, SOW_STOPS.summer);
+  await session.still(page);
+  const summer = await clickFarmer('summer');
+  session.check(
+    `at ${await at(page)}, the first day of summer, a farmer reads that nothing is sown until spring`,
+    summer?.rows?.Job === 'Farmer' && summer.rows.Doing === 'Idle, nothing is sown until spring',
+    `the panel reads "${text(summer)}"`,
+  );
+  await session.screenshot(page, 'sowing-farmer-summer');
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, SOW_STOPS.cancel);
+  await expectField('cancel', 'sowing-field-night-before-cancel', 'at the midnight after the first day of summer the field still stands sown');
+
+  await toToolbar();
+  await page.keyboard.press('Delete');
+  await page.mouse.move(cancelSpot.x, cancelSpot.y, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const cancelled = await said(page, /^Orders removed from/);
+  await page.keyboard.press('Escape');
+  await corner();
+  const after = await lookAt('sowing-field-cancelled');
+  await expectGrass(after);
+  const index = fieldTiles.findIndex((tile) => tileName(tile) === tileName(SOW_TILES.cancel));
+  const gone = after.tiles[index];
+  const rest = fieldTiles.filter((_, other) => other !== index && after.tiles[other].shoots >= SOW_LEAST.shoots).length;
+  session.check(
+    `a Cancel click on the sown tile ${tileName(SOW_TILES.cancel)} removes its field, and it looks like the grass again while the other ${fieldTiles.length - 1} keep their shoots`,
+    cancelled === 'Orders removed from 1 tile.' && gone.shoots <= SOW_MOST.shootsBare && gone.soil <= SOW_MOST.soilGrass && rest === fieldTiles.length - 1,
+    `the status line read "${cancelled}"; the tile shows ${gone.shoots} shoot pixels and ${percent(gone.soil)} soil; ${rest} other tiles show shoots`,
+  );
+
+  await session.finishClips(play.context, page, [{ label: 'sowing-field', from: clipFrom, to: clipTo, ...SOW_CLIP }]);
   seen.push(...play.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
@@ -4952,7 +5362,7 @@ const NO_LOG = 'Idle, no log in a stockpile within 30 tiles of the woodshed';
 const WOODCUTTER_DOING = new RegExp(
   `^(${[FETCHING_LOG, CARRYING_LOG, 'Walking to the woodshed to split a log', SPLITTING_LOG, 'Looking for a log', NO_LOG, 'Idle, the woodshed is full', 'Idle, the building sites need the logs', 'Idle, no log carried to a stockpile yet'].join('|')})$`,
 );
-const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
+const TOOLBAR_TOOLS = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Field', 'Farm', 'Cancel'];
 
 SCENARIOS.firewood = async (session) => {
   const { said } = siteDriver(session);
@@ -5330,7 +5740,6 @@ const CLOTHING_CLIPS = {
   hide: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 2 },
   piece: { crop: { x: 0, y: 0, width: 800, height: 490 }, width: 480, colors: 32, decimate: true, speed: 4 },
 };
-const TOOLBAR_TEN = ['Chop', 'Quarry', 'Stockpile', 'House', "Forager's hut", 'Barn', "Hunter's lodge", 'Woodshed', "Tailor's hut", 'Cancel'];
 
 SCENARIOS.clothing = async (session) => {
   const middle = { x: CLIP.width / 2, y: CLIP.height / 2 };
@@ -5701,8 +6110,8 @@ SCENARIOS.clothing = async (session) => {
   );
   const toolsApart = tools.every(({ box }, index) => tools.every((other, place) => place === index || disjoint(box, other.box)));
   session.check(
-    `the toolbar holds its ${TOOLBAR_TEN.length} tools, the Tailor's hut among them, each inside the page and clear of the others, of the clock, and of the camera hint, at ${CLIP.width}x${CLIP.height}`,
-    tools.map((one) => one.name).join() === TOOLBAR_TEN.join() && tools.every(({ box }) => inside(box) && disjoint(box, boxes.clock) && disjoint(box, boxes.hint)) && toolsApart,
+    `the toolbar holds its ${TOOLBAR_TOOLS.length} tools, the Tailor's hut among them, each inside the page and clear of the others, of the clock, and of the camera hint, at ${CLIP.width}x${CLIP.height}`,
+    tools.map((one) => one.name).join() === TOOLBAR_TOOLS.join() && tools.every(({ box }) => inside(box) && disjoint(box, boxes.clock) && disjoint(box, boxes.hint)) && toolsApart,
     `toolbar ${describe(boxes.toolbar)}; ${tools.map(({ name: one, box }) => `${one} ${describe(box)}`).join('; ')}; clock ${describe(boxes.clock)}; camera hint ${describe(boxes.hint)}`,
   );
   const others = Object.entries(boxes).filter(([part]) => part !== 'stockpiles');

@@ -4,6 +4,7 @@ import type { TileMap } from './map';
 import { Claim } from './orders';
 import { NOBODY, type Sim, createSim } from './sim';
 import { at, mapFrom } from './testMaps';
+import { NOT_SOWN } from './fields';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
 
 const OPEN = mapFrom(Array.from({ length: 9 }, () => '.........'));
@@ -46,7 +47,7 @@ describe('putting goods down', () => {
     const listed = [];
     for (let i = 0; i < changes.length; i += TILE_CHANGE_STRIDE) listed.push(Array.from(changes.subarray(i, i + TILE_CHANGE_STRIDE)));
     expect(listed.sort((a, b) => a[0]! - b[0]!)).toEqual(
-      found.map(([tile, good, size]) => [tile, sim.map.kinds[tile], 0, good, size]),
+      found.map(([tile, good, size]) => [tile, sim.map.kinds[tile], 0, good, size, NOT_SOWN]),
     );
   });
 

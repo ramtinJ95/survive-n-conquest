@@ -39,7 +39,7 @@ export interface Orders {
   readonly camp: number;
   /**
    * One Claim per tile, an array the size of the map. Chop only on tree tiles, Quarry only on rock tiles,
-   * Stockpile and Site only on open ground. A tile holds at most one claim, so illegal combinations cannot
+   * Stockpile and Site only on open ground, Field only on grass. A tile holds at most one claim, so illegal combinations cannot
    * be represented. Site covers both unfinished sites and finished buildings; the sites table tells them apart.
    */
   readonly claims: Uint8Array;
@@ -66,7 +66,7 @@ export interface TileArea {
   readonly y1: number;
 }
 
-export type AreaOrder = 'chop' | 'quarry' | 'stockpile' | 'cancel';
+export type AreaOrder = 'chop' | 'quarry' | 'stockpile' | 'field' | 'cancel';
 
 export type OrderCommand =
   | { readonly kind: 'markArea'; readonly order: AreaOrder; readonly area: TileArea }
@@ -78,6 +78,7 @@ export type Refusal =
   | 'no-trees'
   | 'no-rock'
   | 'no-open-ground'
+  | 'no-grass'
   | 'nothing-to-cancel'
   // A tile of the site.
   | 'off-map'
@@ -87,6 +88,7 @@ export type Refusal =
   | 'camp'
   | 'site'
   | 'stockpile'
+  | 'field'
   | 'goods'
   // The whole site.
   | 'uneven'
@@ -227,19 +229,25 @@ const AREA_RULES: Record<AreaOrder, AreaRule> = {
     changes: (map, orders, tile) =>
       orders.claims[tile] === Claim.None && !underCamp(map, orders.camp, tile) && openGround(map, tile),
   },
+  field: {
+    claim: Claim.Field,
+    refusal: 'no-grass',
+    changes: (map, orders, tile) =>
+      orders.claims[tile] === Claim.None && map.kinds[tile] === TileKind.Grass && map.stackSize[tile] === 0 && !underCamp(map, orders.camp, tile),
+  },
   cancel: {
     claim: Claim.None,
     refusal: 'nothing-to-cancel',
     changes: (_map, orders, tile) => {
       const claim = orders.claims[tile];
-      return claim === Claim.Chop || claim === Claim.Quarry || claim === Claim.Stockpile;
+      return claim === Claim.Chop || claim === Claim.Quarry || claim === Claim.Stockpile || claim === Claim.Field;
     },
   },
 };
 
 /**
  * Calls visit for each tile the area order would change, and returns the count. applyOrder uses it, and the
- * interface uses it for the drag preview. Cancel visits marked/stockpile tiles in the area and every tile
+ * interface uses it for the drag preview. Cancel visits marked, stockpile, and field tiles in the area and every tile
  * of each unfinished site that touches the area (never a finished building).
  */
 export function areaEffect(
@@ -279,7 +287,7 @@ export function areaEffect(
 
 /**
  * What stops this one tile from taking part in a site, or null. Order: water, rock, trees, camp,
- * site (incl. a finished building), stockpile, goods.
+ * site (incl. a finished building), stockpile, field, goods.
  */
 export function siteTileProblem(map: TileMap, orders: Orders, tile: number): Refusal | null {
   const kind = map.kinds[tile];
@@ -290,6 +298,7 @@ export function siteTileProblem(map: TileMap, orders: Orders, tile: number): Ref
   const claim = orders.claims[tile];
   if (claim === Claim.Site) return 'site';
   if (claim === Claim.Stockpile) return 'stockpile';
+  if (claim === Claim.Field) return 'field';
   if (map.stackSize[tile]! > 0) return 'goods';
   return null;
 }

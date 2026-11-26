@@ -35,6 +35,23 @@ export function firstYearCommands(): Command[] {
 }
 
 /**
+ * The farm of the first spring on seed 7, on the hut's anchor, and its field of
+ * 24 tiles of grass north west of it, 6 by 4, clear of the camp, whose middle
+ * is 6.4 tiles from the farm's middle. The hut's four trees give the farm's 8 logs.
+ */
+export const FIRST_SPRING_FARM = FIRST_YEAR_HUT;
+export const FIRST_SPRING_FIELD: TileArea = { x0: 129, y0: 122, x1: 134, y1: 125 };
+
+/** The commands given at the first tick of the first spring: the farm, its field, and a chop order for each of its log trees. */
+export function firstSpringCommands(): Command[] {
+  return [
+    { kind: 'place', building: Building.Farm, x: FIRST_SPRING_FARM.x, y: FIRST_SPRING_FARM.y },
+    { kind: 'markArea', order: 'field', area: FIRST_SPRING_FIELD },
+    ...FIRST_YEAR_LOG_TREES.map((at): Command => ({ kind: 'markArea', order: 'chop', area: { x0: at[0], y0: at[1], x1: at[0], y1: at[1] } })),
+  ];
+}
+
+/**
  * Where the first year's barn stands in the two runs that compare its place.
  * Beside the hut, the barn is on the forest side of it, its middle 2.5 tiles
  * from the hut's middle and 12 tiles from the camp center. Far from it, the barn

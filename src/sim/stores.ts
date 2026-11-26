@@ -105,6 +105,7 @@ const BUILDING_STORES: Readonly<Record<Building, StoreRow>> = {
   [Building.Lodge]: NO_STORE,
   [Building.Woodshed]: { kind: StoreKind.Workshop, limits: { [Good.Firewood]: WOODSHED_FIREWOOD_LIMIT }, fire: 0 },
   [Building.Tailor]: { kind: StoreKind.Workshop, limits: { [Good.Clothing]: TAILOR_CLOTHING_LIMIT }, fire: 0 },
+  [Building.Farm]: NO_STORE,
 };
 
 /** The one place that says what each store is. Anything that is no store holds nothing. */

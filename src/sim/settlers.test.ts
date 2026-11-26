@@ -5,6 +5,7 @@ import { TileKind, type TileMap, tileAt, walkable } from './map';
 import { generateMap } from './mapgen';
 import { type Command, SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { mapFrom } from './testMaps';
+import { NOT_SOWN } from './fields';
 import { changeTile, takeTileChanges } from './tileChanges';
 import { WANDER_REACH } from './villagers';
 
@@ -164,7 +165,7 @@ describe('tile changes', () => {
     changeTile(sim, first, TileKind.Water);
     changeTile(sim, second, TileKind.Rock);
     changeTile(sim, first, TileKind.Rock);
-    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, 0, 0, 0, second, TileKind.Rock, 0, 0, 0]);
+    expect(Array.from(takeTileChanges(sim))).toEqual([first, TileKind.Rock, 0, 0, 0, NOT_SOWN, second, TileKind.Rock, 0, 0, 0, NOT_SOWN]);
     expect(takeTileChanges(sim).length).toBe(0);
     expect(sim.flow.next[first]).toBe(-1);
     expect(sim.flow.next[second]).toBe(-1);

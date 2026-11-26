@@ -1,4 +1,5 @@
-const CHUNK_SHIFT = 4;
+/** A chunk is `1 << CHUNK_SHIFT` tiles along each side. */
+export const CHUNK_SHIFT = 4;
 const CHUNK = 1 << CHUNK_SHIFT;
 
 /**
