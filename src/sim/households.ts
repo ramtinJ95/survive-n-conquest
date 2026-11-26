@@ -262,9 +262,6 @@ function vacate(households: Households, h: number): void {
   households.vacant[households.vacantCount++] = slot;
 }
 
-/** Whether villager `id`, alive or not, holds a place in the couple of household `h`. */
-const inCouple = (households: Households, h: number, id: number) => households.man[h] === id || households.woman[h] === id;
-
 /**
  * The partner of villager `id`: the other place of its own household's couple
  * when it holds one, or `NO_VILLAGER`. The partner can have died.
@@ -287,7 +284,8 @@ function join(households: Households, villagers: Villagers, h: number, id: numbe
   const from = villagers.household[id]!;
   const lodged = villagers.lodging[id]!;
   const houseless = households.home[h] === NO_HOME;
-  if (houseless && households.home[from] !== NO_HOME && inCouple(households, h, id)) lodge(households, villagers, id, households.home[from]!);
+  const couple = households.man[h] === id || households.woman[h] === id;
+  if (houseless && couple && households.home[from] !== NO_HOME) lodge(households, villagers, id, households.home[from]!);
   addMember(households, villagers, h, id);
   loseMember(households, villagers, id, from);
   if (houseless && households.home[h] === NO_HOME && lodged !== NO_HOME) lodge(households, villagers, id, lodged);
