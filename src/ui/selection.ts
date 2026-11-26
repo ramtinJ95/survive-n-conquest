@@ -10,6 +10,7 @@ import { isNight } from '../sim/daylight';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
+import { FieldState, type FieldTiles, SOWING, fieldState, sowsAt } from '../sim/fields';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
@@ -17,7 +18,7 @@ import { NO_HOME } from '../sim/households';
 import { FETCHING_KILL, HUNTING } from '../sim/hunting';
 import { TileKind, type TileMap, tileAt } from '../sim/map';
 import { Sex, nameOf } from '../sim/names';
-import { type Orders, SiteState } from '../sim/orders';
+import { Claim, type Orders, SiteState } from '../sim/orders';
 import type { Command } from '../sim/sim';
 import { STOCKING } from '../sim/stocking';
 import {
@@ -45,10 +46,11 @@ import './selection.css';
 
 export type { Selection };
 
-/** What the panels read: the main thread's copies of the map and the orders, and the newest frame from the worker. */
+/** What the panels read: the main thread's copies of the map, the orders, and the field tiles, and the newest frame from the worker. */
 export interface Facts {
   readonly map: TileMap;
   readonly orders: Orders;
+  readonly fields: FieldTiles;
   readonly camp: number;
   readonly frame: Pick<
     SimFrame,
@@ -155,6 +157,7 @@ const FETCH_KILL = task(FETCHING_KILL);
 const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
 const WEAR = task(WEARING);
+const SOW = task(SOWING);
 const WINTER = SEASONS.indexOf('Winter');
 
 /**
@@ -258,6 +261,7 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
     return 'Walking to a kill to pick up food';
   },
   [HUNT]: (_facts, _id, working) => (working ? 'Aiming at a deer' : 'Stalking a deer'),
+  [SOW]: (_facts, _id, working) => (working ? 'Sowing a field' : 'Walking to a field to sow'),
   [WORK]: (facts, id, working) => {
     const { frame } = facts;
     const words = workshopWords(facts, frame.workplaces[id]!);
@@ -300,6 +304,29 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
   return jobAt(orders.sites, frame.workplaces[id]!);
 }
 
+/**
+ * Why a farmer at the farm in `slot` is idle: the season, or what lies in the
+ * farm's reach. A bare tile that another farmer sows, or that no walk reaches,
+ * still counts as one to sow.
+ */
+function farmerIdle({ orders, fields, frame, map }: Facts, slot: number): string {
+  if (!sowsAt(frame.tick)) return 'Idle, nothing is sown until spring';
+  const { size } = map;
+  const { reach } = BUILDINGS[Building.Farm];
+  const cx = siteMidX(orders.sites, slot);
+  const cy = siteMidY(orders.sites, slot);
+  let field = false;
+  for (let y = Math.max(Math.ceil(cy - reach - 0.5), 0); y <= Math.min(Math.floor(cy + reach - 0.5), size - 1); y++) {
+    for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
+      const tile = y * size + x;
+      if (orders.claims[tile] !== Claim.Field || !withinReach(orders.sites, slot, x + 0.5, y + 0.5)) continue;
+      if (fieldState(fields, tile) === FieldState.Bare) return 'Looking for a field to sow';
+      field = true;
+    }
+  }
+  return field ? 'Idle, the fields are sown' : `Idle, no field within ${reach} tiles of the farm`;
+}
+
 /** Why a worker at a workshop is idle, as its workshop's last look for work found. */
 function workshopIdle(facts: Facts, id: number): string {
   const slot = facts.frame.workplaces[id]!;
@@ -322,6 +349,7 @@ const IDLE_WORDS: Readonly<Record<Job, (facts: Facts, id: number) => string>> = 
   },
   [Job.Woodcutter]: (facts, id) => workshopIdle(facts, id),
   [Job.Tailor]: (facts, id) => workshopIdle(facts, id),
+  [Job.Farmer]: (facts, id) => farmerIdle(facts, facts.frame.workplaces[id]!),
 };
 
 /** What a villager does by night, or once dead, by its state, whatever task it holds. */
@@ -490,6 +518,13 @@ function sitePanel(building: Building): Panel<BuildingSelection> {
   };
 }
 
+/** What the workers at a workplace do, in the order they came, each doing named once, or that nobody works there. */
+function workersDoing(facts: Facts, slot: number): string {
+  const { workplaces, hired } = facts.frame;
+  const ids = [...workplaces.keys()].filter((id) => workplaces[id] === slot).sort((a, b) => hired[a]! - hired[b]!);
+  return ids.length === 0 ? 'Nobody works here' : [...new Set(ids.map((id) => doing(facts, id)))].join('; ');
+}
+
 /** What the worker at a workshop does, in the words of its own panel, or that nobody works there. */
 function workAt(facts: Facts, slot: number): string {
   const id = facts.frame.workplaces.indexOf(slot);
@@ -604,6 +639,10 @@ export const PANELS: Panels = {
       { label: 'Doing', read: (facts, { slot }) => workAt(facts, slot) },
     ],
   ),
+  farmSite: sitePanel(Building.Farm),
+  farm: workplacePanel(Building.Farm, `Its farmers sow the fields within ${BUILDINGS[Building.Farm].reach} tiles in spring.`, [
+    { label: 'Doing', read: (facts, { slot }) => workersDoing(facts, slot) },
+  ]),
   camp: {
     title: 'Camp',
     rows: [
@@ -689,6 +728,7 @@ const setText = (node: HTMLElement, text: string) => {
 interface SelectionSetup {
   readonly map: TileMap;
   readonly orders: Orders;
+  readonly fields: FieldTiles;
   readonly camp: number;
   readonly canvas: HTMLCanvasElement;
   readonly camera: PerspectiveCamera;
@@ -706,7 +746,7 @@ interface SelectionSetup {
  * and what it is doing. A click on bare ground, the close button, or Escape
  * clears the selection.
  */
-export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, camera, mark, mainButtonPans, send, panels = PANELS }: SelectionSetup) {
+export function mountSelection(root: HTMLElement, { map, orders, fields, camp, canvas, camera, mark, mainButtonPans, send, panels = PANELS }: SelectionSetup) {
   const panel = document.createElement('section');
   panel.className = 'selection';
   panel.setAttribute('role', 'region');
@@ -730,7 +770,7 @@ export function mountSelection(root: HTMLElement, { map, orders, camp, canvas, c
   let controls: HTMLButtonElement[][] = [];
   let text: PanelText | null = null;
 
-  const facts = (): Facts | null => (frame ? { map, orders, camp, frame } : null);
+  const facts = (): Facts | null => (frame ? { map, orders, fields, camp, frame } : null);
 
   const refresh = () => {
     selection = keepSelection(selection, orders);

@@ -43,6 +43,8 @@ export const ORDER_COLORS = {
   lodge: SITE,
   woodshed: SITE,
   tailor: SITE,
+  farm: SITE,
+  field: '#ffe14d',
   cancel: '#ff4d8d',
   fits: '#7dff8a',
 } as const;
@@ -53,7 +55,11 @@ const CLAIM_COLORS: Record<Claim, string> = {
   [Claim.Quarry]: ORDER_COLORS.quarry,
   [Claim.Stockpile]: ORDER_COLORS.stockpile,
   [Claim.Site]: SITE,
+  [Claim.Field]: ORDER_COLORS.field,
 };
+
+/** A field tile is drawn as tilled soil inside its outline, and a sown one with rows of green shoots across it. */
+const FIELD_LOOK = { soil: '#6b4a2b', shoots: '#a6d64a', soilShare: 0.75, rows: 3, rowWidth: 0.4 };
 
 const PREVIEW_COLORS: Record<Preview, string> = {
   [Preview.None]: '#000000',
@@ -77,6 +83,8 @@ uniform vec3 claimColors[${Object.keys(CLAIM_COLORS).length}];
 uniform vec3 previewColors[${Object.keys(PREVIEW_COLORS).length}];
 uniform vec4 ordersArea;
 uniform vec3 ordersAreaColor;
+uniform vec3 fieldSoil;
+uniform vec3 fieldShoots;
 
 int orderKey(ivec2 tile) {
   int size = int(ordersSize);
@@ -113,7 +121,14 @@ void drawOrders(inout vec3 color) {
       dark = max(dark, step(toEdge[side], 2.0 * line));
     }
     vec3 tint = orderColor(key);
-    color = mix(color, tint, key >= 8 ? 0.82 : 0.45);
+    if (key == ${Claim.Field}) {
+      color = mix(color, linearToOutputTexel(vec4(fieldSoil, 1.0)).rgb, ${FIELD_LOOK.soilShare.toFixed(2)});
+      bool sown = texelFetch(ordersMap, tile, 0).b > 0.5;
+      float row = step(1.0 - ${FIELD_LOOK.rowWidth.toFixed(2)}, fract(inTile.x * ${FIELD_LOOK.rows.toFixed(1)}));
+      if (sown) color = mix(color, linearToOutputTexel(vec4(fieldShoots, 1.0)).rgb, row);
+    } else {
+      color = mix(color, tint, key >= 8 ? 0.82 : 0.45);
+    }
     color = mix(color, tint * 0.18, 0.75 * max(dark - bright, 0.0));
     color = mix(color, tint, bright);
   }
@@ -192,7 +207,7 @@ function pinMaterial(color: string, scale: { value: number }, outline: boolean):
 /**
  * Draws the orders on the map: a tint and an outline on every claimed tile,
  * drawn into the terrain's own shader, and a pin over every tree marked for
- * felling. The interface draws its previews through the same layer.
+ * felling. A field tile is tilled soil, with rows of shoots once it is sown. The interface draws its previews through the same layer.
  *
  * `treeTop` gives the top of the tree on a tile, in world coordinates.
  */
@@ -218,6 +233,8 @@ export function createOrderMarks(
     previewColors: { value: previewColors },
     ordersArea: { value: area },
     ordersAreaColor: { value: areaColor },
+    fieldSoil: { value: linear(FIELD_LOOK.soil) },
+    fieldShoots: { value: linear(FIELD_LOOK.shoots) },
   };
   const before = terrainMaterial.onBeforeCompile;
   terrainMaterial.onBeforeCompile = (shader, renderer) => {
@@ -286,6 +303,12 @@ export function createOrderMarks(
       pins.count = count;
       outlines.count = count;
       pins.instanceMatrix.needsUpdate = true;
+      texture.needsUpdate = true;
+    },
+
+    /** Draws a field tile as sown or as bare. */
+    showCrop(tile: number, sown: boolean) {
+      texels[tile * 4 + 2] = sown ? 255 : 0;
       texture.needsUpdate = true;
     },
 

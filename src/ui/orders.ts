@@ -118,11 +118,28 @@ export const TOOLS: readonly Tool[] = [
     icon: '<path d="M8 4 4 7.5l2 3 2-1.2V20h8V9.3l2 1.2 2-3L16 4"/><path d="M10 4a2 2 0 0 0 4 0"/>',
   },
   {
+    id: 'field',
+    label: 'Field',
+    codes: ['KeyI'],
+    key: 'I',
+    hint: 'Drag over grass to mark a field. Farmers sow it in spring.',
+    icon: '<path d="M4 18h16"/><path d="M6 18v-5M10 18v-6M14 18v-6M18 18v-5"/><path d="M6 13c0-2 1.5-3 3-3M14 12c0-2 1.5-3 3-3"/>',
+  },
+  {
+    id: 'farm',
+    building: Building.Farm,
+    label: 'Farm',
+    codes: ['KeyO'],
+    key: 'O',
+    hint: `Click to place a farm on 2 by 2 tiles of open, level ground. Its farmers sow the fields within ${BUILDINGS[Building.Farm].reach} tiles in spring.`,
+    icon: '<path d="M4 11.5 12 5l8 6.5"/><path d="M6 10v10h12V10"/><path d="M10.5 20v-4.5h3V20"/><path d="M3 20h18"/>',
+  },
+  {
     id: 'cancel',
     label: 'Cancel',
     codes: ['Delete', 'Backspace'],
     key: 'Del',
-    hint: 'Drag over marks, stockpiles, and building sites to remove them.',
+    hint: 'Drag over marks, stockpiles, fields, and building sites to remove them.',
     icon: '<circle cx="12" cy="12" r="8"/><path d="m6.5 17.5 11-11"/>',
   },
 ];
@@ -143,6 +160,7 @@ const REFUSALS: Readonly<Record<Refusal, (site: RefusedSite) => string>> = {
   'no-trees': () => 'No unmarked trees stand there.',
   'no-rock': () => 'No unmarked rock lies there.',
   'no-open-ground': () => 'No open ground there can join a stockpile.',
+  'no-grass': () => 'No unmarked grass free of goods there can join a field.',
   'nothing-to-cancel': () => 'Nothing there to cancel.',
   'off-map': () => 'The site runs off the edge of the map.',
   water: ({ noun }) => `A ${noun} cannot stand in water.`,
@@ -154,6 +172,7 @@ const REFUSALS: Readonly<Record<Refusal, (site: RefusedSite) => string>> = {
     return other === noun ? `Another ${noun} stands in the way.` : `${capital(`a ${other}`)} stands in the way.`;
   },
   stockpile: () => 'A stockpile stands in the way.',
+  field: () => 'A field lies in the way. Cancel it first.',
   goods: () => 'Goods lie on the site.',
   uneven: ({ side }) => `The ground is too steep. Its ${TILE_COUNTS[side * side] ?? side * side} tiles may differ by ${MAX_SITE_RISE} m at most.`,
   divides: ({ noun }) => `The ${noun} would cut land off from the camp.`,
@@ -231,6 +250,8 @@ const DONE: Readonly<Record<OrderOutcome['order'], (tiles: number) => string>> =
   lodge: () => `${BUILDING_WORDS[Building.Lodge].title} site placed.`,
   woodshed: () => `${BUILDING_WORDS[Building.Woodshed].title} site placed.`,
   tailor: () => `${BUILDING_WORDS[Building.Tailor].title} site placed.`,
+  farm: () => `${BUILDING_WORDS[Building.Farm].title} site placed.`,
+  field: (tiles) => `${plural(tiles, 'tile joins', 'tiles join')} the field.`,
   cancel: (tiles) => `Orders removed from ${plural(tiles, 'tile', 'tiles')}.`,
 };
 
@@ -245,6 +266,7 @@ const PENDING: Readonly<Record<AreaOrder, (tiles: number) => string>> = {
   chop: (tiles) => `Release to mark ${plural(tiles, 'tree', 'trees')}.`,
   quarry: (tiles) => `Release to mark ${plural(tiles, 'rock tile', 'rock tiles')}.`,
   stockpile: (tiles) => `Release to add ${plural(tiles, 'tile', 'tiles')} to the stockpile.`,
+  field: (tiles) => `Release to add ${plural(tiles, 'tile', 'tiles')} to the field.`,
   cancel: (tiles) => `Release to clear ${plural(tiles, 'tile', 'tiles')}.`,
 };
 

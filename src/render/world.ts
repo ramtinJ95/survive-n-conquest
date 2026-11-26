@@ -3,6 +3,7 @@ import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
+import { FieldState, createFieldTiles, fieldState } from '../sim/fields';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
@@ -40,6 +41,8 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const { terrain, repaint } = createTerrain(map, seasonMix, camp);
   /** The simulation's orders as the main thread knows them, for the interface's previews. */
   const orders = createOrders(map, camp);
+  /** The simulation's field tiles as the main thread knows them, from the tile changes. */
+  const fields = createFieldTiles(map.size * map.size);
   const scenery = createScenery(map, seasonMix, clock, camp);
   const campsite = createCamp(map, camp, shapes);
   const { water, bed } = createWater(map, seasonMix, clock);
@@ -97,6 +100,10 @@ export function createWorld(map: TileMap, shapes: Shapes) {
       map.trees[tile] = tree;
       map.stackGood[tile] = groups[i + 3]!;
       map.stackSize[tile] = groups[i + 4]!;
+      if (fields.sownAt[tile] !== groups[i + 5]) {
+        fields.sownAt[tile] = groups[i + 5]!;
+        marks.showCrop(tile, fieldState(fields, tile) === FieldState.Sown);
+      }
       if (reshaped) repaint(tile);
       if (reshaped || felled || stacked) scenery.refresh(tile);
       if (stacked) goods.refresh(tile);
@@ -111,5 +118,5 @@ export function createWorld(map: TileMap, shapes: Shapes) {
     if (changes.sites.length > 0) sites.show(orders);
   };
 
-  return { scene, rig, show, camp, changeTiles, orders, marks, changeOrders, showFires };
+  return { scene, rig, show, camp, changeTiles, orders, fields, marks, changeOrders, showFires };
 }

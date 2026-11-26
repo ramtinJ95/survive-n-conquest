@@ -95,7 +95,7 @@ describe("the tailor's hut tool", () => {
     expect(sitePreview(map, orders, Building.Hut, 5, 5).line).toBe("Cannot build here. A tailor's hut stands in the way.");
   });
 
-  it('is the ninth of ten tools, before Cancel, each on its own key', () => {
-    expect(TOOLS.map(({ key }) => key)).toEqual(['C', 'M', 'P', 'H', 'G', 'B', 'L', 'K', 'T', 'Del']);
+  it('is the ninth of twelve tools, before Field, Farm, and Cancel, each on its own key', () => {
+    expect(TOOLS.map(({ key }) => key)).toEqual(['C', 'M', 'P', 'H', 'G', 'B', 'L', 'K', 'T', 'I', 'O', 'Del']);
   });
 });

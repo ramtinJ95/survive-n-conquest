@@ -9,6 +9,7 @@ import { TICKS_PER_DAY, TICKS_PER_YEAR_OF_AGE, dateAt, tickOfDay } from '../sim/
 import { isDawn, isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
+import { createFieldTiles } from '../sim/fields';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { shotHits } from '../sim/hunting';
@@ -33,7 +34,7 @@ const task = (kind: TaskKind) => TASK_KINDS.indexOf(kind) + 1;
 
 /** The facts the main thread holds about a simulation, with the frame the worker would post. */
 function factsOf(sim: Sim): Facts {
-  return { map: sim.map, orders: sim.orders, camp: sim.camp, frame: frameOf(sim).frame };
+  return { map: sim.map, orders: sim.orders, fields: sim.fields, camp: sim.camp, frame: frameOf(sim).frame };
 }
 
 const settler = (facts: Facts, id: number) => readPanel({ kind: 'villager', id }, facts).rows.find((row) => row.label === 'Doing')!.value;
@@ -121,6 +122,7 @@ describe("a settler's panel", () => {
     const map = mapFrom(Array.from({ length: 12 }, () => '.'.repeat(12)));
     const facts = (state: number, taskValue: number, carried: Good): Facts => ({
       map,
+      fields: createFieldTiles(map.size * map.size),
       orders: createOrders(map, at(map, 6, 6)),
       camp: at(map, 6, 6),
       frame: {
@@ -353,6 +355,7 @@ describe("a forager's hut's panel", () => {
     const { frame } = siteFacts();
     const facts: Facts = {
       map,
+      fields: createFieldTiles(map.size * map.size),
       orders,
       camp: at(map, 12, 12),
       frame: frame([4.5, 4.5, 8.5, 8.5], [task(BUILDING), task(SUPPLYING)], [at(map, 4, 4), at(map, 9, 9)], [VillagerState.Working, VillagerState.Walking]),
@@ -422,6 +425,74 @@ function lodgeSettlement(): { sim: Sim; slot: number; hunter: number } {
   applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
   return { sim, slot, hunter: workersOf(sim, slot)[0]! };
 }
+
+/** Four settlers on open grass and a farm 4 tiles east of the camp, finished at once, whose two farmers are the nearest settlers. */
+function farmSettlement(campFood?: number): { sim: Sim; slot: number; selection: Selection } {
+  const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48)), SEED), { villagers: 4, monsters: 0, ...(campFood === undefined ? {} : { campFood }) });
+  const x = (sim.camp % sim.map.size) + 4;
+  const y = Math.floor(sim.camp / sim.map.size);
+  expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x, y })).toMatchObject({ ok: true });
+  const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
+  finishBuilding(sim, slot);
+  return { sim, slot, selection: { kind: 'building', slot, anchor: at(sim.map, x, y) } };
+}
+
+describe("a farm's panel and a farmer's panel", () => {
+  const field = (sim: Sim, x0: number, y0: number, x1: number, y1: number) =>
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0, y0, x1, y1 } })).toMatchObject({ ok: true });
+  const farmRow = (sim: Sim, selection: Selection, label: string) => readPanel(selection, factsOf(sim)).rows.find((row) => row.label === label)!.value;
+
+  it('says what the farm does, names its two farmers, reads its places, and says what they do', () => {
+    const { sim, slot, selection } = farmSettlement();
+    const [first, second] = workersOf(sim, slot);
+    expect(readPanel(selection, factsOf(sim))).toMatchObject({
+      kind: 'farm',
+      title: 'Farm',
+      note: 'Its farmers sow the fields within 20 tiles in spring.',
+      rows: [
+        { label: 'Farmers', value: `${nameOfId(sim, first!)} and ${nameOfId(sim, second!)}` },
+        { label: 'Places', value: '2 of 2' },
+        { label: 'Doing', value: 'Idle, no field within 20 tiles of the farm' },
+      ],
+    });
+    expect(farmRow(sim, { kind: 'building', slot, anchor: selection.kind === 'building' ? selection.anchor : 0 }, 'Doing')).toBe('Idle, no field within 20 tiles of the farm');
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 0 });
+    expect(farmRow(sim, selection, 'Doing')).toBe('Nobody works here');
+  });
+
+  it('reads a farmer through a spring day: walking to a field, sowing it, and idle once the fields in reach are sown', () => {
+    const { sim, slot, selection } = farmSettlement();
+    const farmers = workersOf(sim, slot);
+    const cx = sim.camp % sim.map.size;
+    const cy = Math.floor(sim.camp / sim.map.size);
+    field(sim, cx + 4, cy + 4, cx + 6, cy + 5);
+    field(sim, cx - 18, cy + 1, cx - 17, cy + 1);
+    expect(farmers.map((id) => readPanel({ kind: 'villager', id }, factsOf(sim)).rows.find((row) => row.label === 'Job')!.value)).toEqual(['Farmer', 'Farmer']);
+    const seen = new Set<string>();
+    const farm = new Set<string>();
+    while (!isNight(sim.tick)) {
+      step(sim);
+      for (const id of farmers) seen.add(settler(factsOf(sim), id));
+      farm.add(farmRow(sim, selection, 'Doing'));
+    }
+    expect(sim.tally.sown).toBe(6);
+    expect(seen).toEqual(new Set(['Walking to a field to sow', 'Sowing a field', 'Looking for a field to sow', 'Idle, the fields are sown']));
+    expect(farm).toContain('Sowing a field');
+    expect(farm).toContain('Sowing a field; Walking to a field to sow');
+    expect(farm).toContain('Idle, the fields are sown');
+  });
+
+  it('says nothing is sown until spring, in summer, with bare fields in reach', () => {
+    const { sim, slot } = farmSettlement(100);
+    const farmers = workersOf(sim, slot);
+    while (dateAt(sim.tick).season !== 'Summer' || dateAt(sim.tick).minuteOfDay < 12 * 60) step(sim);
+    const cx = sim.camp % sim.map.size;
+    const cy = Math.floor(sim.camp / sim.map.size);
+    field(sim, cx + 4, cy + 4, cx + 6, cy + 5);
+    step(sim);
+    expect(farmers.map((id) => settler(factsOf(sim), id))).toEqual(['Idle, nothing is sown until spring', 'Idle, nothing is sown until spring']);
+  });
+});
 
 describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says what the lodge does and names its hunter, with its places', () => {
@@ -722,6 +793,7 @@ describe('a building panel', () => {
     const elsewhere = at(map, 9, 9);
     const facts: Facts = {
       map,
+      fields: createFieldTiles(map.size * map.size),
       orders,
       camp,
       frame: frame([3.5, 3.5, 5.5, 5.5, 1.5, 1.5, 4.5, 2.5], [task(BUILDING), task(BUILDING), task(SUPPLYING), task(BUILDING)], [anchor, anchor, anchor, elsewhere]),
@@ -767,7 +839,7 @@ describe('a building panel', () => {
   it("says in winter whether a house's fire burned last night, and nothing of it outside winter", () => {
     const { map, camp, orders, slot, building, frame } = siteFacts();
     orders.sites.state[slot] = SiteState.Built;
-    const facts: Facts = { map, orders, camp, frame: frame([3.5, 3.5], [0], [-1]) };
+    const facts: Facts = { map, orders, fields: createFieldTiles(map.size * map.size), camp, frame: frame([3.5, 3.5], [0], [-1]) };
     const at = (day: number, minute: number) => {
       let tick = 0;
       while (dateAt(tick).day < day || (dateAt(tick).day === day && dateAt(tick).minuteOfDay < minute)) tick += 1;
@@ -822,7 +894,7 @@ describe('a building panel', () => {
 
   it('counts the settlers under the camp', () => {
     const { map, camp, orders, frame } = siteFacts();
-    const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5, 14.4, 12.5, 10.2, 11.1, 15.5, 12.5, 3.5, 3.5], [0, 0, 0, 0, 0], [-1, -1, -1, -1, -1]) };
+    const facts: Facts = { map, orders, fields: createFieldTiles(map.size * map.size), camp, frame: frame([12.5, 12.5, 14.4, 12.5, 10.2, 11.1, 15.5, 12.5, 3.5, 3.5], [0, 0, 0, 0, 0], [-1, -1, -1, -1, -1]) };
     facts.frame.storeFood[CAMP_STORE] = 24;
     expect(readPanel({ kind: 'camp' }, facts)).toEqual({
       kind: 'camp',
@@ -842,7 +914,7 @@ describe('a building panel', () => {
   it('does not count a settler inside its house, or a dead one, as here, even on a camp tile', () => {
     const { map, camp, orders, frame } = siteFacts();
     const { Settling, Inside, Dead } = VillagerState;
-    const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5, 14.4, 12.5, 10.2, 11.1], [0, 0, 0], [-1, -1, -1], [Settling, Inside, Dead]) };
+    const facts: Facts = { map, orders, fields: createFieldTiles(map.size * map.size), camp, frame: frame([12.5, 12.5, 14.4, 12.5, 10.2, 11.1], [0, 0, 0], [-1, -1, -1], [Settling, Inside, Dead]) };
     expect(readPanel({ kind: 'camp' }, facts).rows[0]).toEqual({ label: 'Settlers here', value: '1' });
   });
 });
@@ -852,7 +924,7 @@ describe('the mark of a building', () => {
     const { map, camp, orders, frame, building: house } = siteFacts();
     expect(applyOrder(map, orders, { kind: 'place', building: Building.Hut, x: 9, y: 4 })).toMatchObject({ ok: true });
     const hut: Selection = { kind: 'building', slot: orders.siteOf[at(map, 9, 4)]!, anchor: at(map, 9, 4) };
-    const facts: Facts = { map, orders, camp, frame: frame([12.5, 12.5], [0], [-1]) };
+    const facts: Facts = { map, orders, fields: createFieldTiles(map.size * map.size), camp, frame: frame([12.5, 12.5], [0], [-1]) };
 
     const houseRing = markPlace(house, facts)!;
     const hutRing = markPlace(hut, facts)!;
