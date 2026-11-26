@@ -3224,12 +3224,15 @@ SCENARIOS.orders = async (session) => {
   session.check('ArrowDown moves from Chop to Quarry', await tool(view, 'Quarry').evaluate((node) => node === document.activeElement), 'focus on Quarry');
   let afterArrow = await session.screenshot(view, 'orders-15b-after-arrow');
   session.expectSameOutside('an arrow key in the toolbar leaves the camera alone', beforeArrow, afterArrow, toolbarCover, 0.2);
-  for (const [key, from, to] of [['ArrowRight', 'Quarry', 'Stockpile'], ['ArrowLeft', 'Stockpile', 'Quarry']]) {
+  const column = await toolbar(view).getByRole('button').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
+  for (const [key, step, way] of [['ArrowRight', 1, 'below'], ['ArrowLeft', -1, 'above']]) {
     const before = afterArrow;
+    const from = await focused();
+    const to = column[(column.indexOf(from) + step + column.length) % column.length];
     await session.hold(view, key, 600);
     await session.still(view);
     const at = await focused();
-    session.check(`a held ${key} in the toolbar moves from ${from} to ${to}`, at === to, `focus on ${at}`);
+    session.check(`a held ${key} in the toolbar moves the focus to the tool ${way}`, at === to, `from ${from} to ${at}, needs ${to}`);
     afterArrow = await session.screenshot(view, `orders-15c-after-${key}`);
     session.expectSameOutside(`a held ${key} in the toolbar leaves the camera alone`, before, afterArrow, toolbarCover, 0.2);
   }
