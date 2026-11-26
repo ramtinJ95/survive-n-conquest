@@ -45,6 +45,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly sexes: Uint8Array;
   /** The household of each villager in id order. */
   readonly households: Int16Array;
+  /** The site slot of the house each villager lodges in while its household has none, in id order, or `NO_HOME`. */
+  readonly lodgings: Int16Array;
   /** 1 for each villager in id order while it is a child, who does no work. */
   readonly children: Uint8Array;
   /** The ids of each villager's mother and of its father in id order, or -1 for a settler the map started with. */
@@ -151,6 +153,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     names: villagers.name.slice(0, count),
     sexes: villagers.sex.slice(0, count),
     households: villagers.household.slice(0, count),
+    lodgings: villagers.lodging.slice(0, count),
     children: villagers.child.slice(0, count),
     mothers: villagers.mother.slice(0, count),
     fathers: villagers.father.slice(0, count),
@@ -194,6 +197,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.names,
     frame.sexes,
     frame.households,
+    frame.lodgings,
     frame.children,
     frame.mothers,
     frame.fathers,

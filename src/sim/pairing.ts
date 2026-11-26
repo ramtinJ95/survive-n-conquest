@@ -1,5 +1,5 @@
 import { GROWN_AGE, ageAt } from './aging';
-import { MAX_HOUSEHOLDS, NO_VILLAGER, emptyHouse, formHousehold, loseMember } from './households';
+import { NO_VILLAGER, pair } from './households';
 import { Sex } from './names';
 import type { Sim } from './sim';
 import { VILLAGER_ROWS, VillagerState } from './villagerState';
@@ -66,8 +66,7 @@ function takeNearestMan(villagers: Villagers, woman: number, age: number): numbe
  * oldest to the youngest, by the lower id at one age, and each takes the
  * single man she can pair with nearest her in age, the older when two are as
  * near, then the lower id. The two leave their households and form one of
- * their own in the empty house finished first, or at the camp when none
- * stands. Pairing stops once the household table is full.
+ * their own, by `pair`. Pairing stops once the household table is full.
  */
 export function pairSettlers(sim: Sim): void {
   const { villagers, households } = sim;
@@ -82,10 +81,7 @@ export function pairSettlers(sim: Sim): void {
     for (let woman = firstOfAge[Sex.Woman * AGES + age]!; woman >= 0; woman = nextOfAge[woman]!) {
       const man = takeNearestMan(villagers, woman, age);
       if (man < 0) continue;
-      if (households.count >= MAX_HOUSEHOLDS) return;
-      loseMember(households, villagers, man);
-      loseMember(households, villagers, woman);
-      formHousehold(households, villagers, man, woman, emptyHouse(households), sim.dawns);
+      if (pair(households, villagers, man, woman, sim.dawns) < 0) return;
       sim.tally.paired += 1;
     }
   }

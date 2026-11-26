@@ -39,7 +39,13 @@ export interface Households {
   readonly wanting: Uint8Array;
   /** Scratch for a dawn's births: at `2h + sex`, bit `i` set when a living member of household `h` bears name `i` of that sex. */
   readonly names: Uint32Array;
-  /** The living members of the households with no home, who eat at the camp. */
+  /**
+   * The people living in each site slot's house who are not of its household:
+   * grown children of it who paired while no house stood empty, and live on
+   * in it until their own household has a house.
+   */
+  readonly lodgers: Uint8Array;
+  /** The living members of the households with no home who do not lodge in a house, and so sleep and eat at the camp. */
   atCamp: number;
   /** The households with a living member and no living worker, whose homes the settlers without a job stock. */
   unattended: number;
@@ -61,13 +67,47 @@ export function createHouseholds(): Households {
     lastBirth: new Int32Array(MAX_HOUSEHOLDS),
     wanting: new Uint8Array(MAX_HOUSEHOLDS),
     names: new Uint32Array(MAX_HOUSEHOLDS * 2),
+    lodgers: new Uint8Array(MAX_SITES),
     atCamp: 0,
     unattended: 0,
   };
 }
 
-/** Whether household `h` has a living member and nobody alive in it who works. */
-export const isUnattended = (households: Households, h: number) => households.living[h]! > 0 && households.workers[h] === 0;
+/**
+ * Whether household `h` has a living member and nobody who can carry for its
+ * house: no living member who works, and nobody lodging in it, who all work.
+ */
+export const isUnattended = (households: Households, h: number) =>
+  households.living[h]! > 0 && households.workers[h] === 0 && (households.home[h] === NO_HOME || households.lodgers[households.home[h]!] === 0);
+
+/** The site slot of the house villager `id` lives in: its household's, or the one it lodges in while its household has none. NO_HOME at the camp. */
+export function houseOf(households: Households, villagers: Villagers, id: number): number {
+  const home = households.home[villagers.household[id]!]!;
+  return home === NO_HOME ? villagers.lodging[id]! : home;
+}
+
+/** The people who live in the house in `slot`, which has a household: the living of that household and those who lodge there. */
+export const peopleIn = (households: Households, slot: number) => households.living[households.householdIn[slot]!]! + households.lodgers[slot]!;
+
+/** Villager `id` lodges in the house in `slot` from now on, or does nothing for NO_HOME. */
+function lodge(households: Households, villagers: Villagers, id: number, slot: number): void {
+  if (slot === NO_HOME) return;
+  const h = households.householdIn[slot]!;
+  const was = isUnattended(households, h);
+  villagers.lodging[id] = slot;
+  households.lodgers[slot] = households.lodgers[slot]! + 1;
+  households.unattended += Number(isUnattended(households, h)) - Number(was);
+}
+
+/** Villager `id` lodges no longer, as one that died or whose household got a house. */
+function unlodge(households: Households, villagers: Villagers, id: number): void {
+  const slot = villagers.lodging[id]!;
+  const h = households.householdIn[slot]!;
+  const was = isUnattended(households, h);
+  villagers.lodging[id] = NO_HOME;
+  households.lodgers[slot] = households.lodgers[slot]! - 1;
+  households.unattended += Number(isUnattended(households, h)) - Number(was);
+}
 
 /** Adds villager `id` to household `h` as a member, counting it among the workers when it works. */
 export function addMember(households: Households, villagers: Villagers, h: number, id: number): void {
@@ -75,7 +115,7 @@ export function addMember(households: Households, villagers: Villagers, h: numbe
   villagers.household[id] = h;
   households.living[h] = households.living[h]! + 1;
   if (works(villagers, id)) households.workers[h] = households.workers[h]! + 1;
-  if (households.home[h] === NO_HOME) households.atCamp += 1;
+  if (households.home[h] === NO_HOME && villagers.lodging[id] === NO_HOME) households.atCamp += 1;
   households.unattended += Number(isUnattended(households, h)) - Number(was);
 }
 
@@ -101,44 +141,76 @@ export function formHousehold(households: Households, villagers: Villagers, man:
   households.man[h] = man;
   households.woman[h] = woman;
   households.lastBirth[h] = dawn;
-  if (home !== NO_HOME) occupy(households, home, h);
   if (man !== NO_VILLAGER) addMember(households, villagers, h, man);
   if (woman !== NO_VILLAGER) addMember(households, villagers, h, woman);
+  if (home !== NO_HOME) moveIn(households, villagers, h, home);
   return h;
 }
 
-/** Makes the empty house in `slot` the home of household `h`, which had none, with what it holds. */
-function occupy(households: Households, slot: number, h: number): void {
-  const { vacant } = households;
+/**
+ * Whether `id`, one of the couple of household `h` or `NO_VILLAGER`, still
+ * belongs to it and lodges in the house in `slot`, or in any house for
+ * NO_HOME. A man of a starting household of one stays its man after he pairs
+ * and leaves it, so the couple alone does not say who belongs.
+ */
+const lodgerOf = (villagers: Villagers, h: number, id: number, slot = NO_HOME) =>
+  id !== NO_VILLAGER && villagers.household[id] === h && villagers.lodging[id] !== NO_HOME && (slot === NO_HOME || villagers.lodging[id] === slot);
+
+/** Villager `id` of household `h`'s couple lodges no longer if it did. Returns whether it did. */
+function leaveLodging(households: Households, villagers: Villagers, h: number, id: number): boolean {
+  if (!lodgerOf(villagers, h, id)) return false;
+  unlodge(households, villagers, id);
+  return true;
+}
+
+/**
+ * Gives household `h`, which has none, the empty house in `slot`, with what it
+ * holds, and takes the house off the list of vacant houses. Its members who
+ * lodged in a house, and those at the camp, live in it from now on. This is
+ * the one place a household gets a house.
+ */
+function moveIn(households: Households, villagers: Villagers, h: number, slot: number): void {
+  const was = isUnattended(households, h);
+  const lodged = Number(leaveLodging(households, villagers, h, households.man[h]!)) + Number(leaveLodging(households, villagers, h, households.woman[h]!));
   households.home[h] = slot;
   households.householdIn[slot] = h;
+  const { vacant } = households;
   let at = 0;
   while (vacant[at] !== slot) at++;
   vacant.copyWithin(at, at + 1, households.vacantCount);
   households.vacantCount -= 1;
+  households.atCamp -= households.living[h]! - lodged;
+  households.unattended += Number(isUnattended(households, h)) - Number(was);
+}
+
+/** Whether household `h` has no home, and one of its couple who still belongs to it lodges in the house in `slot`. */
+function lodgesIn(households: Households, villagers: Villagers, h: number, slot: number): boolean {
+  return households.home[h] === NO_HOME && (lodgerOf(villagers, h, households.man[h]!, slot) || lodgerOf(villagers, h, households.woman[h]!, slot));
 }
 
 /**
- * Gives the empty house in `slot` to the household with the lowest number
- * that has no home and a living member. A house with no such household stays
- * empty.
+ * Gives the house in `slot`, which has no household, to the household with
+ * the lowest number that has no home and one of whose couple lodges in it, so
+ * a house is never freed under a settler who lives in it. With nobody lodging
+ * there it goes to the household with the lowest number that has no home and
+ * a living member. A house with no such household stays empty.
  */
-export function moveInto(households: Households, slot: number): void {
+export function moveInto(households: Households, villagers: Villagers, slot: number): void {
   const { home, living } = households;
+  const lodged = households.lodgers[slot]! > 0;
   for (let h = 0; h < households.count; h++) {
-    if (home[h] !== NO_HOME || living[h] === 0) continue;
-    occupy(households, slot, h);
-    households.atCamp -= living[h]!;
+    if (lodged ? !lodgesIn(households, villagers, h, slot) : home[h] !== NO_HOME || living[h] === 0) continue;
+    moveIn(households, villagers, h, slot);
     return;
   }
 }
 
 /** Records the house in `slot` as finished and empty, after every house finished before it, and gives it to a household that needs one. */
-export function openHouse(households: Households, slot: number): void {
+export function openHouse(households: Households, villagers: Villagers, slot: number): void {
   households.houses[households.houseCount] = slot;
   households.houseCount += 1;
   households.vacant[households.vacantCount++] = slot;
-  moveInto(households, slot);
+  moveInto(households, villagers, slot);
 }
 
 /** The site slot of the empty house that was finished first, or NO_HOME when every house has its household. */
@@ -151,23 +223,49 @@ export function emptyHouse(households: Households): number {
 }
 
 /**
- * Takes villager `id` out of its household's count, as one that died or one
- * that left it to form a household. When it was the last, its house, with the
- * food and the firewood in it, is empty until the next household that needs
- * one takes it.
+ * Takes villager `id` out of the count of household `h`, its own, as one that
+ * died, or of the household it leaves to form one. One that lodged in a house
+ * lodges there no longer. When it was the last, the house of `h`, with the
+ * food and the firewood in it, joins the vacant houses and goes at once to the
+ * household of one who lodges in it, or else stays empty until the next
+ * household that needs one takes it.
  */
-export function loseMember(households: Households, villagers: Villagers, id: number): void {
+export function loseMember(households: Households, villagers: Villagers, id: number, h = villagers.household[id]!): void {
   const { home, living } = households;
-  const h = villagers.household[id]!;
   const was = isUnattended(households, h);
   living[h] = living[h]! - 1;
   if (works(villagers, id)) households.workers[h] = households.workers[h]! - 1;
+  if (home[h] === NO_HOME) {
+    if (villagers.lodging[id] === NO_HOME) households.atCamp -= 1;
+    else unlodge(households, villagers, id);
+  }
   households.unattended += Number(isUnattended(households, h)) - Number(was);
-  if (home[h] === NO_HOME) households.atCamp -= 1;
   if (living[h] !== 0 || home[h] === NO_HOME) return;
   const slot = home[h]!;
   home[h] = NO_HOME;
   households.householdIn[slot] = -1;
   households.vacant[households.vacantCount++] = slot;
-  moveInto(households, slot);
+  moveInto(households, villagers, slot);
+}
+
+/**
+ * Single settlers `man` and `woman` leave their households and form one of
+ * their own at the dawn `dawn`, and its number is returned, or -1 when the
+ * table is full. Each goes on living where it lived: one from a house lodges
+ * in it, and one from the camp stays there. A house that one of them was the
+ * last member of goes to the new household at once. Without one, the new
+ * household takes the empty house finished first, or none while none stands.
+ */
+export function pair(households: Households, villagers: Villagers, man: number, woman: number, dawn: number): number {
+  if (households.count >= MAX_HOUSEHOLDS) return -1;
+  const manLeaves = villagers.household[man]!;
+  const womanLeaves = villagers.household[woman]!;
+  lodge(households, villagers, man, households.home[manLeaves]!);
+  lodge(households, villagers, woman, households.home[womanLeaves]!);
+  const h = formHousehold(households, villagers, man, woman, NO_HOME, dawn);
+  loseMember(households, villagers, man, manLeaves);
+  loseMember(households, villagers, woman, womanLeaves);
+  const empty = emptyHouse(households);
+  if (households.home[h] === NO_HOME && empty !== NO_HOME) moveIn(households, villagers, h, empty);
+  return h;
 }

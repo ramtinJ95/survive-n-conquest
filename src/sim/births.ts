@@ -1,6 +1,6 @@
 import { ageAt, lifeSpan } from './aging';
 import { nearestDoor } from './buildings';
-import { NO_HOME, addMember } from './households';
+import { NO_HOME, addMember, peopleIn } from './households';
 import { Sex, freeName } from './names';
 import { hashUnit } from './noise';
 import type { Sim } from './sim';
@@ -54,7 +54,7 @@ function survey(sim: Sim): void {
  */
 export function qualifies(sim: Sim, h: number): boolean {
   const { households, villagers } = sim;
-  if (households.home[h] === NO_HOME || households.living[h]! >= FULL_HOUSE) return false;
+  if (households.home[h] === NO_HOME || peopleIn(households, households.home[h]!) >= FULL_HOUSE) return false;
   const man = households.man[h]!;
   const woman = households.woman[h]!;
   if (man < 0 || woman < 0 || villagers.state[man] === VillagerState.Dead || villagers.state[woman] === VillagerState.Dead) return false;

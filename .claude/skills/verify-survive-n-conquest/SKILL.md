@@ -89,7 +89,7 @@ A scenario that clicks given tiles aims from a fixed view. `scripts/aim.ts` take
 
 `scripts/births.ts` plays the `births`, `growing-up`, and `people` scenarios' commands in `src/sim` and prints each dawn's draws, births, and starts of work, and the living children, workers, and settlers of 50 or older after it, so a scenario can check the page against the rules.
 
-`scripts/pairing.ts '<settlers>' <food> <dawns>` plays the `settlers` setting, the orders of `bun scripts/firewood-years.ts near-houses-at-minutes` without the woodshed, and the given dawns in `src/sim`, and prints each dawn's new households, the single settlers left, every household's house, and the minute each house was finished. `pairing` runs it before it drives the page.
+`scripts/pairing.ts '<settlers>' <food> <dawns> [<day> <hh:mm>]` plays the `settlers` setting, the orders of `bun scripts/firewood-years.ts near-houses-at-minutes` without the woodshed, and the given dawns in `src/sim`, and prints each dawn's new households and the house each of their couples lives in, the single settlers left, every household's house, and the minute each house was finished. With a day and a minute it gives the fourth house only then. `pairing` runs it before it drives the page.
 
 `scripts/sowing.ts '<stops>'` plays the `sowing` scenario's first spring on seed 7 in `src/sim` and prints, as JSON, the field's tiles, the minute the farm stands, its farmers in the order they came, and at each stop the field tiles sown and where each farmer stands. `sowing` runs it, and `aim.ts` for those tiles and farmers, before it drives the page.
 
