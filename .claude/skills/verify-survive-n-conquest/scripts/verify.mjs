@@ -288,11 +288,14 @@ const rendererOf = (page) =>
     return gl && info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown renderer';
   });
 
+/** A browser that draws on the machine's GPU, with its renderer, or why this machine has none. */
 async function launchGpuBrowser() {
+  const chromium = playwright().chromium;
+  if (!existsSync(chromium.executablePath())) return { missing: `Playwright's own Chromium is not installed at ${chromium.executablePath()}` };
   const args = ['--enable-gpu', '--ignore-gpu-blocklist', `--use-angle=${process.platform === 'darwin' ? 'metal' : 'default'}`, '--disable-gpu-vsync', '--disable-frame-rate-limit'];
   const seen = [];
   for (const headless of [true, false]) {
-    const browser = await playwright().chromium.launch({ args, headless });
+    const browser = await chromium.launch({ args, headless });
     const page = await browser.newPage();
     const renderer = await rendererOf(page);
     await page.close();
@@ -300,7 +303,7 @@ async function launchGpuBrowser() {
     seen.push(`${headless ? 'headless' : 'a window'}: ${renderer}`);
     await browser.close();
   }
-  fail(`no browser here draws on a GPU (${seen.join('; ')})`);
+  return { missing: `no browser here draws on a GPU (${seen.join('; ')})` };
 }
 
 async function probeBrowser() {
@@ -8810,9 +8813,13 @@ SCENARIOS.people = async (session) => {
   session.check('no page errors', a.errors.length === 0, a.errors.join(' | ') || 'none');
 };
 
+/** The scenarios a sweep drives: every scenario but those that need a GPU, which run only by name. */
+const SWEEP = Object.keys(SCENARIOS).filter((name) => !SCENARIOS[name].gpu);
+const GPU_ONLY = Object.keys(SCENARIOS).filter((name) => SCENARIOS[name].gpu);
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
-  if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);
+  if (!scenario) fail(`unknown scenario "${name}"; a sweep drives ${SWEEP.join(', ')}, and ${GPU_ONLY.join(', ')} runs by name on a machine with a GPU`);
   return scenario;
 }
 
@@ -8820,12 +8827,17 @@ async function drive(name) {
   const scenario = scenarioNamed(name);
   const instance = readInstance();
   if (!instance || !(await servesThisBuild(instance.url))) fail('no instance serves this build; run launch first');
+  const gpu = scenario.gpu ? await launchGpuBrowser() : null;
+  if (gpu?.missing) {
+    console.log(`${name}: did not run, and counts no failure. It needs a GPU and Playwright's own Chromium, as on the owner's Mac, and here ${gpu.missing}.`);
+    return true;
+  }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '');
   const dir = join(EVIDENCE_ROOT, `${stamp}-${name}`);
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const { browser, renderer } = scenario.gpu ? await launchGpuBrowser() : { browser: await launchBrowser() };
+    const { browser, renderer } = gpu ?? { browser: await launchBrowser() };
     evidence.browser = renderer ? `${browser.version()} on ${renderer}` : browser.version();
     try {
       await scenario(createSession(browser, instance, dir, evidence, Boolean(scenario.gpu)));
@@ -8864,6 +8876,10 @@ const COMMANDS = {
   doctor,
   drive: () => drive(scenario),
   stop: () => stop().then(() => true),
+  list: () => {
+    console.log(SWEEP.join('\n'));
+    return true;
+  },
 };
 
 try {

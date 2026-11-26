@@ -56,7 +56,7 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 ## Drive
 
-`drive <scenario>` opens the recorded instance in headless Chromium and runs one scenario from the `SCENARIOS` table in `scripts/verify.mjs`. The feature map in `features/` says what each scenario proves and how a player reaches the feature. Read `features/README.md` before you drive.
+`drive <scenario>` opens the recorded instance in headless Chromium and runs one scenario from the `SCENARIOS` table in `scripts/verify.mjs`. `list` prints the scenarios a sweep drives, one a line, which is every scenario but `frames`. Drive them one at a time against one `launch`. The feature map in `features/` says what each scenario proves and how a player reaches the feature. Read `features/README.md` before you drive.
 
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
@@ -105,7 +105,7 @@ Each drive writes to `.verify/evidence/<UTC timestamp>-<scenario>/`, which git i
 - Report a scenario's count of checks from the line `<scenario>: <n> of <m> checks passed` that `drive` prints last, which is the count in `result.json`. `run` prints doctor's 7 checks before it, and they are not the scenario's.
 - A clip that shows when something happens keeps the clock panel or a dated news line in its picture. When a `crop` leaves both out, the pull request says that the clip shows no clock and where its times come from. Describe only what the clip's frames show: a panel the crop leaves out is not in the clip.
 - Headless Chromium renders WebGL through SwiftShader on the CPU. Its frame rate says nothing about the game's frame rate. Never report it as performance.
-- `drive frames` is the one scenario that measures frame time. It launches Playwright's own Chromium on the machine's GPU, and fails where it finds none. It cannot run in a pylon, which has no GPU and cannot install Playwright's Chromium, so there it fails at once with `Executable doesn't exist`. `features/frames.md` says what it reports and how to compare two builds.
+- `drive frames` is the one scenario that measures frame time. It launches Playwright's own Chromium on the machine's GPU, so it runs only on a machine with a GPU, such as the owner's Mac, and only by name. A sweep leaves it out. In a pylon, which has no GPU and cannot install Playwright's Chromium, `drive frames` prints `frames: did not run, and counts no failure` with the reason and exits with status 0. Until the owner runs it, no pull request reports the game's real frame rate. `features/frames.md` says what it reports and how to compare two builds.
 - PR media goes to the `pr-media` branch under `pr-<number>/`. Upload only the files the pull request body embeds. Copy a GIF from the evidence folder as it is. Upload a screenshot as a lossy WebP copy at quality 85, and keep the PNG in the evidence folder, where the pixel checks read it. Never commit `.verify/` itself. Add the files to the branch in a separate worktree, so the checkout under test keeps its branch.
 
 ```sh
