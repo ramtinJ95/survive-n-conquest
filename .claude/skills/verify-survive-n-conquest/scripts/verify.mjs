@@ -3773,13 +3773,19 @@ SCENARIOS.selecting = async (session) => {
   const pausedRead = await reads(page);
   session.check('while paused the settler panel holds still', text(pausedRead) === text(followRead), `"${text(followRead)}" then "${text(pausedRead)}"`);
   await fitsApart(page, 'settler');
-  const [longest] = await measurePanels(page, ['villager']);
-  const stockpilesBox = (await uiBoxes(page)).stockpiles;
-  session.check(
-    'at 960x540 the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row',
-    Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && showsEveryRow(longest),
-    `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
-  );
+  for (const size of [CLIP, { width: 960, height: 600 }, WIDE]) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    const [longest] = await measurePanels(page, ['villager']);
+    const stockpilesBox = (await uiBoxes(page)).stockpiles;
+    session.check(
+      `at ${size.width}x${size.height} the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row`,
+      Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && showsEveryRow(longest),
+      `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
+    );
+  }
+  await page.setViewportSize(CLIP);
+  await session.still(page);
 
   await session.reach(page, BUILD_STOPS.placed);
   const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);
