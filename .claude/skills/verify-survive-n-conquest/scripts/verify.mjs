@@ -3499,7 +3499,22 @@ const WORKSHOP_DOING = {
 /** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
 const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
 /** Every word of a farmer at its own work and idle, the longest first. */
-const FARMER_DOING = ['Idle, no field within 20 tiles of the farm', 'Idle, nothing is sown until spring', 'Looking for a field to sow', 'Walking to a field to sow', 'Idle, the fields are sown', 'Sowing a field'];
+const FARMER_DOING = [
+  'Idle, no field within 20 tiles of the farm',
+  'Idle, nothing is sown until spring',
+  'Walking to a field to pick up food',
+  'Idle, waiting for room in a store',
+  'Looking for a field to sow',
+  'Carrying food to the camp',
+  'Walking to a field to sow',
+  'Idle, the crop is growing',
+  'Walking to a field to cut',
+  'Looking for a crop to cut',
+  'Idle, the fields are sown',
+  'Carrying food to a barn',
+  'Cutting the crop',
+  'Sowing a field',
+];
 /** What a settler does by night, whatever its job. */
 const NIGHT_DOING = ['Resting at the camp', 'Walking to the camp', 'Walking home', 'At home'];
 /** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
@@ -3514,6 +3529,7 @@ const DOING_LONGEST = [
   'Idle, waiting for room in a store',
   'Idle, no field within 20 tiles of the farm',
   'Idle, nothing is sown until spring',
+  'Walking to a field to pick up food',
   "Walking to fetch stone for a hunter's lodge site",
   "Walking to fetch a log for a hunter's lodge site",
   "Carrying stone to a hunter's lodge site",
