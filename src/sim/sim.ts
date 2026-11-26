@@ -7,6 +7,7 @@ import { isDawn, isNight } from './daylight';
 import { DAWN } from './dawn';
 import { VILLAGER_ROWS } from './villagerState';
 import { type FlowField, createFlowField } from './flowField';
+import { type Fields, createFields } from './fields';
 import { type Foraging, createForaging } from './foraging';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
@@ -198,6 +199,8 @@ export interface Tally {
   paired: number;
   /** Children who started to work. */
   startedWork: number;
+  /** Field tiles a farmer sowed. */
+  sown: number;
 }
 
 export interface Sim {
@@ -216,6 +219,7 @@ export interface Sim {
   readonly siteTasks: SiteTasks;
   readonly gathering: Gathering;
   readonly foraging: Foraging;
+  readonly fields: Fields;
   readonly hunting: Hunting;
   readonly workshops: Workshops;
   readonly goods: GoodsState;
@@ -308,6 +312,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
+    fields: createFields(map.size),
     hunting: createHunting(),
     workshops: createWorkshops(),
     goods: createGoodsState(map.size),
@@ -321,6 +326,7 @@ export function createSim(source: TileMap, population: Population): Sim {
       batches: 0, made: 0, starved: 0, froze: 0, oldAge: 0, coldNights: 0, fires: 0, burnt: 0, firewoodHome: 0, firewoodToCamp: 0, dressed: 0, births: 0,
       paired: 0,
       startedWork: 0,
+      sown: 0,
     },
     thisYear: { born: 0, died: 0 },
     tick: 0,
