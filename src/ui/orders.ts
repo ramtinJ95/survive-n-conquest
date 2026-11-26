@@ -289,7 +289,7 @@ function toolButton(tool: Tool): HTMLButtonElement {
   return node;
 }
 
-const ROVING_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
+export const ROVING_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
   ArrowDown: (at, count) => (at + 1) % count,
   ArrowUp: (at, count) => (at + count - 1) % count,
   Home: () => 0,

@@ -3216,12 +3216,23 @@ SCENARIOS.orders = async (session) => {
   let stops = 0;
   for (; stops < 12 && !(await inToolbar()); stops++) await view.keyboard.press('Tab');
   session.check('the toolbar is one stop in the Tab order', await tool(view, 'Chop').evaluate((node) => node === document.activeElement), `${stops} presses of Tab reached it, at Chop`);
+  const focused = () => view.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName);
+  const toolbarCover = coverBox(view, await toolbar(view).boundingBox());
   const beforeArrow = await session.screenshot(view, 'orders-15a-before-arrow');
   await view.keyboard.press('ArrowDown');
   await session.still(view);
   session.check('ArrowDown moves from Chop to Quarry', await tool(view, 'Quarry').evaluate((node) => node === document.activeElement), 'focus on Quarry');
-  const afterArrow = await session.screenshot(view, 'orders-15b-after-arrow');
-  session.expectSameOutside('an arrow key in the toolbar leaves the camera alone', beforeArrow, afterArrow, coverBox(view, await toolbar(view).boundingBox()), 0.2);
+  let afterArrow = await session.screenshot(view, 'orders-15b-after-arrow');
+  session.expectSameOutside('an arrow key in the toolbar leaves the camera alone', beforeArrow, afterArrow, toolbarCover, 0.2);
+  for (const [key, from, to] of [['ArrowRight', 'Quarry', 'Stockpile'], ['ArrowLeft', 'Stockpile', 'Quarry']]) {
+    const before = afterArrow;
+    await session.hold(view, key, 600);
+    await session.still(view);
+    const at = await focused();
+    session.check(`a held ${key} in the toolbar moves from ${from} to ${to}`, at === to, `focus on ${at}`);
+    afterArrow = await session.screenshot(view, `orders-15c-after-${key}`);
+    session.expectSameOutside(`a held ${key} in the toolbar leaves the camera alone`, before, afterArrow, toolbarCover, 0.2);
+  }
   await view.keyboard.press('Enter');
   await expectTool(view, 'Tab, ArrowDown, and Enter pick Quarry', 'Quarry');
   await view.keyboard.press('Escape');
@@ -3231,6 +3242,15 @@ SCENARIOS.orders = async (session) => {
   await session.drag(view, { x: 800, y: 300 }, { x: 500, y: 450 });
   await session.still(view);
   session.expectChanged('a main-button drag with no tool moves the camera', beforePan, await session.screenshot(view, 'orders-15-panned'));
+  const away = await focused();
+  session.check('a drag on the map takes the focus out of the toolbar', !(await inToolbar()), `focus on ${away}`);
+  for (const key of ['ArrowLeft', 'ArrowRight']) {
+    await session.still(view);
+    const before = await session.screenshot(view, `orders-15d-before-${key}`);
+    await session.hold(view, key, 600);
+    await session.still(view);
+    session.expectChanged(`a held ${key} pans the camera while the toolbar does not have focus`, before, await session.screenshot(view, `orders-15e-after-${key}`));
+  }
 
   const panels = async (page) => ({
     clock: await page.getByRole('region', { name: 'Clock' }).boundingBox(),

@@ -3,7 +3,7 @@ import { Preview } from '../render/orderMarks';
 import { Building } from '../sim/buildings';
 import { applyOrder, createOrders } from '../sim/orders';
 import { at, mapFrom } from '../sim/testMaps';
-import { TOOLS, orderFor, outcomeWords, sitePreview } from './orders';
+import { ROVING_KEYS, TOOLS, orderFor, outcomeWords, sitePreview } from './orders';
 
 const toolFor = (code: string) => TOOLS.find((tool) => tool.codes.includes(code))!;
 
@@ -97,5 +97,27 @@ describe("the tailor's hut tool", () => {
 
   it('is the ninth of twelve tools, before Field, Farm, and Cancel, each on its own key', () => {
     expect(TOOLS.map(({ key }) => key)).toEqual(['C', 'M', 'P', 'H', 'G', 'B', 'L', 'K', 'T', 'I', 'O', 'Del']);
+  });
+});
+
+describe('the arrow keys in the toolbar', () => {
+  const from = (id: string, code: string) => {
+    const move = ROVING_KEYS[code];
+    return move ? TOOLS[move(TOOLS.findIndex((tool) => tool.id === id), TOOLS.length)]!.id : null;
+  };
+
+  it('move to the tool above with Up or Left, and to the tool below with Down or Right', () => {
+    expect([from('quarry', 'ArrowUp'), from('quarry', 'ArrowLeft')]).toEqual(['chop', 'chop']);
+    expect([from('quarry', 'ArrowDown'), from('quarry', 'ArrowRight')]).toEqual(['stockpile', 'stockpile']);
+  });
+
+  it('wrap around the ends of the column, and Home and End reach them', () => {
+    expect([from('chop', 'ArrowLeft'), from('cancel', 'ArrowRight')]).toEqual(['cancel', 'chop']);
+    expect([from('farm', 'Home'), from('quarry', 'End')]).toEqual(['chop', 'cancel']);
+  });
+
+  it('leave the camera keys and the tool keys to the rest of the game', () => {
+    const others = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Tab', 'Escape', 'Enter', ...TOOLS.flatMap((tool) => tool.codes)];
+    expect(others.filter((code) => from('quarry', code) !== null)).toEqual([]);
   });
 });
