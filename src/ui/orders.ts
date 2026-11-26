@@ -291,14 +291,18 @@ function toolButton(tool: Tool): HTMLButtonElement {
 
 export const ROVING_KEYS: Readonly<Record<string, (at: number, count: number) => number>> = {
   ArrowDown: (at, count) => (at + 1) % count,
+  ArrowRight: (at, count) => (at + 1) % count,
   ArrowUp: (at, count) => (at + count - 1) % count,
+  ArrowLeft: (at, count) => (at + count - 1) % count,
   Home: () => 0,
   End: (_at, count) => count - 1,
 };
 
 /**
- * Makes the toolbar one stop in the Tab order. The arrow keys, Home, and End move
- * between its buttons, and do not reach the camera while they do.
+ * Makes the toolbar one stop in the Tab order. All four arrow keys, Home, and End
+ * move between its buttons, and do not reach the camera while they do. The tools
+ * stand in one column, so Left goes back up the column as Up does, and Right on
+ * down as Down does.
  */
 function rove(toolbar: HTMLElement, items: readonly HTMLButtonElement[]) {
   const focus = (next: number) => {
