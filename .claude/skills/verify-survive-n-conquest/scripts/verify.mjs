@@ -555,15 +555,26 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
  * palette of every step. `decimate` drops every frame that repeats the one before and shows each frame that is left
  * once, so a paused stop passes in one frame. With `decimate`, `speed` keeps one of every `speed` frames that are left.
  */
-function toGif(video, gif, { from = 0, to, spans, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
+/** The frames of a cut that differ from the frame before, which are the frames the page drew. */
+function drawnFrames(video, cutArgs, filters) {
+  const result = spawnSync('ffmpeg', ['-hide_banner', '-nostdin', ...cutArgs, '-i', video, '-vf', `${filters}mpdecimate`, '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const counts = [...(result.stderr ?? '').matchAll(/frame=\s*(\d+)/g)];
+  if (result.status !== 0 || counts.length === 0) fail(`ffmpeg could not count the drawn frames of ${video}: ${result.stderr ?? result.error}`);
+  return Number(counts.at(-1)[1]);
+}
+
+function toGif(video, gif, { from = 0, to, spans, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false, frames } = {}) {
   if (spans && !decimate) fail('a clip of several spans needs decimate, which closes the gaps between them');
+  if (frames && !decimate) fail('a clip capped at a count of frames needs decimate, which keeps only the frames the page drew');
   const span = to === undefined || spans ? [] : ['-t', (to - from).toFixed(2)];
   const start = spans ? [] : ['-ss', from.toFixed(2)];
   const pick = spans ? `select='${spans.map(([a, b]) => `between(t,${a.toFixed(2)},${b.toFixed(2)})`).join('+')}',` : '';
   const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
+  const drawn = frames ? drawnFrames(video, [...start, ...span], `${pick}${cut}`) : 0;
+  const every = Math.max(speed, Math.ceil(drawn / (frames ?? Infinity)));
   if (!GIF_STEPS.some((step) => step.width <= width)) fail(`no GIF step is ${width} px wide or narrower; the narrowest is ${Math.min(...GIF_STEPS.map((step) => step.width))} px`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
-    const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
+    const pace = decimate ? `mpdecimate,setpts=N/${step.fps * every}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
     const palette = `${pick}${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg([...start, ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
@@ -3356,6 +3367,12 @@ const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 const SELECT_TURN = 300;
 const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
 /**
+ * The settler clip keeps the frames the page drew, at most 200 of them. How many frames the page draws in the follow
+ * depends on the game minutes it runs, not on the wall time a slow machine takes: 342 at normal load on rj-firebat and
+ * 327 under 12 busy processes. The cap bounds a faster machine too.
+ */
+const SELECT_SETTLER_CLIP = { ...SELECT_CLIP, width: 560, decimate: true, frames: 200 };
+/**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
  * side. Tents, settlers, and the house hide part of it. On rj-firebat it added 144 and 164 by day on grass, 100 and
@@ -3807,7 +3824,7 @@ SCENARIOS.selecting = async (session) => {
   const siteTo = work.since() + 1;
   await page.waitForTimeout(1000);
   await session.finishClips(work.context, page, [
-    { label: 'selecting-settler', from: followFrom, to: followTo, ...SELECT_CLIP },
+    { label: 'selecting-settler', from: followFrom, to: followTo, ...SELECT_SETTLER_CLIP },
     { label: 'selecting-site-to-house', from: siteFrom, to: siteTo, ...SELECT_CLIP },
   ]);
   seen.push(...work.errors);
