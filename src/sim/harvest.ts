@@ -72,7 +72,11 @@ function take(sim: Sim, id: number): boolean {
   return true;
 }
 
-/** The farmer still cuts its tile: the tile is still a ripe field, and it lies in the reach of the farm the farmer works at now. */
+/**
+ * The farmer still cuts its tile: the tile is still a ripe field, it lies in
+ * the reach of the farm the farmer works at now, and some common store still
+ * has room for food. A cut stopped for room keeps its work on the tile.
+ */
 function holds(sim: Sim, id: number): boolean {
   const { villagers, fields } = sim;
   const tile = villagers.taskTile[id]!;
@@ -83,7 +87,8 @@ function holds(sim: Sim, id: number): boolean {
     fields.taker[tile] === id &&
     sim.orders.claims[tile] === Claim.Field &&
     fieldState(fields, tile, sim.tick) === FieldState.Ripe &&
-    inReach(sim, workplace, tile)
+    inReach(sim, workplace, tile) &&
+    nearestCommonStore(sim, villagers.x[id]!, villagers.y[id]!, Wants.Room, Good.Food) >= 0
   );
 }
 

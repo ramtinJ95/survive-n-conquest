@@ -165,6 +165,28 @@ describe('a farmer at the harvest', () => {
     expect(sim.stores.held[FOOD]![barn]).toBe(4);
   });
 
+  it('stops a cut under way once no store has room, keeps its work, and finishes it once there is room', () => {
+    const sim = ripeField({ villagers: 1, monsters: 0 }, [16, 16], square(19, 16));
+    const tile = at(sim.map, 19, 16);
+    const camp = sim.stores.held[FOOD]!;
+    runUntil(sim, () => sim.fields.progress[tile]! >= CUT_WORK_TICKS / 2, TICKS_PER_DAY);
+    camp[CAMP_STORE] = CAMP_FOOD_LIMIT;
+    step(sim);
+    step(sim);
+    expect(sim.villagers.task[0]).toBe(NO_TASK);
+    const kept = sim.fields.progress[tile]!;
+    expect(kept).toBeGreaterThanOrEqual(CUT_WORK_TICKS / 2);
+    for (let tick = 0; tick < CUT_WORK_TICKS; tick++) {
+      camp[CAMP_STORE] = CAMP_FOOD_LIMIT;
+      step(sim);
+    }
+    expect(fieldState(sim.fields, tile, sim.tick)).toBe(FieldState.Ripe);
+    expect(sim.fields.progress[tile]).toBe(kept);
+    camp[CAMP_STORE] = 0;
+    runUntil(sim, () => sim.tally.cut === 1, TICKS_PER_DAY);
+    expect(sim.tally.reaped).toBe(FOOD_PER_TILE);
+  });
+
   it('is idle in summer before the dawn at which its tiles are ripe, and carries no food that lies off the fields', () => {
     const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false });
     finished(sim, Building.Farm, 16, 16);
