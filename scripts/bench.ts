@@ -7,6 +7,7 @@ import { MINUTES_PER_DAY, OPENING_MINUTE, TICKS_PER_DAY, TICKS_PER_SECOND, seaso
 import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
 import { EATING } from '../src/sim/eating';
+import { SOWING } from '../src/sim/fields';
 import { FORAGING } from '../src/sim/foraging';
 import { Good } from '../src/sim/goods';
 import { GATHERING } from '../src/sim/gathering';
@@ -95,6 +96,18 @@ const WOODSHED_GRID = process.argv.includes('--no-woodsheds') ? 0 : 4;
  */
 const TAILOR_GRID = process.argv.includes('--no-tailors') ? 0 : LODGE_GRID;
 const TAILOR_BESIDE_LODGE = 3;
+/**
+ * Farms stand on the barns' grid, each anchored a quarter of a cell south of
+ * its barn's center, so no farm lies on a barn, a lodge, a woodshed, a tailor's
+ * hut, a hut, or a house site. Each farm's field is `FIELD.width` by
+ * `FIELD.depth` tiles of grass, from `FIELD.south` tiles south of the farm's
+ * anchor and centered on it, well within its 20 tiles. The forest of a field
+ * turns to grass, as a site's trees are cleared. A farm the rules refuse is
+ * left out, and so is a field tile of water or rock. `--no-farms` places
+ * neither.
+ */
+const FARM_GRID = process.argv.includes('--no-farms') ? 0 : BARN_GRID;
+const FIELD = { width: 6, depth: 4, south: 3 };
 /**
  * The winter run warms up to the midnight that opens day 10, the first day of
  * winter, and measures its three nights and the dawn of spring after them. Its
@@ -185,6 +198,7 @@ const LATER_YEARS: Population = {
 const SUPPLY = TASK_KINDS.indexOf(SUPPLYING) + 1;
 const CARRY = TASK_KINDS.indexOf(CARRYING) + 1;
 const EAT = TASK_KINDS.indexOf(EATING) + 1;
+const SOW = TASK_KINDS.indexOf(SOWING) + 1;
 const KINDS = [
   ['eating', EAT],
   ['stocking', TASK_KINDS.indexOf(STOCKING) + 1],
@@ -197,6 +211,7 @@ const KINDS = [
   ['fetching a kill', TASK_KINDS.indexOf(FETCHING_KILL) + 1],
   ['hunting', TASK_KINDS.indexOf(HUNTING) + 1],
   ['working a workshop', TASK_KINDS.indexOf(WORKSHOP) + 1],
+  ['sowing', SOW],
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built', 'foraged'] as const satisfies readonly (keyof Tally)[];
 const FED = ['meals', 'missed', 'carriedHome', 'fromGround', 'toCamp', 'died'] as const satisfies readonly (keyof Tally)[];
@@ -324,7 +339,13 @@ function atCamp(sim: Sim): number {
 // before the measured ticks end. The benchmark map keeps the seed's terrain and adds a tree to every forest tile, and to
 // every grass tile farther than `BARE_REACH` from the camp, so the work lasts and still lies a walk away from the camp.
 // The tiles of each site on the site grid, of each hut on the hut grid, and of each barn on the barn grid keep no tree, so the site can be placed.
-function setUp(size: number, population: Population): { sim: Sim; sites: number; huts: number; barns: number; lodges: number; woodsheds: number; tailors: number } {
+/** The field of a farm anchored on (x, y). */
+const fieldOf = (x: number, y: number) => ({ x0: x - FIELD.width / 2 + 1, y0: y + FIELD.south, x1: x + FIELD.width / 2, y1: y + FIELD.south + FIELD.depth - 1 });
+
+function setUp(
+  size: number,
+  population: Population,
+): { sim: Sim; sites: number; huts: number; barns: number; lodges: number; woodsheds: number; tailors: number; farms: number; fieldTiles: number } {
   const map = generateMap(SEED, size);
   const camp = campTile(map);
   for (let tile = 0; tile < size * size; tile++) {
@@ -358,6 +379,15 @@ function setUp(size: number, population: Population): { sim: Sim; sites: number;
   for (const [x, y] of tailorAnchors) {
     for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
   }
+  const farmAnchors = FARM_GRID === 0 ? [] : cellCenters(size, FARM_GRID).map(([x, y]): [number, number] => [x, y + Math.floor(size / FARM_GRID / 4)]);
+  for (const [x, y] of farmAnchors) {
+    for (let ty = y; ty <= y + 1; ty++) map.trees.fill(0, ty * size + x, ty * size + x + 2);
+    const { x0, y0, x1, y1 } = fieldOf(x, y);
+    for (let ty = y0; ty <= y1; ty++) {
+      map.trees.fill(0, ty * size + x0, ty * size + x1 + 1);
+      for (let tile = ty * size + x0; tile <= ty * size + x1; tile++) if (map.kinds[tile] === TileKind.Forest) map.kinds[tile] = TileKind.Grass;
+    }
+  }
   const sim = createSim(map, population);
   const sites = centers.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.House, x, y })!.ok).length;
   const huts = anchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Hut, x, y })!.ok).length;
@@ -365,8 +395,14 @@ function setUp(size: number, population: Population): { sim: Sim; sites: number;
   const lodges = lodgeAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Lodge, x, y })!.ok).length;
   const woodsheds = shedAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Woodshed, x, y })!.ok).length;
   const tailors = tailorAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Tailor, x, y })!.ok).length;
+  const placedFarms = farmAnchors.filter(([x, y]) => applyCommand(sim, { kind: 'place', building: Building.Farm, x, y })!.ok);
+  let fieldTiles = 0;
+  for (const [x, y] of placedFarms) {
+    const outcome = applyCommand(sim, { kind: 'markArea', order: 'field', area: fieldOf(x, y) })!;
+    if (outcome.ok) fieldTiles += outcome.tiles;
+  }
   applyCommand(sim, { kind: 'markArea', order: 'stockpile', area: { x0: 0, y0: 0, x1: size - 1, y1: size - 1 } });
-  return { sim, sites, huts, barns, lodges, woodsheds, tailors };
+  return { sim, sites, huts, barns, lodges, woodsheds, tailors, farms: placedFarms.length, fieldTiles };
 }
 
 /** The straight-line length of each trip from a unit to where it goes, for the tasks of a kind taken in the measured ticks. */
@@ -395,7 +431,7 @@ function measure(size: number, run: string): boolean {
   const winter = run === 'winter';
   const population = winter ? { ...LATER_YEARS, campFood: WINTER.campFood } : LATER_YEARS;
   const setupStart = performance.now();
-  const { sim, sites, huts, barns, lodges, woodsheds, tailors } = setUp(size, population);
+  const { sim, sites, huts, barns, lodges, woodsheds, tailors, farms, fieldTiles } = setUp(size, population);
   for (let id = BENCHMARK_POPULATION.villagers; id < sim.villagers.count; id++) die(sim, id, Cause.OldAge);
   const setupMs = performance.now() - setupStart;
 
@@ -418,6 +454,9 @@ function measure(size: number, run: string): boolean {
   const stoppedNotStocked = new Uint8Array(MAX_SITES);
   const tailorHutsBefore = built(sim, Building.Tailor);
   const tailorsBefore = holding(sim, Job.Tailor);
+  const farmsBefore = built(sim, Building.Farm);
+  const farmersBefore = holding(sim, Job.Farmer);
+  const sownBefore = sim.tally.sown;
   const clothingBefore = tailorClothing(sim);
   const clothedBefore = clothed(sim);
   const tailorFull = new Uint8Array(MAX_SITES);
@@ -669,6 +708,14 @@ function measure(size: number, run: string): boolean {
       `${dressed} put on, ${tailorClothing(sim)} in the tailor's huts at the end; tailor's huts that stopped at some measured tick: ${count(tailorFull)} full, ${count(tailorForHides)} with no hide in reach, ${count(tailorNotStocked)} with hides off every stockpile; ` +
       `villagers that wear clothing ${clothedBefore} at the start and ${clothed(sim)} living at the end, ${tallyBefore.dressed} pieces put on in the warm-up ticks`,
   );
+  console.log(
+    `  farm sites: ${farms} placed a quarter of a cell south of each barn, ${farmsBefore} built in the warm-up ticks, ` +
+      `${built(sim, Building.Farm) - farmsBefore} in the measured ticks, ${farms - built(sim, Building.Farm)} unfinished at the end; ` +
+      `farmers ${farmersBefore} at the start and ${holding(sim, Job.Farmer)} in the ${built(sim, Building.Farm) * BUILDINGS[Building.Farm].places} places of the finished farms at the end`,
+  );
+  console.log(
+    `  sowing in the measured ticks: ${sim.tally.sown - sownBefore} field tiles sown of the ${fieldTiles} marked, ${sownBefore} sown in the warm-up ticks`,
+  );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
   console.log(
     `  straight line from a unit to where it goes, for tasks taken in the measured ticks: to a stockpile ${mean(toStockpile)}, ` +
@@ -723,7 +770,7 @@ console.log(
 console.log(
   `load: ${BENCHMARK_POPULATION.villagers} villagers in couples of every age from ${AGES.youngest} to ${AGES.oldest}, with their children and a single grown child at home in the households whose woman is ${GROWN_CHILD.fromAge} to ${GROWN_CHILD.toAge}, one in ${NEAR_END.every} of those of ${NEAR_END.fromAge} or older ${NEAR_END.springYears} year from its span and another ${NEAR_END.winterYears}, ` +
     `${DEAD_ROWS ? `${DEAD_ROWS} dead rows after them, ` : ''}and ${BENCHMARK_POPULATION.monsters} monsters on seed ${SEED} with a tree on every forest tile and on grass beyond ${BARE_REACH} tiles of the camp, ` +
-    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, and ${TAILOR_GRID * TAILOR_GRID} tailor's hut sites, stockpile on every other open tile, ` +
+    `but none on a lattice every ${STOCKPILE_SPACING} tiles, every tree and rock tile marked, up to ${SITE_GRID * SITE_GRID} house sites, ${HUT_GRID * HUT_GRID} hut sites, ${BARN_GRID * BARN_GRID} barn sites, ${LODGE_GRID * LODGE_GRID} lodge sites, ${WOODSHED_GRID * WOODSHED_GRID} woodshed sites, ${TAILOR_GRID * TAILOR_GRID} tailor's hut sites, and ${FARM_GRID * FARM_GRID} farm sites with a field of ${FIELD.width} by ${FIELD.depth} tiles each, stockpile on every other open tile, ` +
     `${WARMUP_TICKS} warm-up ticks in the spring run and ${WINTER.warmupTicks} in the winter run, then ${MEASURED_TICKS} measured ticks`,
 );
 const results = RUNS.flatMap((run) => SIZES.map((size) => measure(size, run)));

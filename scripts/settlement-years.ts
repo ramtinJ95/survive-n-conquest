@@ -65,7 +65,7 @@ interface Reading {
 }
 
 function count(sim: Sim, state: SiteState): Record<BuildingName, number> {
-  const out = { house: 0, hut: 0, barn: 0, lodge: 0, woodshed: 0, tailor: 0 };
+  const out = { house: 0, hut: 0, barn: 0, lodge: 0, woodshed: 0, tailor: 0, farm: 0 };
   const { sites } = sim.orders;
   for (let s = 0; s < sites.used; s++) if (sites.state[s] === state) out[BUILDINGS[sites.kind[s] as Building].name] += 1;
   return out;
@@ -298,7 +298,7 @@ function countBrakes(sim: Sim, brakes: Record<Brake, number>): void {
 function emptyRow(year: number): YearRow {
   return {
     year, bands: [0, 0, 0, 0], born: 0, died: { hunger: 0, cold: 0, old: 0 }, housed: 0, homeless: 0, formed: 0, singles: 0, meals: 0, due: 0,
-    food: 0, homeFood: 0, firewood: 0, homeFirewood: 0, buildings: { house: 0, hut: 0, barn: 0, lodge: 0, woodshed: 0, tailor: 0 }, rows: 0, workers: 0, mouths: 0,
+    food: 0, homeFood: 0, firewood: 0, homeFirewood: 0, buildings: { house: 0, hut: 0, barn: 0, lodge: 0, woodshed: 0, tailor: 0, farm: 0 }, rows: 0, workers: 0, mouths: 0,
     brakes: { 'no house': 0, full: 0, couple: 0, age: 0, wanting: 0, gap: 0, drawn: 0, cap: 0, born: 0 },
   };
 }

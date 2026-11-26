@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { finishBuilding } from './building';
 import { BUILDINGS, Building } from './buildings';
-import { TICKS_PER_DAY, seasonAt } from './calendar';
+import { TICKS_PER_DAY, dateAt, seasonAt } from './calendar';
 import { isNight } from './daylight';
 import { FieldState, NOT_SOWN, SOWING, SOW_WORK_TICKS, fieldState } from './fields';
+import { FIRST_YEAR_SEED, firstSpringCommands } from './firstYear';
 import { Good, putDown } from './goods';
 import { TileKind } from './map';
+import { generateMap } from './mapgen';
 import { Claim, type TileArea } from './orders';
-import { type Sim, applyCommand, createSim, step } from './sim';
+import { SETTLERS, type Sim, applyCommand, createSim, step } from './sim';
 import { TASK_KINDS } from './tasks';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
 import { at, mapFrom } from './testMaps';
@@ -231,5 +233,20 @@ describe('a farmer', () => {
     runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY, () => tasks.add(sim.villagers.task[0]!));
     expect(sim.tally.felled).toBe(0);
     expect([...tasks].filter((task) => task !== 0)).toEqual([]);
+  });
+});
+
+describe('the first spring on seed 7', () => {
+  it('stands the farm on day 1 and sows the 24 tiles of its field by the end of day 2', () => {
+    const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
+    for (const command of firstSpringCommands()) expect(applyCommand(sim, command)).toMatchObject({ ok: true });
+    const sown: number[] = [0, 0, 0];
+    while (seasonAt(sim.tick) === 'Spring') {
+      const day = dateAt(sim.tick).day;
+      const before = sim.tally.sown;
+      step(sim);
+      sown[day - 1]! += sim.tally.sown - before;
+    }
+    expect(sown).toEqual([10, 14, 0]);
   });
 });
