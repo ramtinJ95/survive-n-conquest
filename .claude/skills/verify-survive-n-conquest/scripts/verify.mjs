@@ -39,6 +39,12 @@ const PROBE = { width: 160, height: 90 };
 const COVER_MARGIN = 8;
 // Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
 const LOW_FLIGHT_LEG_MS = 400;
+/**
+ * The legs of a held W that pan the camera into a corner of the map. The game caps each frame's step at 0.1 s, and a
+ * SwiftShader frame takes longer than that, so a leg of drawn frames pans as far at any load. 10 frames is about the
+ * 2.5 s a leg took at normal load on rj-firebat.
+ */
+const CORNER_LEGS = { count: 8, frames: 10 };
 // The share of the farthest view that is water. The lakes and rivers of seed 7 alone are 6% to 8% of a view, and with the sea around the island the farthest view read 40.6%.
 const SEA_AROUND_THE_ISLAND = 0.25;
 // The share of the farthest and lowest view that has the color of the sky. The camera never looks above the horizon, and the haze hides the sea beyond 900 m in that color. The view read 7.6%.
@@ -630,14 +636,17 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
 
-    async settle(page) {
+    async settle(page, frames = 2) {
       await page.locator(WORLD).waitFor();
-      const twoFrames = page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const drawn = page.evaluate((count) => new Promise((done) => {
+        const next = (left) => (left === 0 ? done() : requestAnimationFrame(() => next(left - 1)));
+        next(count);
+      }), frames);
       let timer;
       const noFrame = new Promise((_, reject) => {
         timer = setTimeout(() => reject(new VerifyError(`the page ran no frame for ${NO_FRAME_MS / 1000} s`)), NO_FRAME_MS);
       });
-      await Promise.race([twoFrames, noFrame]).finally(() => clearTimeout(timer));
+      await Promise.race([drawn, noFrame]).finally(() => clearTimeout(timer));
     },
 
     async gameMinutes(page) {
@@ -742,10 +751,10 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       return { frames: costs.length, mean: costs.reduce((sum, cost) => sum + cost, 0) / costs.length, perSecond: (costs.length * 1000) / ms };
     },
 
-    async hold(page, key, ms) {
+    async hold(page, key, ms, frames = 2) {
       await page.keyboard.down(key);
       // The game reads a held key only in a drawn frame, and under load one frame can take longer than `ms`.
-      await Promise.all([page.waitForTimeout(ms), this.settle(page)]);
+      await Promise.all([page.waitForTimeout(ms), this.settle(page, frames)]);
       await page.keyboard.up(key);
     },
 
@@ -1012,14 +1021,18 @@ const SCENARIOS = {
     let edge = await shoot('map-edge');
     session.expectChanged('the camera reaches the map edge', farthest, edge);
     let rested = false;
-    for (let leg = 0; leg < 8 && !rested; leg++) {
-      await session.hold(page, 'KeyW', 2500);
+    for (let leg = 0; leg < CORNER_LEGS.count && !rested; leg++) {
+      await session.hold(page, 'KeyW', 0, CORNER_LEGS.frames);
       await session.still(page);
       const next = await shoot('map-edge');
       rested = session.difference(edge, next) < 0.2;
       edge = next;
     }
-    session.check('panning stops in a corner of the map', rested, rested ? 'the view stopped while W stayed held' : 'the view still moved after 20 s of W');
+    session.check(
+      'panning stops in a corner of the map',
+      rested,
+      rested ? 'the view stopped while W stayed held' : `the view still moved after ${CORNER_LEGS.count} legs of ${CORNER_LEGS.frames} drawn frames of W`,
+    );
     session.expectSurfaces('the map stays in view at its corner', edge, { plants: 0.05 });
 
     await page.mouse.wheel(0, READ_WHEELS.near);
