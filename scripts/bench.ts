@@ -124,10 +124,10 @@ const WINTER = { warmupTicks: 9 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DA
  * dawns of days 6 to 8 and are cut and carried in during its measured ticks.
  * Its camp starts with the winter run's food, so the villagers live to it.
  * Only the tick time, the living, and a tile cut decide whether it passes.
- * `--no-harvest` leaves it out.
+ * `--no-harvest` leaves it out, and so does `--no-farms`, which leaves it nothing to cut.
  */
 const HARVEST = { warmupTicks: 5 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: WINTER.campFood };
-const RUNS = ['spring', 'winter', 'harvest'].filter((run) => !process.argv.includes(`--no-${run}`));
+const RUNS = ['spring', 'winter', ...(FARM_GRID === 0 ? [] : ['harvest'])].filter((run) => !process.argv.includes(`--no-${run}`));
 /** The youngest and the oldest age of the settlement in its later years, every age between as likely as another. */
 const AGES = { youngest: 16, oldest: 75 };
 /**
