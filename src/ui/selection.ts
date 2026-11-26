@@ -62,6 +62,7 @@ export interface Facts {
     | 'names'
     | 'sexes'
     | 'households'
+    | 'lodgings'
     | 'children'
     | 'mothers'
     | 'fathers'
@@ -435,9 +436,14 @@ const counted = (count: number, one: string, many: string) => `${count} ${count 
  * A household in words: its couple by name, then its other living members
  * and its dead by count, as `Ulvar and Ysa, 3 children, 1 died`. The dead are
  * counted and not named, so a widow reads as `Ysa, 3 children, 1 died`, and
- * children whose couple both died as `3 children, 2 died`.
+ * children whose couple both died as `3 children, 2 died`. Read for the house
+ * in `house`, it counts those who lodge there too: grown children of its
+ * couple who paired while no house stood empty, among the children. A house
+ * that a lodging household inherited can keep a sibling of that couple
+ * lodging in it, who is no child of theirs. Then everyone beyond the couple
+ * counts as kin, as `Sten and Tilde, 1 kin`, which is true of all of them.
  */
-function householdLine(facts: Facts, household: number): string {
+function householdLine(facts: Facts, household: number, house = NO_HOME): string {
   const { frame } = facts;
   const man = frame.couples[household * 2]!;
   const woman = frame.couples[household * 2 + 1]!;
@@ -445,20 +451,26 @@ function householdLine(facts: Facts, household: number): string {
   const couple = [man, woman].filter(alive).map((id) => nameOfSettler(facts, id));
   let children = 0;
   let died = 0;
+  let kin = false;
   frame.households.forEach((of, id) => {
+    if (house !== NO_HOME && frame.lodgings[id] === house) {
+      children++;
+      const parent = (p: number) => p >= 0 && (p === man || p === woman);
+      if (!parent(frame.mothers[id]!) && !parent(frame.fathers[id]!)) kin = true;
+    }
     if (of !== household) return;
     if (frame.states[id] === VillagerState.Dead) died++;
     else if (id !== man && id !== woman) children++;
   });
   const parts = couple.length > 0 ? [couple.join(' and ')] : [];
-  if (children > 0) parts.push(counted(children, 'child', 'children'));
+  if (children > 0) parts.push(kin ? `${children} kin` : counted(children, 'child', 'children'));
   if (died > 0) parts.push(`${died} died`);
   return parts.join(', ');
 }
 
 function livingIn(facts: Facts, slot: number): string {
   const household = facts.frame.homes.indexOf(slot);
-  return household < 0 ? 'Nobody' : householdLine(facts, household);
+  return household < 0 ? 'Nobody' : householdLine(facts, household, slot);
 }
 
 /** The names of the workers at a workplace in the order they came, or Nobody. */
@@ -546,7 +558,10 @@ export const PANELS: Panels = {
       { label: 'Household', read: (facts, { id }) => householdLine(facts, facts.frame.households[id]!) },
       {
         label: 'Home',
-        read: ({ frame }, { id }) => (frame.homes[frame.households[id]!] === NO_HOME ? 'None, sleeps at the camp' : 'A house'),
+        read: ({ frame }, { id }) => {
+          if (frame.homes[frame.households[id]!] !== NO_HOME) return 'A house';
+          return frame.lodgings[id] === NO_HOME ? 'None, sleeps at the camp' : "Parents' house";
+        },
       },
       { label: 'Missed meals', read: (facts, { id }) => missedMeals(facts, id) },
       { label: 'Cold nights', read: (facts, { id }) => coldNights(facts, id) },

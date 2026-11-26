@@ -5,7 +5,7 @@ import { isColdNight } from './daylight';
 import { EATING, wantsMeal } from './eating';
 import type { FlowField } from './flowField';
 import { Good, putDownHeld } from './goods';
-import { NO_HOME, loseMember } from './households';
+import { NO_HOME, houseOf, loseMember } from './households';
 import { loseWorker, works } from './jobs';
 import { type TileMap, sideOf, stepAllowed, tileAt, walkable } from './map';
 import { hashUnit } from './noise';
@@ -79,6 +79,12 @@ export interface Villagers {
   readonly sex: Uint8Array;
   /** The household each villager belongs to. */
   readonly household: Int16Array;
+  /**
+   * The site slot of the house each villager lives in while its household has
+   * none, which is the house it lived in when it paired, or `NO_HOME`. Every
+   * other villager lives in its household's house, or at the camp.
+   */
+  readonly lodging: Int16Array;
   /** The meals each villager missed in a row. */
   readonly missedMeals: Uint8Array;
   /** The cold nights each villager had in a row. */
@@ -196,6 +202,7 @@ export function createVillagers(): Villagers {
     name: new Uint16Array(rows),
     sex: new Uint8Array(rows),
     household: new Int16Array(rows),
+    lodging: new Int16Array(rows).fill(NO_HOME),
     missedMeals: new Uint8Array(rows),
     coldNights: new Uint8Array(rows),
     stockGood: new Uint8Array(rows),
@@ -370,15 +377,15 @@ function atNight(state: number): boolean {
 }
 
 /**
- * Ends the villager's day: it gives its task up and goes in to its house, or
- * to the camp when its household has no home. One going in picks its door now
+ * Ends the villager's day: it gives its task up and goes in to the house it
+ * lives in, or to the camp when it lives in none. One going in picks its door now
  * and plans its route on its think tick. One with no walk to the camp, or no
  * door, keeps a work tile of -1 and stays where it stands.
  */
 function nightfall(sim: Sim, id: number): void {
   const { map, villagers } = sim;
   endTask(sim, id);
-  const home = sim.households.home[villagers.household[id]!]!;
+  const home = houseOf(sim.households, villagers, id);
   if (home === NO_HOME) {
     villagers.state[id] = VillagerState.GoingToCamp;
     return;

@@ -1,5 +1,5 @@
 import { Good } from './goods';
-import { NO_HOME } from './households';
+import { NO_HOME, houseOf } from './households';
 import type { Sim, Tally } from './sim';
 import { CAMP_STORE, fireOf, free } from './stores';
 import { Cause } from './villagerState';
@@ -41,9 +41,9 @@ export function wanting(villagers: Villagers, id: number): boolean {
   return false;
 }
 
-/** The store the villager eats from and stocks: its household's house, or the camp while it has none. */
+/** The store the villager eats from and stocks: the house it lives in, or the camp while it lives in none. */
 export function storeOf(sim: Sim, id: number): number {
-  const home = sim.households.home[sim.villagers.household[id]!]!;
+  const home = houseOf(sim.households, sim.villagers, id);
   return home === NO_HOME ? CAMP_STORE : home;
 }
 

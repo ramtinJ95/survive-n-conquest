@@ -154,7 +154,7 @@ export function finishBuilding(sim: Sim, slot: number): void {
     siteTasks.closing[index] = tile;
   }
   finishSite(orders, slot);
-  if (orders.sites.kind[slot] === Building.House) openHouse(sim.households, slot);
+  if (orders.sites.kind[slot] === Building.House) openHouse(sim.households, sim.villagers, slot);
   openStore(orders, sim.stores, slot);
   closeFlowTiles(map, sim.flow, siteTasks.closing, tiles);
   sim.tally.built += 1;
