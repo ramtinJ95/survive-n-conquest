@@ -335,6 +335,75 @@ describe('a new household while no house stands empty', () => {
   });
 });
 
+describe("the list of vacant houses through a pairing's cases", () => {
+  /**
+   * Recounts the vacant houses from who lives in each finished house, and
+   * checks the list holds exactly those, once each. A lodger's household has no
+   * house and a living member, so no house stands vacant while anyone lodges.
+   */
+  function recount(sim: Sim): number[] {
+    const { households } = sim;
+    const listed = Array.from(households.vacant.subarray(0, households.vacantCount)).sort((a, b) => a - b);
+    const empty = Array.from(households.houses.subarray(0, households.houseCount))
+      .filter((slot) => households.householdIn[slot] === -1)
+      .sort((a, b) => a - b);
+    expect(listed).toEqual(empty);
+    const lodging = Array.from(households.lodgers).reduce((sum, count) => sum + count, 0);
+    if (households.vacantCount > 0) expect(lodging).toBe(0);
+    return listed;
+  }
+
+  it('lists no house while the pair lodges with no house empty, and none once it moves into a house finished later', () => {
+    const sim = settlement([[...PARENTS, man(20)], [...PARENTS, woman(21)]]);
+    house(sim, 0);
+    house(sim, 1);
+    expect(recount(sim)).toEqual([]);
+    pairSettlers(sim);
+    expect([sim.households.home[2], recount(sim)]).toEqual([NO_HOME, []]);
+    const later = house(sim, 2);
+    expect([sim.households.home[2], recount(sim)]).toEqual([later, []]);
+  });
+
+  it('never lists the house a partner was the last of, which its new household takes at once', () => {
+    const sim = settlement([[...PARENTS, man(20)], [...PARENTS, woman(21)]]);
+    const his = house(sim, 0);
+    house(sim, 1);
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    pairSettlers(sim);
+    expect([sim.households.home[2], recount(sim)]).toEqual([his, []]);
+  });
+
+  it("lists her house when both partners were the last of theirs and the pair takes his", () => {
+    const sim = settlement([[...PARENTS, man(20)], [...PARENTS, woman(21)]]);
+    const his = house(sim, 0);
+    const hers = house(sim, 1);
+    for (const id of [0, 1, 3, 4]) die(sim, id, Cause.OldAge);
+    pairSettlers(sim);
+    expect([sim.households.home[2], recount(sim)]).toEqual([his, [hers]]);
+  });
+
+  it('never lists an inherited house with a sibling lodging on in it', () => {
+    const sim = settlement([[...PARENTS, man(20), woman(19)], [...PARENTS, woman(20)], [...PARENTS, man(19)]]);
+    const parents = house(sim, 0);
+    pairSettlers(sim);
+    expect([sim.households.lodgers[parents], recount(sim)]).toEqual([2, []]);
+    die(sim, 0, Cause.OldAge);
+    die(sim, 1, Cause.OldAge);
+    expect([sim.households.home[3], sim.households.lodgers[parents], recount(sim)]).toEqual([parents, 1, []]);
+  });
+
+  it('takes an empty house that holds food off the list when a pair moves into it, with its food', () => {
+    const sim = settlement([[...PARENTS, man(20)], [...PARENTS, woman(21)]]);
+    house(sim, 0);
+    house(sim, 1);
+    const empty = house(sim, 2);
+    expect(recount(sim)).toEqual([empty]);
+    pairSettlers(sim);
+    expect([sim.households.home[2], sim.stores.held[FOOD]![empty], recount(sim)]).toEqual([empty, 16, []]);
+  });
+});
+
 describe('a settler who pairs', () => {
   it("leaves its parents' household, which counts its living, its workers, and those at the camp, and still carries for the house it lodges in", () => {
     const sim = settlement([[...PARENTS, man(18), woman(8)], [...PARENTS, woman(17)]]);
