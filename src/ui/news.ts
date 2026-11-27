@@ -10,7 +10,7 @@ import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
+type Seen = Pick<SimFrame, 'tick' | 'ripeThisYear' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -114,6 +114,18 @@ const EVENTS: readonly NewsEvent[] = [
   ),
 ];
 
+/** Something that befalls the settlement as a whole between two frames, and the words that say it. */
+interface SettlementEvent {
+  readonly kind: string;
+  readonly befell: (before: Seen, after: Seen) => boolean;
+  readonly words: string;
+}
+
+/** Every kind of news about the settlement as a whole, in the order a frame's lines are made, after the settlers' lines. */
+const SETTLEMENT_EVENTS: readonly SettlementEvent[] = [
+  { kind: 'first ripe', befell: (before, after) => before.ripeThisYear === 0 && after.ripeThisYear > 0, words: 'The first crop of the year is ripe' },
+];
+
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
 export const LINE_MS = 30_000;
 /** At most this many lines show. A later line waits until one of them has shown for `LINE_MS`. */
@@ -148,7 +160,7 @@ export function listNames(names: readonly string[]): string {
 }
 
 /** Every kind of line the news can show. */
-export const NEWS_KINDS: readonly string[] = EVENTS.map(({ kind }) => kind);
+export const NEWS_KINDS: readonly string[] = [...EVENTS, ...SETTLEMENT_EVENTS].map(({ kind }) => kind);
 
 /**
  * "Tova was born to Ulvar and Ysa", "Tova was born to Ulvar and Ysa, and Bodo
@@ -183,6 +195,8 @@ function coupleWords(couples: readonly string[], verb: string): string {
  */
 export function lineWords(kind: string, tick: number, names: readonly string[], parents: readonly string[] = []): string {
   const { day, minuteOfDay } = dateAt(tick);
+  const settlement = SETTLEMENT_EVENTS.find((event) => event.kind === kind);
+  if (settlement) return `Day ${day}, ${formatTime(minuteOfDay)}. ${settlement.words}.`;
   const { verb } = EVENTS.find((event) => event.kind === kind)!;
   const words = kind === BORN ? birthWords(names, parents) : COUPLE_KINDS.includes(kind) ? coupleWords(names, verb(1)) : `${listNames(names)} ${verb(names.length)}`;
   return `Day ${day}, ${formatTime(minuteOfDay)}. ${words}.`;
@@ -198,7 +212,7 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 /**
  * The settlement's news: who was born and to whom, who formed a household or a couple, who went hungry, who starved, who ate again, who had
  * a cold night, who froze, who died of old age, who started to work, who took a place at a
- * workplace, who left one, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
+ * workplace, who left one, that the first crop of the year is ripe, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
  */
@@ -214,10 +228,7 @@ export function createNews(orders: Orders) {
       if (!before) return false;
       const tick = Math.max(frame.tick - 1, 0);
       let changed = false;
-      for (const { kind, befell } of EVENTS) {
-        const ids: number[] = [];
-        for (let id = 0; id < frame.states.length; id++) if (befell(before, frame, id, orders)) ids.push(id);
-        if (ids.length === 0) continue;
+      const add = (kind: string, ids: readonly number[]) => {
         const joined = lines.findLast((line) => line.kind === kind && tick - line.tick < JOIN_TICKS);
         const line = joined ?? { kind, tick, ids: [], text: '', changedAt: now, shown: lines.length < MOST_LINES };
         line.ids.push(...ids);
@@ -228,7 +239,13 @@ export function createNews(orders: Orders) {
           changed = true;
         }
         if (!joined) lines.push(line);
+      };
+      for (const { kind, befell } of EVENTS) {
+        const ids: number[] = [];
+        for (let id = 0; id < frame.states.length; id++) if (befell(before, frame, id, orders)) ids.push(id);
+        if (ids.length > 0) add(kind, ids);
       }
+      for (const { kind, befell } of SETTLEMENT_EVENTS) if (befell(before, frame)) add(kind, []);
       return changed;
     },
     /** Drops the lines that have shown long enough, shows the waiting lines that now have room, and returns whether the shown lines changed. */

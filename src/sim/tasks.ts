@@ -5,6 +5,7 @@ import { EATING } from './eating';
 import { SOWING } from './fields';
 import { FORAGING } from './foraging';
 import { GATHERING } from './gathering';
+import { CUTTING, FETCHING_CROP } from './harvest';
 import { FETCHING_KILL, HUNTING } from './hunting';
 import { jobOf, works } from './jobs';
 import { sideOf } from './map';
@@ -55,7 +56,7 @@ export interface TaskKind {
  * first kind its job allows that has one open. A kind goes where its urgency
  * puts it, since every reader finds a kind's column value by its place here.
  */
-export const TASK_KINDS: readonly TaskKind[] = [EATING, STOCKING, WEARING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING, WORKSHOP, SOWING];
+export const TASK_KINDS: readonly TaskKind[] = [EATING, STOCKING, WEARING, BUILDING, SUPPLYING, CARRYING, GATHERING, FORAGING, FETCHING_KILL, HUNTING, WORKSHOP, SOWING, FETCHING_CROP, CUTTING];
 
 /** Whether the villager may hold a task of this kind: anyone may eat, and only a villager who works does anything else, of its job or of any. */
 export function allows(sim: Sim, kind: TaskKind, id: number): boolean {

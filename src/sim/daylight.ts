@@ -1,4 +1,4 @@
-import { type Season, TICKS_PER_DAY, seasonAt, tickOfDay } from './calendar';
+import { type Season, TICKS_PER_DAY, dayIndexAt, seasonAt, tickOfDay } from './calendar';
 
 /** The share of each day and night cycle that is night, in percent. */
 export const NIGHT_PERCENT: Readonly<Record<Season, number>> = {
@@ -34,6 +34,15 @@ export function isColdNight(tick: number): boolean {
 /** Whether the tick is the first of a day. */
 export function isDawn(tick: number): boolean {
   return !isNight(tick) && isNight(tick - 1);
+}
+
+/**
+ * The day index, 0 for day 1, of the latest dawn at or before `tick`. The
+ * dawns after tick `a` up to and with tick `b` number `dawnDayAt(b) - dawnDayAt(a)`.
+ */
+export function dawnDayAt(tick: number): number {
+  const day = dayIndexAt(tick);
+  return tickOfDay(tick) < dawnTick(seasonAt(tick)) ? day - 1 : day;
 }
 
 /**

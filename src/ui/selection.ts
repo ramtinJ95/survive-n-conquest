@@ -11,6 +11,7 @@ import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
 import { FieldState, type FieldTiles, SOWING, fieldState, sowsAt } from '../sim/fields';
+import { CUTTING, FETCHING_CROP } from '../sim/harvest';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
@@ -159,6 +160,8 @@ const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
 const WEAR = task(WEARING);
 const SOW = task(SOWING);
+const FETCH_CROP = task(FETCHING_CROP);
+const CUT = task(CUTTING);
 const WINTER = SEASONS.indexOf('Winter');
 
 /**
@@ -286,9 +289,16 @@ export const DOING_WORDS = {
   farmer: {
     sowing: 'Sowing a field',
     toSow: 'Walking to a field to sow',
+    cutting: 'Cutting the crop',
+    toCut: 'Walking to a field to cut',
+    toCrop: 'Walking to a field to pick up food',
+    toStore: carryingTo,
     winter: 'Idle, nothing is sown until spring',
     toBare: 'Looking for a field to sow',
+    lookingToCut: 'Looking for a crop to cut',
+    noRoom: 'Idle, waiting for room in a store',
     sown: 'Idle, the fields are sown',
+    growing: 'Idle, the crop is growing',
     noField: `Idle, no field within ${BUILDINGS[Building.Farm].reach} tiles of the farm`,
   },
   child: {
@@ -370,6 +380,12 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   },
   [HUNT]: (_facts, _id, working) => (working ? DOING_WORDS.hunter.aiming : DOING_WORDS.hunter.stalking),
   [SOW]: (_facts, _id, working) => (working ? DOING_WORDS.farmer.sowing : DOING_WORDS.farmer.toSow),
+  [FETCH_CROP]: (facts, id) => {
+    const { farmer } = DOING_WORDS;
+    if (facts.frame.carried[id] === Good.Food) return farmer.toStore({ good: GOOD_NAMES[Good.Food], store: storeAt(facts, facts.frame.destinations[id]!) });
+    return farmer.toCrop;
+  },
+  [CUT]: (_facts, _id, working) => (working ? DOING_WORDS.farmer.cutting : DOING_WORDS.farmer.toCut),
   [WORK]: (facts, id, working) => {
     const { frame } = facts;
     const words = workshopWords(facts, frame.workplaces[id]!);
@@ -412,26 +428,36 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
 }
 
 /**
- * Why a farmer at the farm in `slot` is idle: the season, or what lies in the
- * farm's reach. A bare tile that another farmer sows, or that no walk reaches,
- * still counts as one to sow.
+ * Why a farmer at the farm in `slot` is idle: what the field tiles in the
+ * farm's reach hold, and the season. A tile that another farmer works, or that
+ * no walk reaches, still counts. In spring a farmer's work is sowing, so a
+ * field that is all sown reads as sown while its crop grows.
  */
-function farmerIdle({ orders, fields, frame, map }: Facts, slot: number): string {
+function farmerIdle(facts: Facts, slot: number): string {
+  const { orders, fields, frame, map } = facts;
   const { farmer } = DOING_WORDS;
-  if (!sowsAt(frame.tick)) return farmer.winter;
+  const spring = sowsAt(frame.tick);
   const { size } = map;
   const { reach } = BUILDINGS[Building.Farm];
   const cx = siteMidX(orders.sites, slot);
   const cy = siteMidY(orders.sites, slot);
   let field = false;
+  let growing = false;
+  let toCut = false;
   for (let y = Math.max(Math.ceil(cy - reach - 0.5), 0); y <= Math.min(Math.floor(cy + reach - 0.5), size - 1); y++) {
     for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
       const tile = y * size + x;
       if (orders.claims[tile] !== Claim.Field || !withinReach(orders.sites, slot, x + 0.5, y + 0.5)) continue;
-      if (fieldState(fields, tile) === FieldState.Bare) return farmer.toBare;
+      const state = fieldState(fields, tile, frame.tick);
+      if (spring && state === FieldState.Bare) return farmer.toBare;
       field = true;
+      growing ||= state === FieldState.Sown;
+      toCut ||= state === FieldState.Ripe || map.stackGood[tile] === Good.Food;
     }
   }
+  if (toCut) return roomInAStore(facts) ? farmer.lookingToCut : farmer.noRoom;
+  if (growing) return spring ? farmer.sown : farmer.growing;
+  if (!spring) return farmer.winter;
   return field ? farmer.sown : farmer.noField;
 }
 

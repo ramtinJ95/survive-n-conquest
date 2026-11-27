@@ -4254,10 +4254,12 @@ const SOW_STEP = 5;
 const FARMER_WORDS = /^(Walking to a field to sow|Sowing a field|Looking for a field to sow|Idle, the fields are sown|Idle, nothing is sown until spring|Idle, no field within 20 tiles of the farm)$/;
 /**
  * A field tile draws soil at 75% over the lit ground and, once sown, 3 rows of shoots across it, each 40% of its third,
- * in pure colors that no light changes. `SHOOTS` matches the shoots, and `SOIL` the soil's brown, whose red leads its
- * green and blue as no grass, forest, or rock of the map does by day or by night.
+ * in pure colors that no light changes: the color of `SHOOT_STAGES` for the dawns since its sowing, from `stages` in
+ * `src/render/orderMarks.ts`. `SHOOTS` matches the shoots of any stage, and `SOIL` the soil's brown, whose red leads
+ * its green and blue as no grass, forest, or rock of the map does by day or by night.
  */
-const SHOOTS = ([r, g, b]) => distance([r, g, b], [0xa6, 0xd6, 0x4a]) < ORDER_TOLERANCE;
+const SHOOT_STAGES = [[0xea, 0xf5, 0xb0], [0xb8, 0xe0, 0x5a], [0x5f, 0xe0, 0x4a], [0x22, 0xb8, 0x4a], [0x0e, 0x7d, 0x3a]];
+const SHOOTS = (rgb) => SHOOT_STAGES.some((stage) => distance(rgb, stage) < ORDER_TOLERANCE);
 const SOIL = ([r, g, b]) => r > g + 10 && g > b && r - b > 25 && r < 150;
 const FIELD_OUTLINE = ([r, g, b]) => distance([r, g, b], [0xff, 0xe1, 0x4d]) < ORDER_TOLERANCE;
 /** The half side of the box around a tile's center that the pixel checks read: about half a tile at this view. */
@@ -4569,8 +4571,8 @@ SCENARIOS.sowing = async (session) => {
   await session.still(page);
   const summer = await clickFarmer('summer');
   session.check(
-    `at ${await at(page)}, the first day of summer, a farmer reads that nothing is sown until spring`,
-    summer?.rows?.Job === 'Farmer' && summer.rows.Doing === 'Idle, nothing is sown until spring',
+    `at ${await at(page)}, the first day of summer, a farmer reads that the crop is growing`,
+    summer?.rows?.Job === 'Farmer' && summer.rows.Doing === 'Idle, the crop is growing',
     `the panel reads "${text(summer)}"`,
   );
   await session.screenshot(page, 'sowing-farmer-summer');
@@ -4600,6 +4602,375 @@ SCENARIOS.sowing = async (session) => {
   );
 
   await session.finishClips(play.context, page, [{ label: 'sowing-field', from: clipFrom, to: clipTo, ...SOW_CLIP }]);
+  seen.push(...play.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `harvest` scenario plays a field from its sowing to its food in the barn through the page, on seed 7 with a camp
+ * that starts with 56 food, enough for the dusks of days 1 to 7: 6.1's farm anchored on (136, 127), a field of 24 tiles
+ * of grass from (130, 121) to (135, 124), a barn on (132, 126) between them and the camp, whose middle lies nearer every
+ * field tile than the camp's center, and Chop and Quarry on the trees and the rock tile of their logs and stone, all at
+ * tick 0. `scripts/harvest.ts` gives these orders and plays them in `src/sim`, with the farm's places taken away on the
+ * night of day 6 and given back after the midnight of day 8, so the tiles that ripen at the dawn of day 7 stand ripe
+ * through a midnight. `scripts/aim.ts` gives the pixel of each tile and each farmer at `HARVEST_VIEW`.
+ */
+const HARVEST_SEARCH = '?seed=7&food=56';
+const HARVEST_SIM = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/harvest.ts');
+/**
+ * `FORAGE_VIEW`'s zoom and turn, panned to look at (131, 127), so the barn's rock tile at (122, 115) shows too, and the
+ * field and the barn's door lie left of and below the `Winter readiness` panel that opens on the first day of autumn.
+ */
+const HARVEST_VIEW = { wheel: -1100, turn: { x: 424, y: 20 }, pan: { x: 28, y: 60 } };
+const HARVEST_TILES = { farmRoofs: [[136.5, 127.5, 1.5], [136.5, 127.5, 1.0], [136.5, 127.5, 0]], barnRoofs: [[132.5, 126.5, 2.0], [132.5, 126.5, 1.0], [132.5, 126.5, 0]] };
+/**
+ * The stops, from `scripts/harvest.ts`. The farm stands at 12:13 on day 1, its farmers sow 4 tiles by 16:00 and the
+ * other 20 on day 2, and the barn stands at 13:40 on day 2. The 10 tiles sown on day 1 ripen at the dawn of day 6,
+ * 03:36, and the 14 of day 2 at the dawn of day 7, 04:48. On day 6 the barn holds its first 8 units at 06:40, both
+ * farmers cut at 07:50, and Elsi carries food from the middle of the field at 11:50, clear of the barn's pick box. At midnight every settler sits at the camp, so the
+ * tile checks of a midnight read every tile; by day a settler can stand on one.
+ */
+const HARVEST_STOPS = {
+  bare: { day: 1, time: '12:00' },
+  sownDay1: { day: 1, time: '16:00' },
+  midnight2: { day: 2, time: '00:00' },
+  day2: { day: 2, time: '12:00' },
+  midnight3: { day: 3, time: '00:00' },
+  day3: { day: 3, time: '12:00' },
+  midnight4: { day: 4, time: '00:00' },
+  day4: { day: 4, time: '12:00' },
+  midnight5: { day: 5, time: '00:00' },
+  day5: { day: 5, time: '12:00' },
+  midnight6: { day: 6, time: '00:00' },
+  clipFrom: { day: 6, time: '03:30' },
+  dawn6: { day: 6, time: '03:40' },
+  clipTo: { day: 6, time: '06:40' },
+  cutting: { day: 6, time: '07:50' },
+  carrying: { day: 6, time: '11:50' },
+  day6: { day: 6, time: '12:00' },
+  noFarmers: { day: 6, time: '21:00', places: [1, 0] },
+  day7: { day: 7, time: '12:00' },
+  midnight8: { day: 8, time: '00:00' },
+  farmersBack: { day: 8, time: '00:30', places: [1, 2] },
+  day8: { day: 8, time: '12:00' },
+  midnight9: { day: 9, time: '00:00' },
+};
+const FIELD_STATES = ['bare', 'sown', 'ripe', 'cut'];
+/** The crop's colors from `FIELD_LOOK` in `src/render/orderMarks.ts`. The mark layer draws them after the light, so no light changes them. */
+const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a] };
+/**
+ * Adjacent stages of a sown tile differ by at least this much in the mean color of the tile's box, as a distance in
+ * 8-bit RGB, by day and at midnight, so a player tells them apart at a glance.
+ */
+const STAGE_MARGIN = 20;
+/**
+ * In the box of 11 by 11 pixels around a tile's center, about half a tile, the rows of a sown tile draw about 48 pixels
+ * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, and the shadow
+ * about 12 more pixels at each dawn. A bare tile draws none of them, and soil fills its box: `sowing` read a mean of 94%
+ * on a bare field. A box with no rows and less soil is hidden by a settler, a sack, or a stone.
+ */
+const CROP_LEAST = { shoots: 20, ripe: 30, stubble: 6, soilBare: 0.6, day: 20 };
+/**
+ * The scenery draws a stone over the field tile (130, 123), as `sowing`'s gotchas say, whose box reads 15 shoot pixels
+ * when sown, and tufts and a stone over (130, 121), whose box reads 55% soil at night when bare. A check may read them
+ * as unclear, never as another state. Stones read as dark as a shadow, so the shadow says nothing of a bare tile.
+ */
+const HARVEST_STONES = ['(130, 121)', '(130, 123)'];
+const CROP_MOST = { none: 2 };
+/** The clip keeps the clock, the field, the barn, and the barn's panel. */
+const HARVEST_CLIP = { crop: { x: 0, y: 0, width: 720, height: 540 }, width: 560, colors: 64, decimate: true };
+
+function cropLook(png, width, spots) {
+  const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+  return spots.map(({ x, y }) => {
+    const found = { shoots: 0, shadow: 0, ripe: 0, stubble: 0, soil: 0, stages: SHOOT_STAGES.map(() => 0), mean: [0, 0, 0] };
+    for (let row = y - SOW_HALF; row <= y + SOW_HALF; row++) {
+      for (let column = x - SOW_HALF; column <= x + SOW_HALF; column++) {
+        const i = (row * width + column) * 3;
+        const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+        for (const [name, color] of Object.entries(CROP_RGB)) if (distance(rgb, color) < ORDER_TOLERANCE) found[name] += 1;
+        SHOOT_STAGES.forEach((stage, index) => {
+          if (distance(rgb, stage) < ORDER_TOLERANCE) found.stages[index] += 1;
+        });
+        if (SOIL(rgb)) found.soil += 1;
+        rgb.forEach((value, channel) => {
+          found.mean[channel] += value;
+        });
+      }
+    }
+    const all = (2 * SOW_HALF + 1) ** 2;
+    const shoots = found.stages.reduce((sum, count) => sum + count, 0);
+    const stage = found.stages.indexOf(Math.max(...found.stages));
+    return { ...found, shoots, stage, soil: found.soil / all, mean: found.mean.map((sum) => sum / all) };
+  });
+}
+
+/** The state a tile's box reads, or `unclear` when a settler or a stone hides too much of it to tell. */
+function cropState({ shoots, ripe, stubble, soil }) {
+  if (ripe >= CROP_LEAST.ripe) return 'ripe';
+  if (ripe > CROP_MOST.none) return 'unclear';
+  if (shoots >= CROP_LEAST.shoots) return 'sown';
+  if (stubble >= CROP_LEAST.stubble && shoots <= CROP_MOST.none) return 'cut';
+  if (shoots <= CROP_MOST.none && stubble <= CROP_MOST.none && soil >= CROP_LEAST.soilBare) return 'bare';
+  return 'unclear';
+}
+
+SCENARIOS.harvest = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes } = selectionDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const tileName = ([x, y]) => `(${x}, ${y})`;
+
+  const stops = Object.values(HARVEST_STOPS);
+  const run = spawnSync('bun', [HARVEST_SIM, JSON.stringify(stops)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`harvest.ts failed: ${run.stderr}`);
+  const sim = JSON.parse(run.stdout);
+  const simAt = Object.fromEntries(Object.keys(HARVEST_STOPS).map((name, index) => [name, sim.stops[index]]));
+  const view = (points) => {
+    const result = spawnSync('bun', [SOW_AIM, '7', JSON.stringify(HARVEST_VIEW), JSON.stringify(points)], { cwd: ROOT, encoding: 'utf8' });
+    if (result.status !== 0) fail(`aim.ts failed: ${result.stderr}`);
+    const spots = result.stdout.split('\n').filter((line) => / at \{/.test(line)).map((line) => JSON.parse(/ at (\{[^}]*\})/.exec(line)[1]));
+    if (spots.length !== points.length) fail(`aim.ts printed ${spots.length} spots for ${points.length} points`);
+    return spots;
+  };
+  const fieldTiles = sim.field;
+  const fieldSpots = view(fieldTiles);
+  const farmRoofs = view(HARVEST_TILES.farmRoofs);
+  const barnRoofs = view(HARVEST_TILES.barnRoofs);
+  const farmerSpots = (stop) => (stop.farmers.length === 0 ? [] : view(stop.farmers.map(({ x, y }) => [x - 0.5, y - 0.5, SOW_TUNIC_RISE])).map((spot, index) => ({ ...stop.farmers[index], ...spot })));
+
+  const play = await session.open(CLIP, { record: true, search: HARVEST_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page, HARVEST_VIEW);
+  const toolbar = page.getByRole('toolbar', { name: 'Orders' });
+  const toToolbar = async () => {
+    const box = await toolbar.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 2);
+  };
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+
+  const given = [];
+  for (const command of sim.commands) {
+    await toToolbar();
+    if (command.kind === 'place') {
+      const [spot] = view([[command.x, command.y]]);
+      await page.keyboard.press(command.building === 6 ? 'KeyO' : 'KeyB');
+      await page.mouse.move(spot.x, spot.y, { steps: 3 });
+      await page.mouse.down();
+      await page.mouse.up();
+      given.push(await said(page, /site placed\.$/));
+    } else {
+      const { x0, y0, x1, y1 } = command.area;
+      const [from, to] = view([[x0, y0], [x1, y1]]);
+      await page.keyboard.press({ field: 'KeyI', chop: 'KeyC', quarry: 'KeyM' }[command.order]);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      if (x0 !== x1 || y0 !== y1) await page.mouse.move(to.x, to.y, { steps: 5 });
+      await page.mouse.up();
+      given.push(await said(page, /join the field\.$|marked for felling|marked for quarrying/));
+    }
+    await page.keyboard.press('Escape');
+    await corner();
+  }
+  const expected = sim.commands.map((command) =>
+    command.kind === 'place'
+      ? `${command.building === 6 ? 'Farm' : 'Barn'} site placed.`
+      : command.order === 'field'
+        ? `${fieldTiles.length} tiles join the field.`
+        : command.order === 'chop'
+          ? /^1 tree marked for felling/
+          : /^1 rock tile marked for quarrying/,
+  );
+  session.check(
+    `the orders of harvest.ts go through the toolbar at 08:00 on day 1: the farm, the field of ${fieldTiles.length} tiles, the barn, ${sim.commands.filter(({ order }) => order === 'chop').length} trees, and the rock tile`,
+    given.every((line, index) => (typeof expected[index] === 'string' ? line === expected[index] : expected[index].test(line))),
+    given.map((line) => `"${line}"`).join(', '),
+  );
+  await session.still(page);
+  await session.screenshot(page, 'harvest-orders');
+
+  const percent = (part, whole) => `${((part / whole) * 100).toFixed(0)}%`;
+  /** The mean colors of the boxes of the sown tiles read at their stage, by day and at midnight, by the dawns grown. */
+  const stageColors = { day: SHOOT_STAGES.map(() => []), midnight: SHOOT_STAGES.map(() => []) };
+  /** Reads every field tile at the stop against the rules: its state, and for a sown tile its stage's color and the shadow of the dawns it has grown. */
+  const expectCrop = async (stop, shot, what, { midnight }) => {
+    await session.still(page);
+    const png = await session.screenshot(page, shot);
+    const look = cropLook(png, CLIP.width, fieldSpots);
+    const rules = simAt[stop].tiles;
+    const shown = look.map((tile, index) => {
+      const state = cropState(tile);
+      return state === 'sown' && FIELD_STATES[rules[index].state] === 'sown' && tile.stage !== rules[index].grown ? `sown at stage ${tile.stage}` : state;
+    });
+    rules.forEach((tile, index) => {
+      if (FIELD_STATES[tile.state] === 'sown' && shown[index] === 'sown') stageColors[midnight ? 'midnight' : 'day'][tile.grown].push(look[index].mean);
+    });
+    const hidden = (tile, index) => shown[index] === 'unclear' && (!midnight || HARVEST_STONES.includes(tileName(tile)));
+    const wrong = fieldTiles.filter((tile, index) => shown[index] !== FIELD_STATES[rules[index].state] && !hidden(tile, index));
+    const matched = fieldTiles.filter((_, index) => shown[index] === FIELD_STATES[rules[index].state]).length;
+    const shadows = new Map();
+    rules.forEach((tile, index) => {
+      if (FIELD_STATES[tile.state] !== 'sown' || shown[index] !== 'sown') return;
+      shadows.set(tile.grown, [...(shadows.get(tile.grown) ?? []), look[index].shadow]);
+    });
+    const means = [...shadows].sort(([a], [b]) => a - b).map(([grown, counts]) => [grown, counts.reduce((sum, count) => sum + count, 0) / counts.length]);
+    const taller = means.every(([, mean], index) => index === 0 || mean > means[index - 1][1]);
+    const counts = Object.fromEntries(FIELD_STATES.map((state) => [state, rules.filter((tile) => FIELD_STATES[tile.state] === state).length]));
+    session.check(
+      `at ${await at(page)} ${what}: the field reads ${FIELD_STATES.filter((state) => counts[state] > 0).map((state) => `${counts[state]} ${state}`).join(', ')} as the rules have it${means.length > 1 ? ', and the shadow of a sown tile grows with the dawns since its sowing' : ''}`,
+      wrong.length === 0 && matched >= (midnight ? fieldTiles.length - HARVEST_STONES.length : CROP_LEAST.day) && taller,
+      `${matched} of ${fieldTiles.length} tiles read as the rules have them, needs ${midnight ? `all but the stone at ${HARVEST_STONES.join(' ')}` : `${CROP_LEAST.day} by day`}; wrong: ${wrong.map(tileName).join(' ') || 'none'}; ` +
+        `shadow pixels by dawns grown: ${means.map(([grown, mean]) => `${grown} ${mean.toFixed(1)}`).join(', ') || 'none'}; ` +
+        `by tile shoots at its stage/shadow/ripe/stubble/soil: ${fieldTiles.map((tile, index) => `${tileName(tile)} ${FIELD_STATES[rules[index].state]}${rules[index].grown} ${look[index].shoots}@${look[index].stage}/${look[index].shadow}/${look[index].ripe}/${look[index].stubble}/${percent(look[index].soil, 1)}`).join(', ')}`,
+    );
+    return png;
+  };
+
+  const clickFarmer = async (stop, words) => {
+    const boxesNow = Object.values(await uiBoxes(page)).filter(Boolean);
+    const clear = (spot) => spot.x > 0 && spot.y > 0 && spot.x < CLIP.width && spot.y < CLIP.height && boxesNow.every((box) => !(spot.x >= box.x && spot.x <= box.x + box.width && spot.y >= box.y && spot.y <= box.y + box.height));
+    let read = null;
+    for (const spot of farmerSpots(simAt[stop]).filter(clear).filter(words)) {
+      read = await click(page, spot);
+      if (read?.rows?.Job === 'Farmer') return read;
+    }
+    return read;
+  };
+  const clickBuilding = async (spots, title) => {
+    let read = null;
+    for (const spot of spots) {
+      read = await click(page, spot);
+      if (read?.title === title) return read;
+    }
+    return read;
+  };
+
+  await session.reach(page, HARVEST_STOPS.bare);
+  await expectCrop('bare', 'harvest-field-bare-day', 'before the farm stands the field is bare', { midnight: false });
+  await session.reach(page, HARVEST_STOPS.sownDay1);
+  await expectCrop('sownDay1', 'harvest-field-sown-day-1', 'on the day of its sowing a tile shows its rows with no shadow', { midnight: false });
+  for (const day of [2, 3, 4, 5]) {
+    await session.reach(page, HARVEST_STOPS[`midnight${day}`]);
+    await expectCrop(`midnight${day}`, `harvest-field-midnight-${day}`, `at the midnight that opens day ${day}`, { midnight: true });
+    await session.reach(page, HARVEST_STOPS[`day${day}`]);
+    await expectCrop(`day${day}`, `harvest-field-day-${day}`, `at noon on day ${day}`, { midnight: false });
+    if (day !== 4) continue;
+    const growing = await clickFarmer('day4', () => true);
+    session.check(
+      `at ${await at(page)}, in summer, a farmer reads that the crop is growing`,
+      growing?.rows?.Job === 'Farmer' && growing.rows.Doing === 'Idle, the crop is growing',
+      `the panel reads "${text(growing)}"`,
+    );
+    await session.screenshot(page, 'harvest-farmer-growing');
+    await page.keyboard.press('Escape');
+    await corner();
+  }
+  await session.reach(page, HARVEST_STOPS.midnight6);
+  await expectCrop('midnight6', 'harvest-field-midnight-6', 'at the midnight before the brief says the first tiles ripen, none is ripe', { midnight: true });
+  for (const [when, byStage] of Object.entries(stageColors)) {
+    const means = byStage.map((colors) => (colors.length === 0 ? null : [0, 1, 2].map((channel) => colors.reduce((sum, color) => sum + color[channel], 0) / colors.length)));
+    const apart = means.slice(1).map((mean, index) => (mean && means[index] ? distance(mean, means[index]) : 0));
+    session.check(
+      `${when === 'day' ? 'by day' : 'at midnight'} the five sown stages read apart: the mean color of the tiles' boxes at each stage differs from the next by at least ${STAGE_MARGIN}`,
+      means.every(Boolean) && apart.every((gap) => gap >= STAGE_MARGIN),
+      `mean RGB by dawns grown: ${means.map((mean, grown) => `${grown} ${mean ? mean.map((value) => value.toFixed(0)).join('/') : 'none'} over ${byStage[grown].length} tiles`).join(', ')}; distance from each stage to the next: ${apart.map((gap) => gap.toFixed(1)).join(', ')}`,
+    );
+  }
+
+  await session.reach(page, HARVEST_STOPS.clipFrom);
+  const barn = await clickBuilding(barnRoofs, 'Barn');
+  session.check(`at ${await at(page)} the barn's panel reads no food yet`, barn?.title === 'Barn' && barn.rows.Food === `${simAt.clipFrom.barnFood} of 120`, `the panel reads "${text(barn)}"`);
+  const clipFrom = play.since();
+  await session.reach(page, HARVEST_STOPS.dawn6);
+  const lines = (await page.getByRole('log', { name: 'Settlement news' }).count()) > 0 ? await page.getByRole('log', { name: 'Settlement news' }).locator('p').allTextContents() : [];
+  const first = sim.ripening[0];
+  session.check(
+    `at ${await at(page)} the news says that the first crop of the year is ripe, at the dawn of day 6 as the rules ripen ${first.tiles} tiles`,
+    first.at === 'day 6 03:36' && lines.includes('Day 6, 03:36. The first crop of the year is ripe.'),
+    `the news reads ${lines.map((line) => `"${line}"`).join(', ') || 'nothing'}; the rules ripen ${sim.ripening.map(({ at: when, tiles }) => `${tiles} at ${when}`).join(' and ')}`,
+  );
+  await expectCrop('dawn6', 'harvest-field-dawn-6', 'at the dawn of day 6 the tiles sown on day 1 are ripe', { midnight: false });
+  await session.reach(page, HARVEST_STOPS.clipTo);
+  await session.still(page);
+  const clipTo = play.since();
+  const filling = await reads(page);
+  session.check(
+    `at ${await at(page)} the barn's panel reads the food the rules have carried in from the field`,
+    filling?.title === 'Barn' && filling.rows.Food === `${simAt.clipTo.barnFood} of 120` && simAt.clipTo.barnFood > 0,
+    `the panel reads "${text(filling)}"; the rules have ${simAt.clipTo.barnFood} in the barn, ${simAt.clipTo.tally.cut} tiles cut, ${simAt.clipTo.tally.reapedIn} units carried in by the farmers and ${simAt.clipTo.tally.fromFields} by settlers without a job`,
+  );
+  await session.screenshot(page, 'harvest-barn-filling');
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, HARVEST_STOPS.cutting);
+  await session.still(page);
+  const cutter = await clickFarmer('cutting', (spot) => spot.task === 'cutting' && spot.working);
+  session.check(
+    `at ${await at(page)} a farmer that the rules have at work on a ripe tile reads that it cuts the crop`,
+    cutter?.rows?.Job === 'Farmer' && cutter.rows.Doing === 'Cutting the crop',
+    `the panel reads "${text(cutter)}"`,
+  );
+  await session.screenshot(page, 'harvest-farmer-cutting');
+  const farmCutting = await clickBuilding(farmRoofs, 'Farm');
+  session.check(
+    `at ${await at(page)} the farm's panel reads that its farmers cut the crop`,
+    farmCutting?.title === 'Farm' && farmCutting.rows.Doing === 'Cutting the crop',
+    `the panel reads "${text(farmCutting)}"`,
+  );
+  await session.screenshot(page, 'harvest-farm-cutting');
+  await page.keyboard.press('Escape');
+  await corner();
+  await session.reach(page, HARVEST_STOPS.carrying);
+  await session.still(page);
+  const carrier = await clickFarmer('carrying', (spot) => spot.task === 'fetching' && spot.carried);
+  session.check(
+    `at ${await at(page)} a farmer that the rules have carrying cut food reads that it carries food to a barn`,
+    carrier?.rows?.Job === 'Farmer' && carrier.rows.Doing === 'Carrying food to a barn' && carrier.rows.Carries === '1 food',
+    `the panel reads "${text(carrier)}"`,
+  );
+  await session.screenshot(page, 'harvest-farmer-carrying');
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, HARVEST_STOPS.day6);
+  await expectCrop('day6', 'harvest-field-day-6', 'at noon on day 6 the field reads sown, ripe, and cut tiles', { midnight: false });
+
+  const setPlaces = async (stop, button) => {
+    await session.reach(page, HARVEST_STOPS[stop]);
+    await clickBuilding(farmRoofs, 'Farm');
+    for (let press = 0; press < HARVEST_STOPS[stop].places.length; press++) {
+      await page.getByRole('button', { name: button }).click();
+      await session.still(page);
+    }
+    const farm = await reads(page);
+    await page.keyboard.press('Escape');
+    await corner();
+    return farm;
+  };
+  const emptied = await setPlaces('noFarmers', 'Fewer places');
+  session.check(`at ${HARVEST_STOPS.noFarmers.time} on day 6 two presses of Fewer places leave the farm with no farmer`, emptied?.rows?.Places === '0 of 2', `the panel reads "${text(emptied)}"`);
+  await session.reach(page, HARVEST_STOPS.day7);
+  await expectCrop('day7', 'harvest-field-day-7', 'at noon on day 7, with no farmer, the tiles sown on day 2 stand ripe beside the cut ones', { midnight: false });
+  await session.reach(page, HARVEST_STOPS.midnight8);
+  await expectCrop('midnight8', 'harvest-field-midnight-8', 'at the midnight that opens day 8 the ripe tiles read ripe by night', { midnight: true });
+  const filled = await setPlaces('farmersBack', 'More places');
+  session.check(`at ${HARVEST_STOPS.farmersBack.time} on day 8 two presses of More places fill the farm's places again`, filled?.rows?.Places === '2 of 2', `the panel reads "${text(filled)}"`);
+  await session.reach(page, HARVEST_STOPS.day8);
+  await expectCrop('day8', 'harvest-field-day-8', 'at noon on day 8 the farmers cut the rest', { midnight: false });
+  await session.reach(page, HARVEST_STOPS.midnight9);
+  await expectCrop('midnight9', 'harvest-field-midnight-9', 'at the midnight that opens day 9 every tile is cut', { midnight: true });
+  const stored = await clickBuilding(barnRoofs, 'Barn');
+  const end = simAt.midnight9;
+  session.check(
+    `at ${await at(page)} the barn holds the harvest as the rules carry it in: ${end.tally.reaped} units cut from ${end.tally.cut} tiles, ${end.tally.reapedIn} carried in by farmers and ${end.tally.fromFields} by settlers without a job`,
+    stored?.title === 'Barn' && stored.rows.Food === `${end.barnFood} of 120` && end.tally.cut === fieldTiles.length && end.tally.reaped === 4 * fieldTiles.length && end.tally.missed === 0,
+    `the panel reads "${text(stored)}"; the rules have ${end.barnFood} in the barn and ${end.campFood} at the camp, ${end.tally.spoiledOnFields} spoiled on the fields, ${end.tally.missed} meals missed`,
+  );
+  await session.screenshot(page, 'harvest-barn-full');
+
+  await session.finishClips(play.context, page, [{ label: 'harvest-clip', from: clipFrom, to: clipTo, ...HARVEST_CLIP }]);
   seen.push(...play.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };

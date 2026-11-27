@@ -17,7 +17,7 @@ import { StoreKind, limitOf, storeKind } from './stores';
 import { SUPPLYING } from './supplying';
 import { TASK_KINDS } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { NOT_SOWN } from './fields';
+import { NOT_CUT, NOT_SOWN } from './fields';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
 import { VillagerState } from './villagerState';
 
@@ -318,7 +318,7 @@ describe('a finished house', () => {
     const groups = takeTileChanges(sim);
     const changed = new Map<number, number[]>();
     for (let i = 0; i < groups.length; i += TILE_CHANGE_STRIDE) changed.set(groups[i]!, Array.from(groups.subarray(i + 1, i + TILE_CHANGE_STRIDE)));
-    for (const tile of nine) expect(changed.get(tile)).toEqual([TileKind.Built, 0, Good.None, 0, NOT_SOWN]);
+    for (const tile of nine) expect(changed.get(tile)).toEqual([TileKind.Built, 0, Good.None, 0, NOT_SOWN, NOT_CUT]);
     expect(Array.from(takeOrderChanges(sim.orders).sites)).toEqual([slot, 21, 15, SiteState.Built, BUILDINGS[Building.House].workTicks, Building.House, 0]);
     expect(applyCommand(sim, mark('cancel', 19, 13, 23, 17))).toEqual({ ok: false, order: 'cancel', refusal: 'nothing-to-cancel' });
     expect(sim.orders.sites.state[slot]).toBe(SiteState.Built);

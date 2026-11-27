@@ -268,6 +268,7 @@ export function spoilGoods(sim: Sim): void {
     goods.spoilingListed[tile] = 0;
     if (!holds) continue;
     sim.tally.spoiled += map.stackSize[tile]!;
+    if (sim.orders.claims[tile] === Claim.Field) sim.tally.spoiledOnFields += map.stackSize[tile]!;
     map.stackGood[tile] = Good.None;
     map.stackSize[tile] = 0;
     noteTileChange(sim, tile);

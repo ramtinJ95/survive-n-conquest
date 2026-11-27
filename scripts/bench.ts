@@ -8,6 +8,7 @@ import { CARRYING } from '../src/sim/carrying';
 import { isDawn, isNight } from '../src/sim/daylight';
 import { EATING } from '../src/sim/eating';
 import { SOWING } from '../src/sim/fields';
+import { CUTTING, FETCHING_CROP } from '../src/sim/harvest';
 import { FORAGING } from '../src/sim/foraging';
 import { Good } from '../src/sim/goods';
 import { GATHERING } from '../src/sim/gathering';
@@ -117,7 +118,16 @@ const FIELD = { width: 6, depth: 4, south: 3 };
  * `--no-winter` leaves it out.
  */
 const WINTER = { warmupTicks: 9 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: 20_000 };
-const RUNS = process.argv.includes('--no-winter') ? ['spring'] : ['spring', 'winter'];
+/**
+ * The harvest run warms up to the midnight that opens day 6, the last day of
+ * summer, so the fields its farms sowed in the warm-up's spring ripen at the
+ * dawns of days 6 to 8 and are cut and carried in during its measured ticks.
+ * Its camp starts with the winter run's food, so the villagers live to it.
+ * Only the tick time, the living, and a tile cut decide whether it passes.
+ * `--no-harvest` leaves it out, and so does `--no-farms`, which leaves it nothing to cut.
+ */
+const HARVEST = { warmupTicks: 5 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: WINTER.campFood };
+const RUNS = ['spring', 'winter', ...(FARM_GRID === 0 ? [] : ['harvest'])].filter((run) => !process.argv.includes(`--no-${run}`));
 /** The youngest and the oldest age of the settlement in its later years, every age between as likely as another. */
 const AGES = { youngest: 16, oldest: 75 };
 /**
@@ -212,6 +222,8 @@ const KINDS = [
   ['hunting', TASK_KINDS.indexOf(HUNTING) + 1],
   ['working a workshop', TASK_KINDS.indexOf(WORKSHOP) + 1],
   ['sowing', SOW],
+  ['fetching a crop', TASK_KINDS.indexOf(FETCHING_CROP) + 1],
+  ['cutting', TASK_KINDS.indexOf(CUTTING) + 1],
 ] as const;
 const TALLIED = ['felled', 'quarried', 'stocked', 'delivered', 'built', 'foraged'] as const satisfies readonly (keyof Tally)[];
 const FED = ['meals', 'missed', 'carriedHome', 'fromGround', 'toCamp', 'died'] as const satisfies readonly (keyof Tally)[];
@@ -429,13 +441,14 @@ function readingCost(sim: Sim): { median: number; max: number; of: Readiness } |
 
 function measure(size: number, run: string): boolean {
   const winter = run === 'winter';
-  const population = winter ? { ...LATER_YEARS, campFood: WINTER.campFood } : LATER_YEARS;
+  const harvest = run === 'harvest';
+  const population = winter ? { ...LATER_YEARS, campFood: WINTER.campFood } : harvest ? { ...LATER_YEARS, campFood: HARVEST.campFood } : LATER_YEARS;
   const setupStart = performance.now();
   const { sim, sites, huts, barns, lodges, woodsheds, tailors, farms, fieldTiles } = setUp(size, population);
   for (let id = BENCHMARK_POPULATION.villagers; id < sim.villagers.count; id++) die(sim, id, Cause.OldAge);
   const setupMs = performance.now() - setupStart;
 
-  const warmup = winter ? WINTER.warmupTicks : WARMUP_TICKS;
+  const warmup = winter ? WINTER.warmupTicks : harvest ? HARVEST.warmupTicks : WARMUP_TICKS;
   for (let tick = 0; tick < warmup; tick++) step(sim);
   const monsterDraws = sum(sim.monsters.draws);
   const spentBefore = spentRock(sim.map);
@@ -457,6 +470,7 @@ function measure(size: number, run: string): boolean {
   const farmsBefore = built(sim, Building.Farm);
   const farmersBefore = holding(sim, Job.Farmer);
   const sownBefore = sim.tally.sown;
+  const cutBefore = sim.tally.cut;
   const clothingBefore = tailorClothing(sim);
   const clothedBefore = clothed(sim);
   const tailorFull = new Uint8Array(MAX_SITES);
@@ -480,6 +494,7 @@ function measure(size: number, run: string): boolean {
   let mostLiving = sim.living;
   const lastMissed = sim.villagers.missedMeals.slice();
   const birthsByDawn: number[] = [];
+  const ripenedByDawn: number[] = [];
   const pairedByDawn: number[] = [];
   const startedByDawn: number[] = [];
   let mealsByDay = 0;
@@ -516,12 +531,14 @@ function measure(size: number, run: string): boolean {
     const born = sim.tally.births;
     const paired = sim.tally.paired;
     const started = sim.tally.startedWork;
+    const ripened = sim.tally.ripened;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
     if (dawnTick) birthsByDawn.push(sim.tally.births - born);
     if (dawnTick) pairedByDawn.push(sim.tally.paired - paired);
     if (dawnTick) startedByDawn.push(sim.tally.startedWork - started);
+    if (dawnTick) ripenedByDawn.push(sim.tally.ripened - ripened);
     for (let id = 0; id < sim.villagers.count; id++) {
       if (state[id] === VillagerState.Dead && lastState[id] !== VillagerState.Dead) {
         const cause = sim.villagers.cause[id];
@@ -605,12 +622,18 @@ function measure(size: number, run: string): boolean {
   const busy = workerTaskTicks / workerTicks;
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
   const livingLimit = population.mostLiving!;
-  const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (workHeld && allWork));
+  const cut = sim.tally.cut - cutBefore;
+  const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (harvest ? cut > 0 : workHeld && allWork));
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
 
-  console.log(`\nmap ${size}x${size}, ${winter ? `winter run: ${warmup} warm-up ticks to the first midnight of winter and food for the year at the camp` : 'spring run'}`);
+  const runName = winter
+    ? `winter run: ${warmup} warm-up ticks to the first midnight of winter and food for the year at the camp`
+    : harvest
+      ? `harvest run: ${warmup} warm-up ticks to the midnight that opens day 6 and food for the year at the camp`
+      : 'spring run';
+  console.log(`\nmap ${size}x${size}, ${runName}`);
   console.log(`  measured from ${seasonAt(warmup)} day ${Math.floor((warmup + (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY) / TICKS_PER_DAY) + 1}`);
   console.log(`  median ${ms(median)}, p99 ${ms(p99)}, max ${ms(samples[samples.length - 1]!)}`);
   for (const name of ['dusk', 'dawn'] as const) {
@@ -713,9 +736,14 @@ function measure(size: number, run: string): boolean {
       `${built(sim, Building.Farm) - farmsBefore} in the measured ticks, ${farms - built(sim, Building.Farm)} unfinished at the end; ` +
       `farmers ${farmersBefore} at the start and ${holding(sim, Job.Farmer)} in the ${built(sim, Building.Farm) * BUILDINGS[Building.Farm].places} places of the finished farms at the end`,
   );
+  const ripeningDawns = ripenedByDawn.flatMap((tiles, dawn) => (tiles > 0 ? [`${tiles} tiles, largest tick ${ms(turns.dawn[dawn]!)}`] : []));
   console.log(
-    `  sowing in the measured ticks: ${sim.tally.sown - sownBefore} field tiles sown of the ${fieldTiles} marked, ${sownBefore} sown in the warm-up ticks`,
+    `  fields in the measured ticks: ${sim.tally.sown - sownBefore} field tiles sown of the ${fieldTiles} marked, ${sownBefore} sown in the warm-up ticks; ` +
+      `${sim.tally.ripened - tallyBefore.ripened} ripened, ${cut} cut, ${cutBefore} cut in the warm-up ticks; ` +
+      `${sim.tally.reaped - tallyBefore.reaped} units of food cut, ${sim.tally.reapedIn - tallyBefore.reapedIn} carried into a store by farmers and ${sim.tally.fromFields - tallyBefore.fromFields} by settlers without a job, ` +
+      `${sim.tally.spoiledOnFields - tallyBefore.spoiledOnFields} spoiled on the fields at a dawn`,
   );
+  console.log(`  dawns of the measured ticks at which tiles ripened: ${ripeningDawns.join('; ') || 'none'}${harvest ? `; a tile cut in the measured ticks: ${cut > 0 ? 'PASS' : 'FAIL'}` : ''}`);
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
   console.log(
     `  straight line from a unit to where it goes, for tasks taken in the measured ticks: to a stockpile ${mean(toStockpile)}, ` +

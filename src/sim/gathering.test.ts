@@ -7,7 +7,7 @@ import { type AreaOrder, Claim, type OrderCommand, takeOrderChanges } from './or
 import { type Command, type Sim, applyCommand, createSim, step } from './sim';
 import { endTask, takeTask } from './tasks';
 import { at, mapFrom } from './testMaps';
-import { NOT_SOWN } from './fields';
+import { NOT_CUT, NOT_SOWN } from './fields';
 import { TILE_CHANGE_STRIDE, takeTileChanges } from './tileChanges';
 import { WANDER_REACH } from './villagers';
 import { VillagerState } from './villagerState';
@@ -99,7 +99,7 @@ describe('chopping', () => {
     expect(sim.map.kinds[tree]).toBe(TileKind.Forest);
     expect(sim.orders.claims[tree]).toBe(Claim.None);
     expect(Array.from(takeOrderChanges(sim.orders).claims)).toEqual([tree, Claim.None]);
-    expect(groupsOf(takeTileChanges(sim))).toEqual([[tree, TileKind.Forest, 0, Good.Log, 2, NOT_SOWN]]);
+    expect(groupsOf(takeTileChanges(sim))).toEqual([[tree, TileKind.Forest, 0, Good.Log, 2, NOT_SOWN, NOT_CUT]]);
     expect(sim.villagers.task[0]).toBe(0);
   });
 
@@ -205,7 +205,7 @@ describe('quarrying', () => {
     expect(walkable(sim.map, rock)).toBe(true);
     expect(sim.map.heights[rock]).toBe(height);
     expect(sim.orders.claims[rock]).toBe(Claim.None);
-    expect(groupsOf(takeTileChanges(sim))).toContainEqual([rock, TileKind.Bare, 0, Good.None, 0, NOT_SOWN]);
+    expect(groupsOf(takeTileChanges(sim))).toContainEqual([rock, TileKind.Bare, 0, Good.None, 0, NOT_SOWN, NOT_CUT]);
 
     // The tree beyond was out of reach until the rock tile opened, and was taken before the next dawn.
     expect(treeTakenOn).toBeGreaterThan(spentOn);
