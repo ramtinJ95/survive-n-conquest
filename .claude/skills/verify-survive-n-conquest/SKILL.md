@@ -60,39 +60,43 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 ### Which scenarios a pull request runs
 
-A pull request runs the scenarios its change can reach, one at a time against one `launch`, and leaves the others to the stage's full sweep. It runs the scenarios it adds, the scenarios this table names for each file it touches, and always `readiness` and `selecting`, which measure every panel. After it merges `main`, it runs the same set again at the merge. A change to tests alone, such as a `.test.ts` file or `src/sim/testMaps.ts`, reaches no scenario. A file the table does not name gets a row in the same pull request, with the scenarios whose feature files describe what the file does. The body lists what ran, what was left out, and why.
+CLAUDE.md says which scenarios a pull request runs. This table names the scenarios for each file it touches, beside the scenario it adds and `readiness` and `selecting`. Drive them one at a time against one `launch`.
+
+A row in the first group is shared by every game. A change there that only adds what one feature needs, such as a field of the frame or a step of the dawn for farming, runs that feature's rows. A change to what the file already did runs every scenario `list` prints. A file under `src/` or the harness that the table does not name gets a row in the same pull request, with the scenarios whose feature files describe what it does.
 
 | Files touched | Scenarios |
 | --- | --- |
-| `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts` | every scenario `list` prints, as in a full sweep |
+| `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts`, `src/render/world.ts`, `src/render/shapes.ts`, `src/ui/style.css` | shared, as above |
 | `src/sim/calendar.ts`, `src/sim/daylight.ts`, `src/ui/clock.ts` | `clock`, `daylight`, `seasons` |
-| `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/jobs.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts`, `src/render/orderMarks.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing` |
-| `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/ui/stockpiles.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting` |
+| `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing` |
+| `src/sim/jobs.ts` | `foraging`, `hunting`, `firewood`, `clothing`, `sowing` |
+| `src/render/orderMarks.ts` | `orders`, `gathering`, `sowing`, `harvest`, `frost` |
+| `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting` |
+| `src/ui/stockpiles.ts` | `hauling`, `storing`, `clothing`, `firewood`, `cold`, `births`, `growing-up` |
 | `src/sim/building.ts`, `src/sim/buildings.ts`, `src/sim/supplying.ts`, `src/ui/sites.ts`, `src/render/sites.ts` | `building`, `storing`, `foraging`, `firewood-reason` |
-| `src/sim/stocking.ts`, `src/sim/stores.ts` | `storing`, `hunger`, `eating`, `firewood`, `empty-house` |
+| `src/sim/stocking.ts`, `src/sim/stores.ts` | `storing`, `hunger`, `eating`, `firewood`, `cold`, `empty-house` |
 | `src/sim/eating.ts`, `src/sim/needs.ts`, `src/sim/camp.ts`, `src/ui/diedOut.ts` | `hunger`, `eating`, `cold`, `settlers` |
 | `src/sim/households.ts`, `src/sim/names.ts` | `households`, `births`, `pairing`, `empty-house`, `people` |
 | `src/sim/aging.ts` | `aging`, `growing-up` |
 | `src/sim/births.ts` | `births`, `growing-up`, `people` |
 | `src/sim/pairing.ts` | `pairing`, `empty-house` |
-| `src/sim/foraging.ts` | `foraging` |
+| `src/sim/foraging.ts` | `foraging`, `storing` |
 | `src/sim/hunting.ts`, `src/sim/animals.ts`, `src/render/animals.ts` | `hunting`, `clothing` |
 | `src/sim/workshops.ts` | `firewood`, `clothing`, `firewood-reason`, `clothing-reason` |
 | `src/sim/wearing.ts` | `wearing`, `clothing`, `cold` |
 | `src/sim/readiness.ts`, `src/ui/readiness.ts` | `readiness`, `cold`, `firewood-year` |
 | `src/sim/firstYear.ts` | `firewood-year`, `sowing` |
-| `src/sim/fields.ts`, `src/sim/harvest.ts`, `src/sim/frost.ts`, `src/sim/years.ts`, `src/sim/workplaceYears.ts`, `src/render/world.ts` | `sowing`, `harvest`, `frost`, `farm-counts` |
-| `src/sim/monsters.ts`, `src/render/swarm.ts` | `swarm`, `households` |
-| `src/ui/selection.ts`, `src/ui/news.ts` | `readiness`, `selecting`, and every scenario whose panel or news line the change rewords |
-| `src/render/pick.ts`, `src/render/pickSelection.ts`, `src/render/selectionMark.ts` | `selecting`, `hunting` |
+| `src/sim/fields.ts`, `src/sim/harvest.ts`, `src/sim/frost.ts`, `src/sim/years.ts`, `src/sim/workplaceYears.ts` | `sowing`, `harvest`, `frost`, `farm-counts` |
+| `src/sim/monsters.ts`, `src/render/swarm.ts` | `swarm`, `households`, `wearing`, `look` |
+| `src/ui/selection.ts`, `src/ui/news.ts` | every scenario whose panel or news line the change affects |
+| `src/render/pick.ts`, `src/render/pickSelection.ts`, `src/render/selectionMark.ts` | `hunting` |
 | `src/render/cameraRig.ts`, `src/render/cameraInput.ts`, `src/ui/controlsHint.ts` | `camera`, `window`, `clock` |
 | `src/render/palette.ts`, `src/render/daylight.ts`, `src/render/tone.ts`, `src/render/seasonal.ts`, `src/render/terrainMesh.ts`, `src/render/water.ts`, `src/render/plants.ts`, `src/render/scenery.ts` | `terrain`, `daylight`, `seasons`, `look` |
-| `src/render/shapes.ts`, `src/render/camp.ts`, `src/render/fires.ts` | `look`, `settlers`, `cold` |
-| a CSS file under `src/ui/` | `window`, and the scenarios of the `.ts` file of the same name |
-| `scripts/verify.mjs` | the scenarios that call each helper it changes, and `doctor` |
-| a feature file or a scenario's own script under `scripts/` | that scenario |
-
-A pull request that changes no file under `src/` and nothing the harness runs, such as a brief, a summary, or a measurement script, runs no scenario. Its body says so.
+| `src/render/camp.ts`, `src/render/fires.ts` | `look`, `settlers`, `cold` |
+| any other CSS file under `src/ui/` | `window`, and the scenarios of the `.ts` file of the same name |
+| `.claude/skills/verify-survive-n-conquest/scripts/verify.mjs` | the scenarios that call each helper it changes. Run `doctor` too. |
+| a feature file, or a script under `scripts/` that one scenario runs | that scenario |
+| `src/sim/testMaps.ts`, which only tests use | none beyond `readiness` and `selecting` |
 
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
@@ -236,7 +240,7 @@ The scenarios take about 1.2 to 1.4 times as long as before that pull request. O
 
 At 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
 
-A stage's full sweep runs once, before its demo summary, split into parts that run at once, each against its own `launch` in its own builder pylon on rj-firebat with 6 CPUs. Each part drives its scenarios one at a time. The parts are chosen so that each takes about an hour or two.
+The stage's full sweep that CLAUDE.md asks for is split into parts. Each part runs against its own `launch` in its own builder pylon, and drives its scenarios one at a time.
 
 Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed while its legs were 2.5 s of a held `W`, because they drew too few frames to reach the corner. Its legs are now 10 drawn frames each, and under the same load `camera` passed 20 of 20 in 6 min 54 s against 3 min 1 s, `selecting` 40 of 40 in 16 min 21 s against 10 min 22 s, and `readiness` 28 of 28 in 15 min 3 s against 12 min 11 s.
 
