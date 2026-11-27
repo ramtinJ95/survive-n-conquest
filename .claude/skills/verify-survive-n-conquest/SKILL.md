@@ -73,7 +73,7 @@ A row in the first group is shared by every game. A change there that alters onl
 | `src/render/orderMarks.ts` | `orders`, `gathering`, `sowing`, `harvest`, `frost` |
 | `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting`, `clothing`, `harvest` |
 | `src/ui/stockpiles.ts` | `hauling`, `storing`, `clothing`, `firewood`, `cold`, `births`, `growing-up` |
-| `src/sim/building.ts`, `src/sim/buildings.ts`, `src/sim/supplying.ts`, `src/ui/sites.ts`, `src/render/sites.ts` | `building`, `storing`, `foraging`, `firewood-reason` |
+| `src/sim/building.ts`, `src/sim/buildings.ts`, `src/sim/supplying.ts`, `src/ui/sites.ts`, `src/render/sites.ts` | `building`, `storing`, `foraging`, `firewood-reason`, `sowing` |
 | `src/sim/stocking.ts`, `src/sim/stores.ts` | `storing`, `hunger`, `eating`, `firewood`, `cold`, `empty-house` |
 | `src/sim/eating.ts`, `src/sim/needs.ts`, `src/sim/camp.ts`, `src/ui/diedOut.ts` | `hunger`, `eating`, `cold`, `settlers` |
 | `src/sim/households.ts`, `src/sim/names.ts` | `households`, `births`, `pairing`, `empty-house`, `people` |
