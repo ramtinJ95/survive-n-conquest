@@ -21,9 +21,12 @@ export function turnToNewFrost(sim: Sim): void {
   if (day % DAYS_PER_YEAR === 0) sim.fields.frostAt = frostTick(sim.seed, day / DAYS_PER_YEAR);
 }
 
-/** The frost of the year falls: every crop that stands is lost. */
+/** The frost of the year falls: every crop that stands is lost, and counts among the losses of the farm whose farmer sowed it. */
 export function frost(sim: Sim): void {
   const { fields, tally } = sim;
+  const { lost } = sim.workplaceYears;
+  for (let slot = 0; slot < sim.orders.sites.used; slot++) lost[slot] = lost[slot]! + fields.standingBy[slot]!;
+  fields.standingBy.fill(0);
   fields.lostThisYear += fields.standing;
   tally.lost += fields.standing;
   fields.standing = 0;

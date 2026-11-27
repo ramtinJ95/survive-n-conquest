@@ -11,6 +11,7 @@ import type { TaskKind } from './tasks';
 import { openStore } from './stores';
 import { noteTileChange } from './tileChanges';
 import { type TileSet, createTileSet, nearestOpen, setOpen } from './tileSet';
+import { resetWorkplaceYears } from './workplaceYears';
 
 /** Villagers that build one site at a time, one on each corner tile. */
 export const MAX_BUILDERS = 4;
@@ -104,13 +105,15 @@ function refreshSite(sim: Sim, slot: number): void {
   setOpen(siteTasks.building, orders.size, anchor, open);
 }
 
-/** Starts a newly placed site with nothing on its way and no builders. */
+/** Starts a newly placed site with nothing on its way and no builders, and its years and standing crops from 0. */
 export function resetSite(sim: Sim, slot: number): void {
   const { siteTasks } = sim;
   siteTasks.inbound.fill(0, slot * GOOD_KINDS, (slot + 1) * GOOD_KINDS);
   siteTasks.builders[slot] = 0;
   siteTasks.corners[slot] = 0;
   siteTasks.setAside[slot] = 0;
+  resetWorkplaceYears(sim.workplaceYears, slot);
+  sim.fields.standingBy[slot] = 0;
   refreshSite(sim, slot);
 }
 

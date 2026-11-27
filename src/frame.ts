@@ -83,6 +83,14 @@ export interface SimFrame extends ClockSnapshot {
   readonly fieldTiles: number;
   /** The field tiles whose crop the frost killed in the calendar year the frame's tick is in. */
   readonly frostLostThisYear: number;
+  /** Units of food each workplace's workers cut in the calendar year the frame's tick is in, by site slot. */
+  readonly workplaceBroughtIn: Uint16Array;
+  /** Field tiles whose crop, sown by each farm's farmers, the frost killed in the calendar year the frame's tick is in, by site slot. */
+  readonly workplaceLost: Uint16Array;
+  /** `workplaceBroughtIn` of the calendar year before, by site slot. */
+  readonly workplaceBroughtInLastYear: Uint16Array;
+  /** `workplaceLost` of the calendar year before, by site slot. */
+  readonly workplaceLostLastYear: Uint16Array;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -181,6 +189,10 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frostAt: sim.fields.frostAt,
     fieldTiles: sim.fields.count,
     frostLostThisYear: sim.fields.lostThisYear,
+    workplaceBroughtIn: sim.workplaceYears.broughtIn.slice(),
+    workplaceLost: sim.workplaceYears.lost.slice(),
+    workplaceBroughtInLastYear: sim.workplaceYears.broughtInLastYear.slice(),
+    workplaceLostLastYear: sim.workplaceYears.lostLastYear.slice(),
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),
@@ -223,6 +235,10 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     frame.worn,
     frame.causes,
     frame.ages,
+    frame.workplaceBroughtIn,
+    frame.workplaceLost,
+    frame.workplaceBroughtInLastYear,
+    frame.workplaceLostLastYear,
     frame.storeFood,
     frame.storeInbound,
     frame.storeFirewood,

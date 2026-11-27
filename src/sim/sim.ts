@@ -24,6 +24,7 @@ import { reachTasks, refreshTasks, reopenTasks } from './tasks';
 import { Sex, freeName } from './names';
 import { type TileChanges, createTileChanges } from './tileChanges';
 import { type Villagers, addVillager, createVillagers, moveVillagers, startingNames, stopFallenTasks } from './villagers';
+import { type WorkplaceYears, createWorkplaceYears, turnWorkplaceYears } from './workplaceYears';
 import { type Workshops, createWorkshops } from './workshops';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
@@ -248,6 +249,7 @@ export interface Sim {
   readonly tally: Tally;
   /** The births and the deaths of every cause since the first tick of the calendar year the clock is in. */
   readonly thisYear: { born: number; died: number };
+  readonly workplaceYears: WorkplaceYears;
   tick: number;
   /** Dawns passed since the start. */
   dawns: number;
@@ -354,6 +356,7 @@ export function createSim(source: TileMap, population: Population): Sim {
       lost: 0,
     },
     thisYear: { born: 0, died: 0 },
+    workplaceYears: createWorkplaceYears(),
     tick: 0,
     dawns: 0,
     hires: 0,
@@ -437,6 +440,7 @@ export function step(sim: Sim): void {
     sim.thisYear.died = 0;
     sim.fields.ripeThisYear = 0;
     sim.fields.lostThisYear = 0;
+    turnWorkplaceYears(sim.workplaceYears);
   }
 }
 

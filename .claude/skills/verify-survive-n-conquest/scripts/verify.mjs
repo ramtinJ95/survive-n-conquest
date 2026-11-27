@@ -4483,7 +4483,7 @@ SCENARIOS.sowing = async (session) => {
   session.check(
     `at ${await at(page)} the farm's panel says what it does and names its two farmers, ${sim.farmers.join(' and ')} as the rules hire them, with both places filled`,
     farm?.title === 'Farm' &&
-      farm.note === 'Its farmers sow the fields within 20 tiles in spring.' &&
+      farm.note === 'Its farmers sow the fields within 20 tiles in spring and cut the crop once it is ripe.' &&
       farmers.join() === sim.farmers.join() &&
       farm.rows.Places === '2 of 2' &&
       farm.rows.Doing.split('; ').every((words) => FARMER_WORDS.test(words)),
@@ -5034,45 +5034,26 @@ const FROST_CLIP_SPEED = '1';
 /** The clip keeps the clock, the field, the barn, and the whole news line at the bottom right, which ends near x 790, and leaves out the toolbar. */
 const FROST_CLIP = { crop: { x: 0, y: 0, width: 800, height: 540 }, width: 560, colors: 48, decimate: true };
 
-SCENARIOS.frost = async (session) => {
-  const seen = [];
-  const { said } = siteDriver(session);
-  const { reads, text, click, uiBoxes } = selectionDriver(session);
-  const { lines } = hungerDriver(session);
-  const at = async (page) => clockText(await session.gameMinutes(page));
-  const tileName = ([x, y]) => `(${x}, ${y})`;
-  const percent = (part, whole) => `${((part / whole) * 100).toFixed(0)}%`;
+/** The pixel of each point on a 960 by 540 page on seed 7 at `view`, from `scripts/aim.ts`. With `picks`, every point must be the tile the game's picker takes there. */
+function aimSeven(view, points, picks = false) {
+  const result = spawnSync('bun', [SOW_AIM, '7', JSON.stringify(view), JSON.stringify(points)], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0) fail(`aim.ts failed: ${result.stderr}`);
+  const found = result.stdout.split('\n').filter((line) => / at \{/.test(line));
+  if (found.length !== points.length || (picks && found.some((line) => line.includes('MISSES')))) fail(`aim.ts did not find every point: ${result.stdout}`);
+  return found.map((line) => JSON.parse(/ at (\{[^}]*\})/.exec(line)[1]));
+}
 
-  const stops = Object.values(FROST_STOPS);
-  const run = spawnSync('bun', [FROST_SIM, JSON.stringify(stops)], { cwd: ROOT, encoding: 'utf8' });
-  if (run.status !== 0) fail(`frost.ts failed: ${run.stderr}`);
-  const sim = JSON.parse(run.stdout);
-  const simAt = Object.fromEntries(Object.keys(FROST_STOPS).map((name, index) => [name, sim.stops[index]]));
-  const aim = (view, points, picks = false) => {
-    const result = spawnSync('bun', [SOW_AIM, '7', JSON.stringify(view), JSON.stringify(points)], { cwd: ROOT, encoding: 'utf8' });
-    if (result.status !== 0) fail(`aim.ts failed: ${result.stderr}`);
-    const found = result.stdout.split('\n').filter((line) => / at \{/.test(line));
-    if (found.length !== points.length || (picks && found.some((line) => line.includes('MISSES')))) fail(`aim.ts did not find every point: ${result.stdout}`);
-    return found.map((line) => JSON.parse(/ at (\{[^}]*\})/.exec(line)[1]));
-  };
-  const view = (points) => aim(FROST_VIEW, points);
-  const fieldTiles = sim.field;
-  const fieldSpots = view(fieldTiles);
-  const farmRoofs = view(HARVEST_TILES.farmRoofs);
-  const farmerSpots = (stop) => (stop.farmers.length === 0 ? [] : view(stop.farmers.map(({ x, y }) => [x - 0.5, y - 0.5, SOW_TUNIC_RISE])).map((spot, index) => ({ ...stop.farmers[index], ...spot })));
-
-  const play = await session.open(CLIP, { record: true, search: FROST_SEARCH, clock: 'paused' });
-  const { page } = play;
-  await takeForageView(session, page, FROST_ORDER_VIEW);
-  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
-  const news = async () => lines(page);
-
+/**
+ * Gives the orders of `frostSettlement.ts`, as `frost.ts` or `farmCounts.ts` prints them, through the toolbar from
+ * `FROST_ORDER_VIEW`, and returns the status line after each and the line each should read.
+ */
+async function giveFrostOrders(page, sim, said, corner) {
   const KEYS = { 0: 'KeyH', 2: 'KeyB', 4: 'KeyK', 6: 'KeyO' };
   const KINDS = { 0: 'House', 2: 'Barn', 4: 'Woodshed', 6: 'Farm' };
   const given = [];
   for (const command of sim.commands) {
     if (command.kind === 'place') {
-      const [spot] = aim(FROST_ORDER_VIEW, [[command.x, command.y]], true);
+      const [spot] = aimSeven(FROST_ORDER_VIEW, [[command.x, command.y]], true);
       await page.keyboard.press(KEYS[command.building]);
       await page.mouse.move(spot.x, spot.y, { steps: 3 });
       await page.mouse.down();
@@ -5080,7 +5061,7 @@ SCENARIOS.frost = async (session) => {
       given.push(await said(page, /site placed\.$/));
     } else {
       const { x0, y0, x1, y1 } = command.area;
-      const [from, to] = aim(FROST_ORDER_VIEW, [[x0, y0], [x1, y1]], true);
+      const [from, to] = aimSeven(FROST_ORDER_VIEW, [[x0, y0], [x1, y1]], true);
       await page.keyboard.press({ field: 'KeyI', stockpile: 'KeyP', chop: 'KeyC', quarry: 'KeyM' }[command.order]);
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
@@ -5096,6 +5077,36 @@ SCENARIOS.frost = async (session) => {
     if (command.kind === 'place') return new RegExp(`^${KINDS[command.building]} site placed\\.$`);
     return { field: new RegExp(`^${tiles} tiles join the field\\.$`), stockpile: new RegExp(`^${tiles} tiles join the stockpile zone`), chop: new RegExp(`^${tiles} trees marked for felling`), quarry: new RegExp(`^${tiles} rock tiles marked for quarrying`) }[command.order];
   });
+  return { given, expected };
+}
+
+SCENARIOS.frost = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const tileName = ([x, y]) => `(${x}, ${y})`;
+  const percent = (part, whole) => `${((part / whole) * 100).toFixed(0)}%`;
+
+  const stops = Object.values(FROST_STOPS);
+  const run = spawnSync('bun', [FROST_SIM, JSON.stringify(stops)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`frost.ts failed: ${run.stderr}`);
+  const sim = JSON.parse(run.stdout);
+  const simAt = Object.fromEntries(Object.keys(FROST_STOPS).map((name, index) => [name, sim.stops[index]]));
+  const view = (points) => aimSeven(FROST_VIEW, points);
+  const fieldTiles = sim.field;
+  const fieldSpots = view(fieldTiles);
+  const farmRoofs = view(HARVEST_TILES.farmRoofs);
+  const farmerSpots = (stop) => (stop.farmers.length === 0 ? [] : view(stop.farmers.map(({ x, y }) => [x - 0.5, y - 0.5, SOW_TUNIC_RISE])).map((spot, index) => ({ ...stop.farmers[index], ...spot })));
+
+  const play = await session.open(CLIP, { record: true, search: FROST_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page, FROST_ORDER_VIEW);
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const news = async () => lines(page);
+
+  const { given, expected } = await giveFrostOrders(page, sim, said, corner);
   session.check(
     `the orders of frost.ts go through the toolbar at 08:00 on day 1: the farm, the field of ${fieldTiles.length} tiles, the barn, the woodshed, two houses, the stockpile, ${sim.marked[sim.commands.findIndex(({ order }) => order === 'chop')]} trees, and ${sim.marked[sim.commands.findIndex(({ order }) => order === 'quarry')]} rock tiles`,
     given.length === expected.length && given.every((line, index) => expected[index].test(line)) && (await at(page)) === 'day 1 08:00',
@@ -5258,6 +5269,138 @@ SCENARIOS.frost = async (session) => {
   await session.finishClips(play.context, page, [{ label: 'frost-clip', from: clipFrom, to: clipTo, ...FROST_CLIP }]);
   seen.push(...play.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `farm-counts` scenario plays the `frost` scenario's settlement on seed 7 into its second year, with the same
+ * orders and the same presses of the farm's places, and reads the farm's panel at paused stops against
+ * `scripts/farmCounts.ts`, which plays the same orders in `src/sim`. The farm is the only one on the map, so the rules'
+ * counts of its year are the settlement's tallies, `tally.reaped` and `fields.lostThisYear`, read apart from the farm's
+ * own table. Its 24 field tiles all lie in the farm's reach.
+ */
+const FARM_COUNTS_SIM = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/farmCounts.ts');
+/**
+ * The stops, from `scripts/farmCounts.ts`. On day 2 the farmers have sown 20 of the 24 tiles. The tiles of day 1 ripen
+ * at the dawn of day 6, 03:36, and by 14:00 the farmers have cut 8 of them. `frost`'s presses take the farmers away at
+ * 21:00 on day 6 and give them back at 20:00 on day 9, after the frost at 19:12 killed the 14 tiles that stood. Year 2
+ * opens at the midnight that opens day 13, and its first dawn of spring is at 04:48. Its first tiles ripen at the dawn
+ * of day 18, and by noon on day 20 the farmers have cut the whole field before year 2's early frost at 19:12 on day 20.
+ */
+const FARM_COUNTS_STOPS = {
+  spring: { day: 2, time: '12:00' },
+  firstRipe: { day: 6, time: '05:00' },
+  midHarvest: { day: 6, time: '14:00' },
+  noFarmers: { day: 6, time: '21:00', places: [1, 0], button: 'Fewer places' },
+  farmersBack: { day: 9, time: '20:00', places: [1, 2], button: 'More places' },
+  afterFrost: { day: 10, time: '08:00' },
+  lastHourOfYear: { day: 12, time: '23:59' },
+  newYear: { day: 13, time: '00:00' },
+  spring2: { day: 13, time: '12:00' },
+  beforeRipe2: { day: 18, time: '03:00' },
+  harvested2: { day: 20, time: '12:00' },
+  afterFrost2: { day: 21, time: '08:00' },
+};
+/** The clip runs at 8x from `beforeRipe2` to `harvested2`, the whole harvest of year 2, with the clock panel and the farm's panel in the picture. */
+const FARM_COUNTS_CLIP = { crop: { x: 0, y: 0, width: 640, height: 540 }, width: 480, colors: 32, decimate: true, frames: 100 };
+
+SCENARIOS['farm-counts'] = async (session) => {
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes, apart } = selectionDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+
+  const run = spawnSync('bun', [FARM_COUNTS_SIM, JSON.stringify(Object.values(FARM_COUNTS_STOPS))], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`farmCounts.ts failed: ${run.stderr}`);
+  const sim = JSON.parse(run.stdout);
+  const simAt = Object.fromEntries(Object.keys(FARM_COUNTS_STOPS).map((name, index) => [name, sim.stops[index]]));
+  const farmRoofs = aimSeven(FROST_VIEW, HARVEST_TILES.farmRoofs);
+
+  /** The farm panel's rows as the rules have them, in words written here and not taken from the game's tables. */
+  const tiles = (count) => `${count} ${count === 1 ? 'tile' : 'tiles'}`;
+  const fieldsWords = ({ fields }) => {
+    const named = Object.entries(fields).filter(([, count]) => count > 0).map(([state, count]) => `${count} ${state}`);
+    return named.length === 0 ? 'None' : named.join(', ');
+  };
+  const yearWords = ({ foodCut, lost }) => `${foodCut} food cut, ${tiles(lost)} lost`;
+
+  const play = await session.open(CLIP, { record: true, search: FROST_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page, FROST_ORDER_VIEW);
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const { given, expected } = await giveFrostOrders(page, sim, said, corner);
+  session.check(
+    `the orders of frost.ts go through the toolbar at 08:00 on day 1, as farmCounts.ts gives them`,
+    given.length === expected.length && given.every((line, index) => expected[index].test(line)) && (await at(page)) === 'day 1 08:00',
+    given.map((line) => `"${line}"`).join(', '),
+  );
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, FROST_CLOSER);
+  await corner();
+  await session.still(page);
+
+  const openFarm = async () => {
+    let farm = null;
+    for (const spot of farmRoofs) {
+      farm = await click(page, spot);
+      if (farm?.title === 'Farm') break;
+    }
+    return farm;
+  };
+  const closeFarm = async () => {
+    await page.keyboard.press('Escape');
+    await corner();
+  };
+  /** Reads the farm's panel at a stop against the rules: the field tiles in reach by state, this year's food cut and tiles lost, and last year's from year 2. */
+  const expectPanel = async (stop, what, { shot, keepOpen = false } = {}) => {
+    await session.reach(page, FARM_COUNTS_STOPS[stop]);
+    const open = await reads(page);
+    const farm = open?.title === 'Farm' ? open : await openFarm();
+    const rules = simAt[stop];
+    const want = { Fields: fieldsWords(rules), 'This year': yearWords(rules.thisYear), ...(rules.lastYear ? { 'Last year': yearWords(rules.lastYear) } : {}) };
+    const rows = farm?.rows ?? {};
+    const lastYearHidden = rules.lastYear ? true : !('Last year' in rows);
+    session.check(
+      `at ${await at(page)} ${what}: the farm's panel reads ${Object.entries(want).map(([label, value]) => `${label} "${value}"`).join(', ')}${rules.lastYear ? '' : ', and no Last year row'}, as the rules have it`,
+      farm?.title === 'Farm' && Object.entries(want).every(([label, value]) => rows[label] === value) && lastYearHidden,
+      `the panel reads "${text(farm)}"; the rules, year ${rules.year}: fields ${JSON.stringify(rules.fields)}, this year ${JSON.stringify(rules.thisYear)}, last year ${JSON.stringify(rules.lastYear)}, farmers ${rules.farmers.join(' and ') || 'none'}, ${rules.living} living`,
+    );
+    const { places = [], button } = FARM_COUNTS_STOPS[stop];
+    for (let press = 0; press < places.length; press++) {
+      await page.getByRole('button', { name: button }).click();
+      await session.still(page);
+    }
+    const after = places.length > 0 ? await reads(page) : farm;
+    if (shot) {
+      await session.still(page);
+      await session.screenshot(page, shot);
+    }
+    if (!keepOpen) await closeFarm();
+    return after;
+  };
+
+  await expectPanel('spring', 'in the spring of year 1 the farmers sow the field', { shot: 'farm-counts-spring' });
+  await expectPanel('firstRipe', 'at the first ripe dawn the tiles of day 1 are ripe beside the sown ones');
+  await expectPanel('midHarvest', 'in the middle of the harvest the cut tiles and their food count', { shot: 'farm-counts-harvest' });
+  const emptied = await expectPanel('noFarmers', 'at the night of day 6, before two presses of Fewer places take the farmers away');
+  session.check(`at ${FARM_COUNTS_STOPS.noFarmers.time} on day 6 two presses of Fewer places leave the farm with no farmer`, emptied?.rows?.Places === '0 of 2', `the panel reads "${text(emptied)}"`);
+  const filled = await expectPanel('farmersBack', 'after the frost the tiles that stood are killed beside the cut ones, and the loss counts');
+  session.check(`at ${FARM_COUNTS_STOPS.farmersBack.time} on day 9 two presses of More places fill the farm's places again`, filled?.rows?.Places === '2 of 2', `the panel reads "${text(filled)}"`);
+  await expectPanel('afterFrost', 'the morning after the frost', { shot: 'farm-counts-after-frost' });
+  await expectPanel('lastHourOfYear', 'in the last minute of year 1 this year still holds the harvest and the loss');
+  await expectPanel('newYear', "at the year's first tick this year turns into last year, while the field still reads cut and killed");
+  await expectPanel('spring2', 'after the first dawn of spring of year 2 the killed tiles are bare and sown again, and last year holds');
+  await expectPanel('beforeRipe2', 'before the first ripe dawn of year 2', { keepOpen: true });
+  const clipFrom = play.since();
+  await expectPanel('harvested2', 'at noon on day 20, through the harvest of year 2 with the panel open, the whole field is cut', { keepOpen: true });
+  const clipTo = play.since();
+  await closeFarm();
+  const year2 = await expectPanel('afterFrost2', "the morning after year 2's frost last year's row stands beside this year's", { shot: 'farm-counts-year2', keepOpen: true });
+  const boxes = await uiBoxes(page);
+  const { ok, detail } = apart(boxes);
+  session.check(`at 960 by 540 the farm's panel with its year rows covers no other panel`, ok && Boolean(year2), detail);
+  await closeFarm();
+
+  await session.finishClips(play.context, page, [{ label: 'farm-counts-clip', from: clipFrom, to: clipTo, ...FARM_COUNTS_CLIP }]);
+  session.check('no page errors', play.errors.length === 0, play.errors.join(' | ') || 'none');
 };
 
 /**

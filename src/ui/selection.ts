@@ -5,7 +5,7 @@ import { GROWN_AGE, WORK_AGE } from '../sim/aging';
 import { AnimalState } from '../sim/animals';
 import { BUILDING } from '../sim/building';
 import { BUILDINGS, Building, type BuildingName, Job, jobAt, kindOf, siteMidX, siteMidY, withinReach } from '../sim/buildings';
-import { SEASONS, TICKS_PER_DAY, seasonIndexAt, tickOfDay, tickOfSeason } from '../sim/calendar';
+import { SEASONS, TICKS_PER_DAY, dateAt, seasonIndexAt, tickOfDay, tickOfSeason } from '../sim/calendar';
 import { isNight } from '../sim/daylight';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
@@ -90,6 +90,10 @@ export interface Facts {
     | 'firesLastNight'
     | 'animals'
     | 'animalStates'
+    | 'workplaceBroughtIn'
+    | 'workplaceLost'
+    | 'workplaceBroughtInLastYear'
+    | 'workplaceLostLastYear'
   >;
 }
 
@@ -322,6 +326,27 @@ export const ROW_WORDS = {
   count: { none: 'None' },
 } as const;
 
+const FIELD_STATE_WORDS: Readonly<Record<FieldState, string>> = {
+  [FieldState.Bare]: 'bare',
+  [FieldState.Sown]: 'sown',
+  [FieldState.Ripe]: 'ripe',
+  [FieldState.Cut]: 'cut',
+  [FieldState.Killed]: 'killed',
+};
+
+/** The words of the farm's rows that count its fields and its years. */
+export const FARM_WORDS = {
+  states: FIELD_STATE_WORDS,
+  /** The field tiles in a farm's reach by `FieldState`, as in `8 bare, 16 sown`, naming only the states that hold any. */
+  fields: (counts: readonly number[]) =>
+    counts
+      .map((tiles, state) => (tiles > 0 ? `${tiles} ${FIELD_STATE_WORDS[state as FieldState]}` : ''))
+      .filter(Boolean)
+      .join(', ') || ROW_WORDS.count.none,
+  /** What the farm's year brought, as in `12 food cut, 1 tile lost`. */
+  year: (food: number, tiles: number) => `${food} food cut, ${tiles} ${tiles === 1 ? 'tile' : 'tiles'} lost`,
+} as const;
+
 /** The word for the kind of the site or building on a tile, such as the anchor a task goes to. */
 function siteNoun({ orders }: Facts, tile: number): string {
   const slot = tile < 0 ? -1 : orders.siteOf[tile]!;
@@ -428,6 +453,20 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
   return jobAt(orders.sites, frame.workplaces[id]!);
 }
 
+/** Visits each tile under a field claim within the reach of the farm in `slot`. */
+function forEachFieldInReach({ orders, map }: Facts, slot: number, visit: (tile: number) => void): void {
+  const { size } = map;
+  const { reach } = BUILDINGS[Building.Farm];
+  const cx = siteMidX(orders.sites, slot);
+  const cy = siteMidY(orders.sites, slot);
+  for (let y = Math.max(Math.ceil(cy - reach - 0.5), 0); y <= Math.min(Math.floor(cy + reach - 0.5), size - 1); y++) {
+    for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
+      const tile = y * size + x;
+      if (orders.claims[tile] === Claim.Field && withinReach(orders.sites, slot, x + 0.5, y + 0.5)) visit(tile);
+    }
+  }
+}
+
 /**
  * Why a farmer at the farm in `slot` is idle: what the field tiles in the
  * farm's reach hold, and the season. A tile that another farmer works, or that
@@ -436,32 +475,35 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
  * to the first dawn of spring the ground is frozen, once no food lies cut.
  */
 function farmerIdle(facts: Facts, slot: number): string {
-  const { orders, fields, frame, map } = facts;
+  const { fields, frame, map } = facts;
   const { farmer } = DOING_WORDS;
   const spring = sowsAt(frame.tick);
-  const { size } = map;
-  const { reach } = BUILDINGS[Building.Farm];
-  const cx = siteMidX(orders.sites, slot);
-  const cy = siteMidY(orders.sites, slot);
   let field = false;
+  let bare = false;
   let growing = false;
   let toCut = false;
-  for (let y = Math.max(Math.ceil(cy - reach - 0.5), 0); y <= Math.min(Math.floor(cy + reach - 0.5), size - 1); y++) {
-    for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
-      const tile = y * size + x;
-      if (orders.claims[tile] !== Claim.Field || !withinReach(orders.sites, slot, x + 0.5, y + 0.5)) continue;
-      const state = fieldState(fields, tile, frame.tick);
-      if (spring && state === FieldState.Bare) return farmer.toBare;
-      field = true;
-      growing ||= state === FieldState.Sown;
-      toCut ||= state === FieldState.Ripe || map.stackGood[tile] === Good.Food;
-    }
-  }
+  forEachFieldInReach(facts, slot, (tile) => {
+    const state = fieldState(fields, tile, frame.tick);
+    field = true;
+    bare ||= state === FieldState.Bare;
+    growing ||= state === FieldState.Sown;
+    toCut ||= state === FieldState.Ripe || map.stackGood[tile] === Good.Food;
+  });
+  if (spring && bare) return farmer.toBare;
   if (toCut) return roomInAStore(facts) ? farmer.lookingToCut : farmer.noRoom;
   if (frozenAt(fields, frame.tick)) return farmer.frozen;
   if (growing) return spring ? farmer.sown : farmer.growing;
   if (!spring) return farmer.winter;
   return field ? farmer.sown : farmer.noField;
+}
+
+/** The field tiles in the reach of the farm in `slot`, counted by state. */
+function fieldsOf(facts: Facts, slot: number): string {
+  const counts = Object.values(FieldState).map(() => 0);
+  forEachFieldInReach(facts, slot, (tile) => {
+    counts[fieldState(facts.fields, tile, facts.frame.tick)]! += 1;
+  });
+  return FARM_WORDS.fields(counts);
 }
 
 /** Why a worker at a workshop is idle, as its workshop's last look for work found. */
@@ -797,8 +839,15 @@ export const PANELS: Panels = {
     ],
   ),
   farmSite: sitePanel(Building.Farm),
-  farm: workplacePanel(Building.Farm, `Its farmers sow the fields within ${BUILDINGS[Building.Farm].reach} tiles in spring.`, [
+  farm: workplacePanel(Building.Farm, `Its farmers sow the fields within ${BUILDINGS[Building.Farm].reach} tiles in spring and cut the crop once it is ripe.`, [
     { label: 'Doing', read: (facts, { slot }) => workersDoing(facts, slot) },
+    { label: 'Fields', read: (facts, { slot }) => fieldsOf(facts, slot) },
+    { label: 'This year', read: ({ frame }, { slot }) => FARM_WORDS.year(frame.workplaceBroughtIn[slot]!, frame.workplaceLost[slot]!) },
+    {
+      label: 'Last year',
+      shows: ({ frame }) => dateAt(frame.tick).year > 1,
+      read: ({ frame }, { slot }) => FARM_WORDS.year(frame.workplaceBroughtInLastYear[slot]!, frame.workplaceLostLastYear[slot]!),
+    },
   ]),
   camp: {
     title: 'Camp',

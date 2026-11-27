@@ -3,6 +3,7 @@ import { DAYS_PER_YEAR, SEASONS, TICKS_PER_SECOND, seasonIndexAt } from './calen
 import { Claim } from './claims';
 import { dawnDayAt } from './daylight';
 import { Good } from './goods';
+import { MAX_SITES } from './orders';
 import { planPath } from './paths';
 import type { Sim } from './sim';
 import type { TaskKind } from './tasks';
@@ -65,6 +66,10 @@ export interface Fields extends TileSet, FieldTiles {
   standing: number;
   /** The tiles whose crop the frost killed in the calendar year the clock is in. */
   lostThisYear: number;
+  /** The site slot of the farm whose farmer last sowed each tile, or -1 for a tile never sown. A standing crop counts for this farm. */
+  readonly sownBy: Int16Array;
+  /** The standing crops by the site slot of the farm whose farmer sowed them. They add up to `standing`. */
+  readonly standingBy: Uint16Array;
 }
 
 export function createFieldTiles(tiles: number, frostAt: number): FieldTiles {
@@ -84,6 +89,8 @@ export function createFields(size: number, frostAt: number): Fields {
     ripeThisYear: 0,
     standing: 0,
     lostThisYear: 0,
+    sownBy: new Int16Array(tiles).fill(-1),
+    standingBy: new Uint16Array(MAX_SITES),
   };
 }
 
@@ -135,6 +142,13 @@ function leaveRipening(fields: Fields, tile: number): void {
   if (dawnDayAt(sownAt) + RIPE_DAWNS <= fields.ripenedDay) return;
   const slot = ripeningSlot(sownAt);
   fields.ripening[slot] = fields.ripening[slot]! - 1;
+}
+
+/** Takes a tile's standing crop, cut or gone with its cancelled field, out of the count of standing crops and of its farm's. */
+export function loseStanding(fields: Fields, tile: number): void {
+  const farm = fields.sownBy[tile]!;
+  fields.standing -= 1;
+  fields.standingBy[farm] = fields.standingBy[farm]! - 1;
 }
 
 /** A step of `DAWN`: counts the tiles that turn ripe at this dawn. */
@@ -257,6 +271,9 @@ function work(sim: Sim, id: number): boolean {
   fields.cutAt[tile] = NOT_CUT;
   fields.taker[tile] = -1;
   fields.standing += 1;
+  const farm = sim.villagers.workplace[id]!;
+  fields.sownBy[tile] = farm;
+  fields.standingBy[farm] = fields.standingBy[farm]! + 1;
   const slot = ripeningSlot(sim.tick);
   fields.ripening[slot] = fields.ripening[slot]! + 1;
   sim.tally.sown += 1;
@@ -281,7 +298,7 @@ function refresh(sim: Sim, tile: number): void {
   if (fields.sownAt[tile] === NOT_SOWN && fields.cutAt[tile] === NOT_CUT) return;
   const state = fieldState(fields, tile, sim.tick);
   if (state === FieldState.Sown || state === FieldState.Ripe) {
-    fields.standing -= 1;
+    loseStanding(fields, tile);
     leaveRipening(fields, tile);
   }
   fields.sownAt[tile] = NOT_SOWN;

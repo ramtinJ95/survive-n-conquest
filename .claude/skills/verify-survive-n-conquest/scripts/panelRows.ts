@@ -7,6 +7,9 @@
 import { GROWN_AGE } from '../../../../src/sim/aging';
 import { MAX_BUILDERS } from '../../../../src/sim/building';
 import { BUILDINGS, Building } from '../../../../src/sim/buildings';
+import { DAYS_PER_SEASON, SEASONS, TICKS_PER_DAY } from '../../../../src/sim/calendar';
+import { dawnTick } from '../../../../src/sim/daylight';
+import { CUT_WORK_TICKS, FOOD_PER_TILE, FieldState, SOW_WORK_TICKS } from '../../../../src/sim/fields';
 import { NAMES, Sex } from '../../../../src/sim/names';
 import { BENCHMARK_POPULATION } from '../../../../src/sim/sim';
 import { BUILDING_WORDS, JOB_WORDS, capital, neededGoods } from '../../../../src/ui/buildings';
@@ -16,6 +19,7 @@ import {
   CARRIED_WORDS,
   CAUSE_WORDS,
   DOING_WORDS,
+  FARM_WORDS,
   type DoingParts,
   type DoingWords,
   GOOD_NAMES,
@@ -67,6 +71,32 @@ const workshopWords = (building: Building) => {
   return [...values(doing), ...values(stops)];
 };
 
+/**
+ * The tiles whose centers lie within a farm's reach, less the farm's own: the most field tiles its panel counts. A farm's
+ * side is even, so its middle lies on a tile corner.
+ */
+const FARM = BUILDINGS[Building.Farm];
+let tilesInReach = -FARM.side * FARM.side;
+for (let dy = -FARM.reach; dy < FARM.reach; dy++) for (let dx = -FARM.reach; dx < FARM.reach; dx++) if ((dx + 0.5) ** 2 + (dy + 0.5) ** 2 <= FARM.reach ** 2) tilesInReach++;
+const STATES = Object.values(FieldState);
+/** A killed tile never stands beside a sown or a ripe one: the frost kills every crop that stands, and nothing is sown until the killed tiles are bare. */
+const together = (set: number) => !(set & (1 << FieldState.Killed)) || !(set & ((1 << FieldState.Sown) | (1 << FieldState.Ripe)));
+/** Every set of states the farm's `Fields` row can name together, each with every tile in reach, and none. */
+const fieldReadings = unique(
+  Array.from({ length: 2 ** STATES.length }, (_, set) => set)
+    .filter(together)
+    .map((set) => FARM_WORDS.fields(STATES.map((_, state) => ((set >> state) & 1 ? tilesInReach : 0)))),
+);
+/**
+ * The most a farm's year can count: its farmers, at most its places at a time, at work through every tick of a year's
+ * daylight, cutting a tile in `CUT_WORK_TICKS` for its food, or sowing a tile in `SOW_WORK_TICKS` that the frost kills.
+ */
+const DAYLIGHT_PER_YEAR = SEASONS.reduce((ticks, season) => ticks + DAYS_PER_SEASON * (TICKS_PER_DAY - 2 * dawnTick(season)), 0);
+const mostCut = Math.floor((FARM.places * DAYLIGHT_PER_YEAR) / CUT_WORK_TICKS) * FOOD_PER_TILE;
+const mostLost = Math.floor((FARM.places * DAYLIGHT_PER_YEAR) / SOW_WORK_TICKS);
+/** The year's most food and most tiles lost, and its loss of 1 tile in the singular. */
+const yearReadings = [FARM_WORDS.year(mostCut, mostLost), FARM_WORDS.year(mostCut, 1)];
+
 const night = values(STATE_WORDS);
 const anyone = [...spelled(DOING_WORDS.anyone), ...night];
 const workshops = Object.keys(WORKSHOP_WORDS).map(Number) as Building[];
@@ -81,7 +111,12 @@ const words: Record<string, Record<string, string[]>> = {
     'Cold nights': values(ROW_WORDS.count),
   },
   house: { 'Fire last night': values(ROW_WORDS.fire), Household: values(ROW_WORDS.people) },
-  farm: { Doing: [...spelled(DOING_WORDS.farmer), ...anyone, ROW_WORDS.doing.nobody] },
+  farm: {
+    Doing: [...spelled(DOING_WORDS.farmer), ...anyone, ROW_WORDS.doing.nobody],
+    Fields: fieldReadings,
+    'This year': yearReadings,
+    'Last year': yearReadings,
+  },
   site: { Work: values(ROW_WORDS.work) },
   ...Object.fromEntries(workshops.map((building) => [BUILDINGS[building].name, { Doing: [...workshopWords(building), ...anyone, ROW_WORDS.doing.nobody] }])),
 };

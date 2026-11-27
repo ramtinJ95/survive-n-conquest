@@ -5,7 +5,7 @@ import { AnimalKind, addAnimal } from '../sim/animals';
 import { BIRTH_CHANCE, BIRTH_GAP, birthDraw } from '../sim/births';
 import { BUILDING, finishBuilding } from '../sim/building';
 import { BUILDINGS, Building } from '../sim/buildings';
-import { TICKS_PER_DAY, TICKS_PER_YEAR_OF_AGE, dateAt, tickOfDay } from '../sim/calendar';
+import { MINUTES_PER_DAY, OPENING_MINUTE, TICKS_PER_DAY, TICKS_PER_YEAR, TICKS_PER_YEAR_OF_AGE, dateAt, tickOfDay } from '../sim/calendar';
 import { isDawn, isNight } from '../sim/daylight';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
@@ -162,6 +162,10 @@ describe("a settler's panel", () => {
         workshopStops: new Uint8Array(MAX_SITES),
         animals: new Float32Array(0),
         animalStates: new Uint8Array(0),
+        workplaceBroughtIn: new Uint16Array(MAX_SITES),
+        workplaceLost: new Uint16Array(MAX_SITES),
+        workplaceBroughtInLastYear: new Uint16Array(MAX_SITES),
+        workplaceLostLastYear: new Uint16Array(MAX_SITES),
       },
     });
     const panel = (state: number, taskValue: number, carried: Good) => readPanel({ kind: 'villager', id: 0 }, facts(state, taskValue, carried));
@@ -450,11 +454,13 @@ describe("a farm's panel and a farmer's panel", () => {
     expect(readPanel(selection, factsOf(sim))).toMatchObject({
       kind: 'farm',
       title: 'Farm',
-      note: 'Its farmers sow the fields within 20 tiles in spring.',
+      note: 'Its farmers sow the fields within 20 tiles in spring and cut the crop once it is ripe.',
       rows: [
         { label: 'Farmers', value: `${nameOfId(sim, first!)} and ${nameOfId(sim, second!)}` },
         { label: 'Places', value: '2 of 2' },
         { label: 'Doing', value: 'Idle, no field within 20 tiles of the farm' },
+        { label: 'Fields', value: 'None' },
+        { label: 'This year', value: '0 food cut, 0 tiles lost' },
       ],
     });
     expect(farmRow(sim, { kind: 'building', slot, anchor: selection.kind === 'building' ? selection.anchor : 0 }, 'Doing')).toBe('Idle, no field within 20 tiles of the farm');
@@ -588,6 +594,90 @@ describe("a farmer's panel through the frost", () => {
   });
 });
 
+describe("a farm's panel of its fields and its years", () => {
+  const field = (sim: Sim, x0: number, y0: number, x1: number, y1: number) =>
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0, y0, x1, y1 } })).toMatchObject({ ok: true });
+  const farmRow = (sim: Sim, selection: Selection, label: string) => readPanel(selection, factsOf(sim)).rows.find((row) => row.label === label)?.value;
+  const runTo = (sim: Sim, done: () => boolean) => {
+    while (!done()) step(sim);
+  };
+  /** The first tick of calendar year 2: a year from the midnight before the opening minute of day 1. */
+  const YEAR_TWO = TICKS_PER_YEAR - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY;
+
+  it('counts the field tiles in its reach as bare, sown, ripe, cut, and killed, naming only the states that hold any, and the food cut and the tiles lost', () => {
+    const { sim, selection } = farmSettlement(60);
+    const cx = sim.camp % sim.map.size;
+    const cy = Math.floor(sim.camp / sim.map.size);
+    field(sim, cx + 4, cy + 4, cx + 7, cy + 5);
+    field(sim, cx - 18, cy + 1, cx - 17, cy + 1);
+    const fields = () => farmRow(sim, selection, 'Fields');
+    expect(fields()).toBe('8 bare');
+    runTo(sim, () => sim.tally.sown === 3);
+    expect(fields()).toBe('5 bare, 3 sown');
+    runTo(sim, () => sim.tally.sown === 8);
+    expect(fields()).toBe('8 sown');
+    runTo(sim, () => sim.tally.ripened === 8);
+    expect(fields()).toBe('8 ripe');
+    runTo(sim, () => sim.tally.cut === 3);
+    expect([fields(), farmRow(sim, selection, 'This year')]).toEqual(['5 ripe, 3 cut', '12 food cut, 0 tiles lost']);
+    sim.fields.frostAt = sim.tick;
+    step(sim);
+    expect([fields(), farmRow(sim, selection, 'This year')]).toEqual(['3 cut, 5 killed', '12 food cut, 5 tiles lost']);
+  });
+
+  it('reads 1 tile lost in the singular, and a field of killed tiles alone', () => {
+    const { sim, selection } = farmSettlement();
+    const cx = sim.camp % sim.map.size;
+    const cy = Math.floor(sim.camp / sim.map.size);
+    field(sim, cx + 4, cy + 4, cx + 4, cy + 4);
+    runTo(sim, () => sim.tally.sown === 1);
+    sim.fields.frostAt = sim.tick;
+    step(sim);
+    expect([farmRow(sim, selection, 'Fields'), farmRow(sim, selection, 'This year')]).toEqual(['1 killed', '0 food cut, 1 tile lost']);
+  });
+
+  it('counts the tiles in the reach of two farms on both panels, and the food of a cut only on the panel of the farm whose farmer cut it', () => {
+    const { sim, slot, selection } = farmSettlement(60);
+    const cx = sim.camp % sim.map.size;
+    const cy = Math.floor(sim.camp / sim.map.size);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x: cx + 20, y: cy })).toMatchObject({ ok: true });
+    const other = sim.orders.siteOf[at(sim.map, cx + 20, cy)]!;
+    finishBuilding(sim, other);
+    applyCommand(sim, { kind: 'setPlaces', slot: other, places: 0 });
+    const otherSelection: Selection = { kind: 'building', slot: other, anchor: at(sim.map, cx + 20, cy) };
+    field(sim, cx + 10, cy + 2, cx + 12, cy + 2);
+    field(sim, cx - 12, cy + 2, cx - 12, cy + 2);
+    runTo(sim, () => sim.tally.sown === 4);
+    expect([farmRow(sim, selection, 'Fields'), farmRow(sim, otherSelection, 'Fields')]).toEqual(['4 sown', '3 sown']);
+    runTo(sim, () => sim.tally.cut === 4);
+    expect([farmRow(sim, selection, 'Fields'), farmRow(sim, otherSelection, 'Fields')]).toEqual(['4 cut', '3 cut']);
+    expect([farmRow(sim, selection, 'This year'), farmRow(sim, otherSelection, 'This year')]).toEqual(['16 food cut, 0 tiles lost', '0 food cut, 0 tiles lost']);
+    expect(workersOf(sim, other)).toEqual([]);
+    expect(workersOf(sim, slot)).toHaveLength(2);
+  });
+
+  it('shows last year from the first tick of year 2, not a tick before, with what year 1 brought, and this year from 0', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48)), SEED), { villagers: 1, monsters: 0, campFood: 60, animals: false });
+    const x = (sim.camp % sim.map.size) + 4;
+    const y = Math.floor(sim.camp / sim.map.size);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x, y })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
+    finishBuilding(sim, slot);
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: x - 8, y: y - 8 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, x - 8, y - 8)]!;
+    finishBuilding(sim, house);
+    sim.stores.held[Good.Firewood - 1]![house] = 6;
+    field(sim, x, y + 4, x + 1, y + 4);
+    const selection: Selection = { kind: 'building', slot, anchor: at(sim.map, x, y) };
+    const years = () => readPanel(selection, factsOf(sim)).rows.slice(3).map(({ label, value }) => [label, value]);
+    runTo(sim, () => sim.tick === YEAR_TWO - 1);
+    expect(sim.tally.cut).toBe(2);
+    expect(years()).toEqual([['Fields', '2 cut'], ['This year', '8 food cut, 0 tiles lost']]);
+    step(sim);
+    expect(years()).toEqual([['Fields', '2 cut'], ['This year', '0 food cut, 0 tiles lost'], ['Last year', '8 food cut, 0 tiles lost']]);
+  });
+});
+
 describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says what the lodge does and names its hunter, with its places', () => {
     const { sim, slot, hunter } = lodgeSettlement();
@@ -676,6 +766,10 @@ function siteFacts() {
     workshopStops: new Uint8Array(MAX_SITES),
     animals: new Float32Array(0),
     animalStates: new Uint8Array(0),
+    workplaceBroughtIn: new Uint16Array(MAX_SITES),
+    workplaceLost: new Uint16Array(MAX_SITES),
+    workplaceBroughtInLastYear: new Uint16Array(MAX_SITES),
+    workplaceLostLastYear: new Uint16Array(MAX_SITES),
   });
   return { map, camp, orders, slot, building, frame };
 }
