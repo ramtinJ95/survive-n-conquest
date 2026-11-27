@@ -6,6 +6,8 @@ The stage exists to settle three things that later stages build on: how a settle
 
 Stage 4 left one result open that this stage depends on. In the first years it measured on seed 7, no firewood is split and settlers freeze on day 12 (`docs/design/stage-4-demo.md`, "Left open for the owner"). The owner decided on 2026-11-23 to measure first whether a player's own order of commands survives the winter under today's rules, before any rule changes. The first report of that measurement, on the same day, found a year on seed 7 in which all 8 settlers come through fed and warm: four houses on the places nearest the camp, and the woodshed ordered only once no building site lacks a log. Its tables are not in the repository yet. Pull requests 5.1 to 5.4 do not depend on it. The measurement of many years in 5.5 starts from that year.
 
+After the stage 5 summary, on 2026-11-25, the owner decided three fixes to this stage's rules, recorded below where each rule is stated: a newly paired household stays under its parents' roofs until a house is free (#59), a widowed settler can pair again (#61), and the food in a house nobody lives in comes back into reach (#58). The owner did not choose "Woodshed before sites", so the decision of 2026-11-23 stands, and no rule changes who takes a log.
+
 The owner decided on 2026-11-15 that the look is not tuned further until the mechanics can be playtested. A child gets a plain shape built in code, and no pull request of this stage is a look pass.
 
 ## Rules and numbers
@@ -46,7 +48,9 @@ A starting settler of 18 to 30 with a span of 60 to 80 years reaches its span 6 
 - A household has a couple: the man and the woman who formed it. The household stores both. The four starting households' couples are their two settlers.
 - The members of a household are its couple, while they live, and their children who have not formed a household of their own. Nobody else joins a household in this stage.
 - A settler whose partner has died stays in its household with its children and keeps its house. It does not pair again in this stage, and its household has no more births.
+  - The owner decided on 2026-11-25 that a widowed settler can pair again, and #61 built it. A settler is single when it is 16 or older and has no living partner, and the kin rule and the order of a dawn are unchanged. The rest is the orchestrator's reading, as #61 built it. One who never had a partner and pairs with a widowed settler joins the widowed settler's household, which keeps its number, its house, and its children. Two widowed settlers who pair make one household of the lower number. The household waits more than 6 dawns from the pairing before a birth, as a new household does. (#61)
 - A house is freed when the last member of its household dies or leaves it to form a household. The food and the firewood in it stay in it, as today.
+  - The owner decided on 2026-11-25 that the food in a house nobody lives in comes back into reach, and #58 built it. A finished house that no household lives in is a source, as a barn is, for a household stocking its home, for the settlers without a job stocking a home in which nobody can carry, and for the camp. The rest is the orchestrator's reading, as #58 built it. The nearest source wins, and an equally near camp, barn, or woodshed comes first. Firewood leaves such a house the same way. Nothing is carried into it and nobody eats there, and a household that takes the house keeps what is left in it. (#58)
 - A house without a household goes to the household with the lowest number that has none. That happens when the house is finished, when it is freed, and when a household forms while a house stands empty. Of several empty houses the household takes the one that was finished first.
 
 ### Births
@@ -76,10 +80,12 @@ A starting settler of 18 to 30 with a span of 60 to 80 years reaches its span 6 
 ### New households
 
 - A settler is single when it is 16 or older and has never had a partner.
+  - Since 2026-11-25 a settler is single when it is 16 or older and has no living partner, as "Couples and households" records. (#61)
 - Two single settlers can pair when one is a man and one a woman, neither is the other's parent, and they share no parent. No other tie of kin counts in this stage.
 - At each dawn the game pairs single settlers. It goes through the single women from the oldest to the youngest, and by the lower id at the same age. Each takes the single man she can pair with who is nearest her in age, the older one when two are as near, and then the lower id. A woman with no such man stays single that dawn, and the next woman is tried.
 - The two leave their parents' households and form a new household, of which they are the couple. The households of one dawn get their numbers in the order of the pairings.
 - A new household takes an empty house at once when one stands. With none it lives at the camp until a house is finished or freed.
+  - The owner decided on 2026-11-25 that a newly paired household stays under its parents' roofs until a house is free, and #59 built it. With no empty house, each of the two goes on living where it lived the day before, and a finished or freed house goes to the household with the lowest number that has none, as before. The rest is the orchestrator's reading, as #59 built it. One from its parents' house lodges there. It sleeps there, is warm by its fire, eats from its store, counts among its people for the 3 days of food and the limit of 5, and carries for it. One from the camp stays at the camp. A house is never freed under a lodger: when the last of its household dies or leaves, the lodger's household takes it at once. The settler's `Home` row reads `Parents' house`. (#59)
 - A single settler stays in its parents' household until it pairs. It counts among the people of the house.
 - The player does not choose who pairs with whom, and does not move households between houses, in this stage.
 
@@ -185,6 +191,7 @@ At 8× a day takes 38 seconds and a year 7.5 minutes. The first child can come a
 ## What the stage leaves out
 
 - Marriage as the player's choice, courtship, divorce, and a second pairing after a partner's death.
+  - On 2026-11-25 the owner decided that a widowed settler can pair again, as "Couples and households" records. (#61)
 - Adoption. Children whose parents died keep their house and are fed by the settlement.
 - Pregnancy, death in childbirth, twins, and care that takes a parent from work.
 - Clothing for children.
