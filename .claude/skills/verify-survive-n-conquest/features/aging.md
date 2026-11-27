@@ -34,7 +34,7 @@ Preconditions:
   - It selects the man of 70 at noon, reaches 04:40 on day 2, and steps a minute at a time, reading the news at each stop. `... dies of old age at the first dawn, 04:48 on day 2, and the first stop after it shows it` needs `Died of old age at 70` and `Man, 70` at 04:49. The dawn tick is 2,600, and a stop at 04:48 stands before it.
   - `the news says "Day 2, 04:48. <name> died of old age." at the dawn it happens`.
   - At 04:52 it takes `aging-died-of-old-age.png`, and at each of the three window sizes `aging-dead-panel-<size>.png` with `the panel of the settler who died of old age covers no other panel`. The page cuts `aging-dies-of-old-age.gif` from 04:40 to 04:52.
-- `readiness` and `selecting` measure every panel with the longest readings of `panelReadings`, which hold `Woman, 80`, `Man, 80`, `Girl, 15`, and `Boy, 15`, with `Died of old age at 80` as the longest `Doing`.
+- `readiness` and `selecting` measure every panel with the readings of `panelReadings`. `panelRows.ts` gives each sex word with the oldest ages, 79 and 80, and each young sex word with 15, the age before `GROWN_AGE`, and each cause of death at 79 and 80 in `Doing`.
 
 ## Gotchas
 

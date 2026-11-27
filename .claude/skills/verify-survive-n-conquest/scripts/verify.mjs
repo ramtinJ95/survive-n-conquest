@@ -39,6 +39,12 @@ const PROBE = { width: 160, height: 90 };
 const COVER_MARGIN = 8;
 // Four legs of this held S, flown from the map centre, stay well inside the map at any frame rate. features/camera.md works out the bound.
 const LOW_FLIGHT_LEG_MS = 400;
+/**
+ * The legs of a held W that pan the camera into a corner of the map. The game caps each frame's step at 0.1 s, and a
+ * SwiftShader frame takes longer than that, so a leg of drawn frames pans as far at any load. 10 frames is about the
+ * 2.5 s a leg took at normal load on rj-firebat.
+ */
+const CORNER_LEGS = { count: 8, frames: 10 };
 // The share of the farthest view that is water. The lakes and rivers of seed 7 alone are 6% to 8% of a view, and with the sea around the island the farthest view read 40.6%.
 const SEA_AROUND_THE_ISLAND = 0.25;
 // The share of the farthest and lowest view that has the color of the sky. The camera never looks above the horizon, and the haze hides the sea beyond 900 m in that color. The view read 7.6%.
@@ -288,11 +294,14 @@ const rendererOf = (page) =>
     return gl && info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown renderer';
   });
 
+/** A browser that draws on the machine's GPU, with its renderer, or `missing` when Playwright's own Chromium is not installed, as in a pylon. */
 async function launchGpuBrowser() {
+  const chromium = playwright().chromium;
+  if (!existsSync(chromium.executablePath())) return { missing: `Playwright's own Chromium is not installed at ${chromium.executablePath()}` };
   const args = ['--enable-gpu', '--ignore-gpu-blocklist', `--use-angle=${process.platform === 'darwin' ? 'metal' : 'default'}`, '--disable-gpu-vsync', '--disable-frame-rate-limit'];
   const seen = [];
   for (const headless of [true, false]) {
-    const browser = await playwright().chromium.launch({ args, headless });
+    const browser = await chromium.launch({ args, headless });
     const page = await browser.newPage();
     const renderer = await rendererOf(page);
     await page.close();
@@ -546,15 +555,26 @@ function changedPixels(pngA, pngB, width, threshold = SETTLER_THRESHOLD, skip = 
  * palette of every step. `decimate` drops every frame that repeats the one before and shows each frame that is left
  * once, so a paused stop passes in one frame. With `decimate`, `speed` keeps one of every `speed` frames that are left.
  */
-function toGif(video, gif, { from = 0, to, spans, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false } = {}) {
+/** The frames of a cut that differ from the frame before, which are the frames the page drew. */
+function drawnFrames(video, cutArgs, filters) {
+  const result = spawnSync('ffmpeg', ['-hide_banner', '-nostdin', ...cutArgs, '-i', video, '-vf', `${filters}mpdecimate`, '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const counts = [...(result.stderr ?? '').matchAll(/frame=\s*(\d+)/g)];
+  if (result.status !== 0 || counts.length === 0) fail(`ffmpeg could not count the drawn frames of ${video}: ${result.stderr ?? result.error}`);
+  return Number(counts.at(-1)[1]);
+}
+
+function toGif(video, gif, { from = 0, to, spans, width = GIF_STEPS[0].width, crop, colors = 256, speed = 1, decimate = false, frames } = {}) {
   if (spans && !decimate) fail('a clip of several spans needs decimate, which closes the gaps between them');
+  if (frames && !decimate) fail('a clip capped at a count of frames needs decimate, which keeps only the frames the page drew');
   const span = to === undefined || spans ? [] : ['-t', (to - from).toFixed(2)];
   const start = spans ? [] : ['-ss', from.toFixed(2)];
   const pick = spans ? `select='${spans.map(([a, b]) => `between(t,${a.toFixed(2)},${b.toFixed(2)})`).join('+')}',` : '';
   const cut = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},` : '';
+  const drawn = frames ? drawnFrames(video, [...start, ...span], `${pick}${cut}`) : 0;
+  const every = Math.max(speed, Math.ceil(drawn / (frames ?? Infinity)));
   if (!GIF_STEPS.some((step) => step.width <= width)) fail(`no GIF step is ${width} px wide or narrower; the narrowest is ${Math.min(...GIF_STEPS.map((step) => step.width))} px`);
   for (const step of GIF_STEPS.filter((step) => step.width <= width)) {
-    const pace = decimate ? `mpdecimate,setpts=N/${step.fps * speed}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
+    const pace = decimate ? `mpdecimate,setpts=N/${step.fps * every}/TB,` : speed === 1 ? '' : `setpts=PTS/${speed},`;
     const palette = `${pick}${cut}${pace}fps=${step.fps},scale=${step.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${Math.min(step.colors, colors)}:stats_mode=diff[p];[b][p]paletteuse=dither=none`;
     ffmpeg([...start, ...span, '-i', video, '-vf', palette, gif]);
     if (statSync(gif).size <= GIF_BYTE_LIMIT) break;
@@ -627,14 +647,17 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       return { context, page, errors, since: () => (Date.now() - created) / 1000 };
     },
 
-    async settle(page) {
+    async settle(page, frames = 2) {
       await page.locator(WORLD).waitFor();
-      const twoFrames = page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const drawn = page.evaluate((count) => new Promise((done) => {
+        const next = (left) => (left === 0 ? done() : requestAnimationFrame(() => next(left - 1)));
+        next(count);
+      }), frames);
       let timer;
       const noFrame = new Promise((_, reject) => {
         timer = setTimeout(() => reject(new VerifyError(`the page ran no frame for ${NO_FRAME_MS / 1000} s`)), NO_FRAME_MS);
       });
-      await Promise.race([twoFrames, noFrame]).finally(() => clearTimeout(timer));
+      await Promise.race([drawn, noFrame]).finally(() => clearTimeout(timer));
     },
 
     async gameMinutes(page) {
@@ -739,10 +762,10 @@ function createSession(browser, instance, dir, evidence, gpu = false) {
       return { frames: costs.length, mean: costs.reduce((sum, cost) => sum + cost, 0) / costs.length, perSecond: (costs.length * 1000) / ms };
     },
 
-    async hold(page, key, ms) {
+    async hold(page, key, ms, frames = 2) {
       await page.keyboard.down(key);
       // The game reads a held key only in a drawn frame, and under load one frame can take longer than `ms`.
-      await Promise.all([page.waitForTimeout(ms), this.settle(page)]);
+      await Promise.all([page.waitForTimeout(ms), this.settle(page, frames)]);
       await page.keyboard.up(key);
     },
 
@@ -1009,14 +1032,18 @@ const SCENARIOS = {
     let edge = await shoot('map-edge');
     session.expectChanged('the camera reaches the map edge', farthest, edge);
     let rested = false;
-    for (let leg = 0; leg < 8 && !rested; leg++) {
-      await session.hold(page, 'KeyW', 2500);
+    for (let leg = 0; leg < CORNER_LEGS.count && !rested; leg++) {
+      await session.hold(page, 'KeyW', 0, CORNER_LEGS.frames);
       await session.still(page);
       const next = await shoot('map-edge');
       rested = session.difference(edge, next) < 0.2;
       edge = next;
     }
-    session.check('panning stops in a corner of the map', rested, rested ? 'the view stopped while W stayed held' : 'the view still moved after 20 s of W');
+    session.check(
+      'panning stops in a corner of the map',
+      rested,
+      rested ? 'the view stopped while W stayed held' : `the view still moved after ${CORNER_LEGS.count} legs of ${CORNER_LEGS.frames} drawn frames of W`,
+    );
     session.expectSurfaces('the map stays in view at its corner', edge, { plants: 0.05 });
 
     await page.mouse.wheel(0, READ_WHEELS.near);
@@ -3340,6 +3367,12 @@ const TENT_BLUE = ([r, g, b]) => b > r + 25 && b >= g && r > 70;
 const SELECT_TURN = 300;
 const SELECT_CLIP = { crop: { x: 0, y: 0, width: 960, height: 540 }, width: 640, colors: 64 };
 /**
+ * The settler clip keeps the frames the page drew, at most 200 of them. How many frames the page draws in the follow
+ * depends on the game minutes it runs, not on the wall time a slow machine takes: 342 at normal load on rj-firebat and
+ * 327 under 12 busy processes. The cap bounds a faster machine too.
+ */
+const SELECT_SETTLER_CLIP = { ...SELECT_CLIP, width: 560, decimate: true, frames: 200 };
+/**
  * The least that the mark adds to a paused frame, in pixels of each of its two colors. At its smallest the mark is a
  * ring of 12 pixels' radius with an accent band of 3 pixels, about 225 accent pixels, and an edge of 2 pixels on each
  * side. Tents, settlers, and the house hide part of it. On rj-firebat it added 144 and 164 by day on grass, 100 and
@@ -3506,100 +3539,38 @@ const settlerPanel = (read) =>
 const PANEL_ROWS = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/panelRows.ts');
 
 /**
- * The longest words of the worker at each kind of workshop, at its own work and idle there. The tailor never reads
- * `Idle, the building sites need the hides`, because no kind of building needs hides.
+ * The readings of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as candidates of which
+ * the page keeps the tallest, and the first of those as tall. `words` holds every reading that the game builds from its
+ * word tables, as `panelRows.ts` prints them, and the rows here add the readings that the game builds at run time from
+ * names and counts, at their longest. `name`, `woman`, and `man` are the widest names of any settler, of a woman, and of
+ * a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names repeat, so two workers can share
+ * a name. A household reads as its living couple, a man and a woman named in that order, then its other members and its
+ * dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts its dead with two digits. A
+ * child's title names its parents. The camp's people split the 1,500 living between children and workers with four
+ * digits on one side, the other in the plural or the singular. Its year counts each birth and each death in a row of the
+ * villagers table's 4,096, one of which at least holds a settler the map started with, so a year has at most 4,095
+ * births and 4,096 deaths. A farm's doing names each doing of its two farmers once, so every pair of its words is a
+ * candidate. A site's goods read what it needs of each, and its builders the most a site takes, as `panelRows.ts`
+ * prints them.
  */
-const WORKSHOP_DOING = {
-  woodshed: [
-    'Idle, no log in a stockpile within 30 tiles of the woodshed',
-    'Idle, the building sites need the logs',
-    'Idle, no log carried to a stockpile yet',
-    'Walking to the woodshed to split a log',
-    'Carrying a log to the woodshed',
-  ],
-  tailor: ["Idle, no hide in a stockpile within 30 tiles of the tailor's hut", 'Idle, no hide carried to a stockpile yet', "Walking to the tailor's hut to make clothing", "Carrying a hide to the tailor's hut"],
-};
-/** The longest words of the tasks a settler takes whatever its job: eating, carrying firewood home from a woodshed or the camp, and fetching clothing. */
-const ANYONE_DOING = ["Walking to the tailor's hut for clothing", 'Walking to a woodshed for firewood', 'Walking to the camp for firewood', 'Walking to the camp to eat'];
-/** Every word of a farmer at its own work and idle, the longest first. */
-const FARMER_DOING = [
-  'Idle, no field within 20 tiles of the farm',
-  'Idle, nothing is sown until spring',
-  'Walking to a field to pick up food',
-  'Idle, waiting for room in a store',
-  'Looking for a field to sow',
-  'Idle, the ground is frozen',
-  'Carrying food to the camp',
-  'Walking to a field to sow',
-  'Idle, the crop is growing',
-  'Walking to a field to cut',
-  'Looking for a crop to cut',
-  'Idle, the fields are sown',
-  'Carrying food to a barn',
-  'Cutting the crop',
-  'Sowing a field',
-];
-/** What a settler does by night, whatever its job. */
-const NIGHT_DOING = ['Resting at the camp', 'Walking to the camp', 'Walking home', 'At home'];
-/** The longest words a settler can be doing: a worker's, a forager's or a hunter's idle words, and a settler's without a job. */
-const DOING_LONGEST = [
-  ...WORKSHOP_DOING.tailor,
-  'Died of old age at 80',
-  'Died of hunger at 79',
-  'Died of cold at 79',
-  ...WORKSHOP_DOING.woodshed,
-  ...ANYONE_DOING,
-  'Idle, no deer within 40 tiles of the lodge',
-  'Idle, waiting for room in a store',
-  'Idle, no field within 20 tiles of the farm',
-  'Idle, nothing is sown until spring',
-  'Walking to a field to pick up food',
-  "Walking to fetch stone for a hunter's lodge site",
-  "Walking to fetch a log for a hunter's lodge site",
-  "Carrying stone to a hunter's lodge site",
-];
-
-/**
- * The longest reading of each row of each panel kind that `panelRows.ts` lists from the game's `PANELS`, as
- * candidates of which the page keeps the tallest, and the first of those as tall. `name`, `woman`, and `man` are the widest names of
- * any settler, of a woman, and of a man, and the counts are the swarm's: 1,500 settlers in 750 households, whose names
- * repeat, so two workers can share a name. A household reads as its living couple, a man and a woman named in that
- * order, then its other members and its dead by count; 3 living children is the most a house of 5 holds, and 12 dead counts
- * its dead with two digits. A child's title names its parents. The camp's people split the 1,500 living between
- * children and workers with four digits on one side, the other in the plural or the singular. Its year counts each birth
- * and each death in a row of the villagers table's 4,096, one of which at least holds a settler the map started with, so
- * a year has at most 4,095 births and 4,096 deaths. A farm's doing names each doing of its two farmers once, so every
- * pair of a farmer's words, a settler's tasks, and the night's words is a candidate. A site's goods read what it
- * needs of each, and its builders the most a site takes, as `panelRows.ts` prints them.
- */
-const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
+const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders, words, born }) => {
   const settlers = [String(mostSettlers)];
   const couple = `${man} and ${woman}`;
   const household = [`${couple}, 3 children, 12 died`, `${couple}, 1 child, 1 died`, `${couple}, 3 kin, 12 died`];
-  const site = { Work: ['Waiting for materials', '100%'], Builders: [String(mostBuilders)] };
-  const farmerDoing = [...FARMER_DOING, ...ANYONE_DOING, ...NIGHT_DOING];
+  const farmerDoing = words.farm.Doing;
   const farmersDoing = farmerDoing.flatMap((first) => farmerDoing.filter((second) => second !== first).map((second) => `${first}; ${second}`));
   const workplace = (workers, places, rows) => ({ rows: { [workers]: places === 1 ? [name] : [`${name} and ${name}`], Places: [`${places} of ${places}`], ...rows } });
-  return {
+  const counted = {
     villager: {
-      title: [`${name}, daughter of ${couple}`, `${name}, son of ${couple}`, name],
-      rows: {
-        Doing: [...DOING_LONGEST, 'Playing by the house', 'Playing at the camp'],
-        Carries: ['1 firewood', '1 stone', '1 food', '1 hide', '1 log', 'Nothing'],
-        Job: ['Child, works at 10', 'Woodcutter', 'Forager', 'Hunter', 'Tailor', 'Farmer', 'None'],
-        'Sex and age': ['Woman, 80', 'Man, 80', 'Girl, 15', 'Boy, 15'],
-        Household: household,
-        Home: ['None, sleeps at the camp', "Parents' house", 'A house'],
-        'Missed meals': ['2, hungry'],
-        'Cold nights': ['2, cold, clothed'],
-      },
+      title: [...born.map((word) => `${name}, ${word} of ${couple}`), name],
+      rows: { Household: household, 'Missed meals': ['2, hungry'], 'Cold nights': ['2, cold, clothed'] },
     },
-    house: { rows: { Household: household, Food: ['16 of 16'], Firewood: ['6 of 6'], 'Fire last night': ['No winter night yet', 'Did not burn', 'Burned'] } },
+    house: { rows: { Household: household, Food: ['16 of 16'], Firewood: ['6 of 6'] } },
     hut: workplace('Foragers', 2),
     lodge: workplace('Hunters', 2),
-    woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'], Doing: [...WORKSHOP_DOING.woodshed, ...ANYONE_DOING, 'Nobody works here'] }),
-    tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'], Doing: [...WORKSHOP_DOING.tailor, ...ANYONE_DOING, 'Nobody works here'] }),
-    farm: workplace('Farmers', 2, { Doing: [...farmerDoing, ...farmersDoing, 'Nobody works here'] }),
+    woodshed: workplace('Woodcutter', 1, { Firewood: ['40 of 40'] }),
+    tailor: workplace('Tailor', 1, { Clothing: ['8 of 8'] }),
+    farm: workplace('Farmers', 2, { Doing: farmersDoing }),
     barn: { rows: { Food: ['120 of 120'] } },
     camp: {
       rows: {
@@ -3612,8 +3583,15 @@ const panelReadings = ({ name, woman, man, mostSettlers, mostBuilders }) => {
         'This year': ['4095 born, 4096 died'],
       },
     },
-    site,
+    site: { rows: { Work: ['100%'], Builders: [String(mostBuilders)] } },
   };
+  return Object.fromEntries(
+    [...new Set([...Object.keys(counted), ...Object.keys(words)])].map((kind) => {
+      const rows = { ...counted[kind]?.rows };
+      for (const [label, read] of Object.entries(words[kind] ?? {})) rows[label] = [...read, ...(rows[label] ?? [])];
+      return [kind, { ...counted[kind], rows }];
+    }),
+  );
 };
 
 /**
@@ -3640,11 +3618,11 @@ async function measurePanels(page, kinds = null, keep = false) {
     copy.remove();
     return widths.sort((x, y) => y.width - x.width).map(({ name }) => name);
   }, [...listed.women, ...listed.men]);
-  const readings = panelReadings({ name: widest[0], woman: widest.find((name) => listed.women.includes(name)), man: widest.find((name) => listed.men.includes(name)), mostSettlers: listed.mostSettlers, mostBuilders: listed.mostBuilders });
+  const readings = panelReadings({ name: widest[0], woman: widest.find((name) => listed.women.includes(name)), man: widest.find((name) => listed.men.includes(name)), mostSettlers: listed.mostSettlers, mostBuilders: listed.mostBuilders, words: listed.words, born: listed.born });
   const panels = listed.kinds
     .filter(({ kind }) => !kinds || kinds.includes(kind))
     .map(({ kind, title, note, rows, needs }) => {
-      const table = needs ? { rows: { ...Object.fromEntries(Object.entries(needs).map(([good, count]) => [good, [`${count}/${count}`]])), ...readings.site } } : readings[kind];
+      const table = needs ? { rows: { ...Object.fromEntries(Object.entries(needs).map(([good, count]) => [good, [`${count}/${count}`]])), ...readings.site.rows } } : readings[kind];
       const titles = title === null ? table?.title : [title];
       if (!titles) fail(`panelReadings has no longest title for the ${kind} panel`);
       const missing = rows.filter(({ label }) => !table.rows[label]).map(({ label }) => label);
@@ -3795,13 +3773,19 @@ SCENARIOS.selecting = async (session) => {
   const pausedRead = await reads(page);
   session.check('while paused the settler panel holds still', text(pausedRead) === text(followRead), `"${text(followRead)}" then "${text(pausedRead)}"`);
   await fitsApart(page, 'settler');
-  const [longest] = await measurePanels(page, ['villager']);
-  const stockpilesBox = (await uiBoxes(page)).stockpiles;
-  session.check(
-    'at 960x540 the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row',
-    Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && showsEveryRow(longest),
-    `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
-  );
+  for (const size of [CLIP, { width: 960, height: 600 }, WIDE]) {
+    await page.setViewportSize(size);
+    await session.settle(page);
+    const [longest] = await measurePanels(page, ['villager']);
+    const stockpilesBox = (await uiBoxes(page)).stockpiles;
+    session.check(
+      `at ${size.width}x${size.height} the settler panel, with every row at its longest reading, stays clear of the Stockpiles panel and shows every row`,
+      Boolean(stockpilesBox) && longest.box.y >= stockpilesBox.y + stockpilesBox.height && showsEveryRow(longest),
+      `the panel of ${longest.rows} rows would be ${longest.box.width.toFixed(0)}x${longest.box.height.toFixed(0)} from y ${longest.box.y.toFixed(0)}, its rows taking ${longest.holds} px; the Stockpiles panel ends at y ${stockpilesBox ? (stockpilesBox.y + stockpilesBox.height).toFixed(0) : 'missing'}`,
+    );
+  }
+  await page.setViewportSize(CLIP);
+  await session.still(page);
 
   await session.reach(page, BUILD_STOPS.placed);
   const placed = await sites.placeHouse(page, BUILD_SPOTS.closerHouse);
@@ -3846,7 +3830,7 @@ SCENARIOS.selecting = async (session) => {
   const siteTo = work.since() + 1;
   await page.waitForTimeout(1000);
   await session.finishClips(work.context, page, [
-    { label: 'selecting-settler', from: followFrom, to: followTo, ...SELECT_CLIP },
+    { label: 'selecting-settler', from: followFrom, to: followTo, ...SELECT_SETTLER_CLIP },
     { label: 'selecting-site-to-house', from: siteFrom, to: siteTo, ...SELECT_CLIP },
   ]);
   seen.push(...work.errors);
@@ -9521,9 +9505,13 @@ SCENARIOS.people = async (session) => {
   session.check('no page errors', a.errors.length === 0, a.errors.join(' | ') || 'none');
 };
 
+/** The scenarios a sweep drives: every scenario but those that need a GPU, which run only by name. */
+const SWEEP = Object.keys(SCENARIOS).filter((name) => !SCENARIOS[name].gpu);
+const GPU_ONLY = Object.keys(SCENARIOS).filter((name) => SCENARIOS[name].gpu);
+
 function scenarioNamed(name) {
   const scenario = SCENARIOS[name];
-  if (!scenario) fail(`unknown scenario "${name}"; known: ${Object.keys(SCENARIOS).join(', ')}`);
+  if (!scenario) fail(`unknown scenario "${name}"; a sweep drives ${SWEEP.join(', ')}, and ${GPU_ONLY.join(', ')} runs by name on a machine with a GPU`);
   return scenario;
 }
 
@@ -9531,12 +9519,17 @@ async function drive(name) {
   const scenario = scenarioNamed(name);
   const instance = readInstance();
   if (!instance || !(await servesThisBuild(instance.url))) fail('no instance serves this build; run launch first');
+  const gpu = scenario.gpu ? await launchGpuBrowser() : null;
+  if (gpu?.missing) {
+    console.log(`${name}: did not run, and counts no failure. It needs a GPU and Playwright's own Chromium, as on the owner's Mac, and here ${gpu.missing}.`);
+    return true;
+  }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '');
   const dir = join(EVIDENCE_ROOT, `${stamp}-${name}`);
   mkdirSync(dir, { recursive: true });
   const evidence = { scenario: name, url: instance.url, revision: instance.revision, browser: null, checks: [], files: [] };
   try {
-    const { browser, renderer } = scenario.gpu ? await launchGpuBrowser() : { browser: await launchBrowser() };
+    const { browser, renderer } = gpu ?? { browser: await launchBrowser() };
     evidence.browser = renderer ? `${browser.version()} on ${renderer}` : browser.version();
     try {
       await scenario(createSession(browser, instance, dir, evidence, Boolean(scenario.gpu)));
@@ -9575,6 +9568,10 @@ const COMMANDS = {
   doctor,
   drive: () => drive(scenario),
   stop: () => stop().then(() => true),
+  list: () => {
+    console.log(SWEEP.join('\n'));
+    return true;
+  },
 };
 
 try {
