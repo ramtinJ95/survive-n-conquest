@@ -66,8 +66,8 @@ A row in the first group is shared by every game. A change there that alters onl
 
 | Files touched | Scenarios |
 | --- | --- |
-| `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts`, `src/render/world.ts`, `src/render/shapes.ts`, `src/ui/style.css` | shared, as above |
-| `src/sim/calendar.ts`, `src/sim/daylight.ts`, `src/ui/clock.ts` | `clock`, `daylight`, `seasons` |
+| `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/calendar.ts`, `src/sim/daylight.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts`, `src/render/world.ts`, `src/render/shapes.ts`, `src/ui/style.css` | shared, as above |
+| `src/ui/clock.ts` | `clock`, `daylight`, `seasons` |
 | `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing`, `sowing`, `harvest` |
 | `src/sim/jobs.ts` | `foraging`, `hunting`, `firewood`, `clothing`, `sowing` |
 | `src/render/orderMarks.ts` | `orders`, `gathering`, `sowing`, `harvest`, `frost` |
