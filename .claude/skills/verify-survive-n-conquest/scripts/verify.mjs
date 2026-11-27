@@ -4684,9 +4684,10 @@ const STAGE_MARGIN = 20;
  * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, a killed tile's
  * about 73 of withered rows, and the shadow about 12 more pixels at each dawn. A bare tile draws none of them, and soil
  * fills its box: `sowing` read a mean of 94% on a bare field. A box with no rows and less soil is hidden by a settler,
- * a sack, or a stone.
+ * a sack, or a stone. A settler's dark clothes and a stone read as withered too: a settler at the dawn of day 6 put 28
+ * such pixels in a box of `harvest`, and the stones of `HARVEST_STONES` 33 to 50, while a killed tile read 65 to 79.
  */
-const CROP_LEAST = { shoots: 20, ripe: 30, stubble: 6, withered: 30, soilBare: 0.6, day: 20 };
+const CROP_LEAST = { shoots: 20, ripe: 30, stubble: 6, withered: 45, soilBare: 0.6, day: 20 };
 /**
  * The scenery draws a stone over the field tile (130, 123), as `sowing`'s gotchas say, whose box reads 15 shoot pixels
  * when sown, and tufts and a stone over (130, 121), whose box reads 55% soil at night when bare. A check may read them
