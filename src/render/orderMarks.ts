@@ -73,7 +73,7 @@ const FIELD_LOOK = {
   shadow: '#3f2a16',
   ripe: '#f0b429',
   stubble: '#d9c58a',
-  withered: '#35302c',
+  withered: '#1f1c1a',
   soilShare: 0.75,
   rows: 3,
   rowWidth: 0.4,
@@ -81,7 +81,7 @@ const FIELD_LOOK = {
   ripeWidth: 0.6,
   ripeShadow: 0.3,
   stubbleWidth: 0.15,
-  witheredWidth: 0.5,
+  witheredWidth: 0.6,
 };
 
 const PREVIEW_COLORS: Record<Preview, string> = {
