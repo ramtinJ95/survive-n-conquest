@@ -38,8 +38,7 @@ export interface FieldTiles {
   /**
    * The tick of the frost of the year of the latest dawn. It turns to the new
    * year's frost at the first dawn of spring, not at midnight, so it is the
-   * frost of the year in which every standing crop was sown. A test or a
-   * script that wants the frost on another day sets it after `createSim`.
+   * frost of the year in which every standing crop was sown.
    */
   frostAt: number;
 }

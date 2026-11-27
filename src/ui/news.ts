@@ -123,10 +123,13 @@ interface SettlementEvent {
   readonly words: (count: number) => string;
 }
 
-/** Whether the step of the dawn of the day of the frost ran between the two frames, and the frost's did not. A frame's tick is the next to step. */
+/** The tick of the last step before a frame. A frame's own tick is the next to step. */
+const lastStepped = (frame: Seen) => frame.tick - 1;
+
+/** Whether the step of the dawn of the day of the frost ran between the two frames, and the frost's did not. */
 const frostDawned = (before: Seen, after: Seen) => {
   const day = dayIndexAt(after.frostAt);
-  return dawnDayAt(before.tick - 1) < day && dawnDayAt(after.tick - 1) >= day && after.tick - 1 < after.frostAt;
+  return dawnDayAt(lastStepped(before)) < day && dawnDayAt(lastStepped(after)) >= day && lastStepped(after) < after.frostAt;
 };
 
 /** Every kind of news about the settlement as a whole, in the order a frame's lines are made, after the settlers' lines. */

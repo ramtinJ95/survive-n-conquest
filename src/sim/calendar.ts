@@ -38,7 +38,7 @@ export function dayIndexAt(tick: number): number {
   return Math.floor((tick + OPENING_TICK_OF_DAY) / TICKS_PER_DAY);
 }
 
-/** The first tick of the day with index `dayIndex`, 0 for day 1: its midnight. Tick 0 opens in the middle of day 1, so day 1's is below 0. */
+/** The first tick of the day with index `dayIndex`, 0 for day 1: its midnight. Tick 0 opens at `OPENING_MINUTE` of day 1, so day 1's is below 0. */
 export function firstTickOf(dayIndex: number): number {
   return dayIndex * TICKS_PER_DAY - OPENING_TICK_OF_DAY;
 }

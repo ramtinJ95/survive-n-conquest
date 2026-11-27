@@ -1,6 +1,6 @@
 import { hashUnit } from './noise';
 
-/** What a year draws from the seed. A later draw that belongs to a year, such as a forecast of the weather, joins the list. */
+/** What a year draws from the seed. */
 export const YearDraw = { Frost: 0 } as const;
 export type YearDraw = (typeof YearDraw)[keyof typeof YearDraw];
 
