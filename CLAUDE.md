@@ -19,6 +19,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - Each stage ends with a demo summary. It embeds only the stage's demo set, which lives on the `pr-media` branch under `stage-<n>/`. A demo set is at most 15 MB: one short clip for each pull request of the stage, and the few screenshots the summary needs.
 - Pull request media lives on `pr-media` only until its stage closes. When the owner has accepted a stage's demo summary, the orchestrator orders a rewrite of `pr-media` to one fresh commit. That commit keeps the demo set of each closed stage and the folders of pull requests whose stage is still open, and nothing else. The pictures in the merged pull requests of the closed stage go blank, and their text stays.
 - The rewrite is the only force-push in the project. It happens only at a stage's close, after the owner accepted the demo summary, and it never touches `main`. The verification skill holds the recipe.
+- Before its demo summary, each stage runs a full sweep: every scenario the skill's `list` prints. The orchestrator splits it into parts and starts each in its own builder pylon on rj-firebat with 6 CPUs, all at once, so the sweep takes an hour or two. The demo summary reports every scenario's checks and every failure. A failure becomes a fix pull request before the stage closes.
 
 ## Who does the work
 
@@ -35,6 +36,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - In a pylon the command is `/poteto-mode`. `nexus start --claude` puts it in front of the first prompt itself. A later message, sent with `nexus send`, starts with `/poteto-mode` on its own first line.
 - A prompt for `nexus start --claude` is limited to 16384 characters. Send a longer brief in a second message.
 - Wait for a pylon worker's reply with `nexus watch <thread> --until-idle`. Then read the pull request and the thread's state yourself, not only the worker's summary.
+- Nexus pauses a pylon whose session is idle, and a run in the background dies with it. A worker therefore waits in the foreground for every long step: a scenario run, a sweep, the benchmark, and the review loop. When a worker's pylon was paused, the orchestrator wakes it and sends its message again.
 - On the owner's machine the command is `/pstack:poteto-mode`. Shepherdr types a message that starts with a slash command into the worker's terminal and does not watch the worker. Call `watch` on the worker after you send the message, or its report never arrives.
 - Pi workers do not have pstack. Give them plain instructions.
 
@@ -44,6 +46,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `.nexus/resume` runs on every wake. It clones or updates the private assets repository at `game-assets/`, and only warns when the pylon cannot read it. It installs the packages again only when `bun.lock` or `package.json` changed.
 - `.nexus/check` is the check a pull request must pass. It installs if needed, then runs `bun run typecheck`, `bun run test`, and `bun run build`, and exits nonzero if any of them fails.
 - The verification skill runs in the pylon, in headless Chromium.
+- A pull request runs only the scenarios its change can reach: the scenario it adds, the scenarios the skill's table names for the files it touches, and always `readiness` and `selecting`. The same holds after the branch merges `main`. The body lists what ran, what was left out, and why.
 - A thread that runs the browser scenarios or the benchmark is started on rj-firebat with 6 CPUs and 8 GiB, because a 2 CPU pylon is too slow for headless Chromium. The review loop's check threads keep the project's default size.
 
 ## Pushing and opening the pull request
@@ -60,6 +63,8 @@ A pull request merges without the owner when all three hold.
 1. The automated checks pass.
 2. The reviewer's findings are resolved.
 3. The orchestrator has checked the clips and screenshots against the goal the pull request states.
+
+The orchestrator merges such a pull request as soon as the three hold. It waits for nothing more, such as a full sweep.
 
 Two kinds of pull request always wait for the owner.
 

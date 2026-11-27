@@ -58,6 +58,42 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 `drive <scenario>` opens the recorded instance in headless Chromium and runs one scenario from the `SCENARIOS` table in `scripts/verify.mjs`. `list` prints the scenarios a sweep drives, one a line, which is every scenario but `frames`. Drive them one at a time against one `launch`. The feature map in `features/` says what each scenario proves and how a player reaches the feature. Read `features/README.md` before you drive.
 
+### Which scenarios a pull request runs
+
+A pull request runs the scenarios its change can reach, one at a time against one `launch`, and leaves the others to the stage's full sweep. It runs the scenarios it adds, the scenarios this table names for each file it touches, and always `readiness` and `selecting`, which measure every panel. After it merges `main`, it runs the same set again at the merge. A change to tests alone, such as a `.test.ts` file or `src/sim/testMaps.ts`, reaches no scenario. A file the table does not name gets a row in the same pull request, with the scenarios whose feature files describe what the file does. The body lists what ran, what was left out, and why.
+
+| Files touched | Scenarios |
+| --- | --- |
+| `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts` | every scenario `list` prints, as in a full sweep |
+| `src/sim/calendar.ts`, `src/sim/daylight.ts`, `src/ui/clock.ts` | `clock`, `daylight`, `seasons` |
+| `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/jobs.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts`, `src/render/orderMarks.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing` |
+| `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/ui/stockpiles.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting` |
+| `src/sim/building.ts`, `src/sim/buildings.ts`, `src/sim/supplying.ts`, `src/ui/sites.ts`, `src/render/sites.ts` | `building`, `storing`, `foraging`, `firewood-reason` |
+| `src/sim/stocking.ts`, `src/sim/stores.ts` | `storing`, `hunger`, `eating`, `firewood`, `empty-house` |
+| `src/sim/eating.ts`, `src/sim/needs.ts`, `src/sim/camp.ts`, `src/ui/diedOut.ts` | `hunger`, `eating`, `cold`, `settlers` |
+| `src/sim/households.ts`, `src/sim/names.ts` | `households`, `births`, `pairing`, `empty-house`, `people` |
+| `src/sim/aging.ts` | `aging`, `growing-up` |
+| `src/sim/births.ts` | `births`, `growing-up`, `people` |
+| `src/sim/pairing.ts` | `pairing`, `empty-house` |
+| `src/sim/foraging.ts` | `foraging` |
+| `src/sim/hunting.ts`, `src/sim/animals.ts`, `src/render/animals.ts` | `hunting`, `clothing` |
+| `src/sim/workshops.ts` | `firewood`, `clothing`, `firewood-reason`, `clothing-reason` |
+| `src/sim/wearing.ts` | `wearing`, `clothing`, `cold` |
+| `src/sim/readiness.ts`, `src/ui/readiness.ts` | `readiness`, `cold`, `firewood-year` |
+| `src/sim/firstYear.ts` | `firewood-year`, `sowing` |
+| `src/sim/fields.ts`, `src/sim/harvest.ts`, `src/sim/frost.ts`, `src/sim/years.ts`, `src/sim/workplaceYears.ts`, `src/render/world.ts` | `sowing`, `harvest`, `frost`, `farm-counts` |
+| `src/sim/monsters.ts`, `src/render/swarm.ts` | `swarm`, `households` |
+| `src/ui/selection.ts`, `src/ui/news.ts` | `readiness`, `selecting`, and every scenario whose panel or news line the change rewords |
+| `src/render/pick.ts`, `src/render/pickSelection.ts`, `src/render/selectionMark.ts` | `selecting`, `hunting` |
+| `src/render/cameraRig.ts`, `src/render/cameraInput.ts`, `src/ui/controlsHint.ts` | `camera`, `window`, `clock` |
+| `src/render/palette.ts`, `src/render/daylight.ts`, `src/render/tone.ts`, `src/render/seasonal.ts`, `src/render/terrainMesh.ts`, `src/render/water.ts`, `src/render/plants.ts`, `src/render/scenery.ts` | `terrain`, `daylight`, `seasons`, `look` |
+| `src/render/shapes.ts`, `src/render/camp.ts`, `src/render/fires.ts` | `look`, `settlers`, `cold` |
+| a CSS file under `src/ui/` | `window`, and the scenarios of the `.ts` file of the same name |
+| `scripts/verify.mjs` | the scenarios that call each helper it changes, and `doctor` |
+| a feature file or a scenario's own script under `scripts/` | that scenario |
+
+A pull request that changes no file under `src/` and nothing the harness runs, such as a brief, a summary, or a measurement script, runs no scenario. Its body says so.
+
 To cover a new feature, add a scenario to `SCENARIOS` and a feature file to `features/`. A scenario gets a session with these helpers.
 
 - `open(viewport, { record, search, clock })` opens the game at a viewport size, optionally recording video, and waits for the first frames and the clock. `search` is a query string such as `'?seed=7'`, and `open` adds `clock=paused` to it, so the page's clock is paused at tick 0, 08:00 on day 1, before the simulation takes its first step, however long the page takes to load. With the setting the worker also posts a frame after every tick, not once a pump. The page turns each settler and deer by its move between two frames, so with every tick seen, a unit faces the same way at a stop on every run, however the page's frames are timed. The light follows the clock, so `clock` decides what the page looks like. The default, `'noon'`, runs the clock to 12:00 on day 1 and pauses it there, so that every page shows the same spring noon. `'paused'` leaves it at 08:00. `'running'` starts it at 1× from 08:00, for a page that records the clock running, as the 8× clips of `daylight` and `swarm` do. `'player'` opens the page without the setting, as a player opens it, with the clock running from its first frames; `clock` opens that way, so its checks of the opening minute and the speeds guard what a player sees. The result holds `since()`, the seconds since the page was created, which is also the time in its video.
@@ -199,6 +235,8 @@ The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-fireba
 The scenarios take about 1.2 to 1.4 times as long as before that pull request. On the owner's Mac `camera` took 3 minutes 47 seconds against 2 minutes 38, and `hauling` 7 minutes 38 against 6 minutes 1.
 
 At 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
+
+A stage's full sweep runs once, before its demo summary, split into parts that run at once, each against its own `launch` in its own builder pylon on rj-firebat with 6 CPUs. Each part drives its scenarios one at a time. The parts are chosen so that each takes about an hour or two.
 
 Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed while its legs were 2.5 s of a held `W`, because they drew too few frames to reach the corner. Its legs are now 10 drawn frames each, and under the same load `camera` passed 20 of 20 in 6 min 54 s against 3 min 1 s, `selecting` 40 of 40 in 16 min 21 s against 10 min 22 s, and `readiness` 28 of 28 in 15 min 3 s against 12 min 11 s.
 
