@@ -4673,7 +4673,7 @@ const HARVEST_STOPS = {
 };
 const FIELD_STATES = ['bare', 'sown', 'ripe', 'cut', 'killed'];
 /** The crop's colors from `FIELD_LOOK` in `src/render/orderMarks.ts`. The mark layer draws them after the light, so no light changes them. */
-const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a], withered: [0x35, 0x30, 0x2c] };
+const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a], withered: [0x1f, 0x1c, 0x1a] };
 /**
  * Adjacent stages of a sown tile differ by at least this much in the mean color of the tile's box, as a distance in
  * 8-bit RGB, by day and at midnight, so a player tells them apart at a glance.
@@ -4682,7 +4682,7 @@ const STAGE_MARGIN = 20;
 /**
  * In the box of 11 by 11 pixels around a tile's center, about half a tile, the rows of a sown tile draw about 48 pixels
  * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, a killed tile's
- * about 60 of withered rows, and the shadow about 12 more pixels at each dawn. A bare tile draws none of them, and soil
+ * about 73 of withered rows, and the shadow about 12 more pixels at each dawn. A bare tile draws none of them, and soil
  * fills its box: `sowing` read a mean of 94% on a bare field. A box with no rows and less soil is hidden by a settler,
  * a sack, or a stone.
  */
