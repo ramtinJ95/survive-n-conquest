@@ -125,7 +125,7 @@ describe('the start of work', () => {
   });
 
   it('comes after the deaths of old age and before the births: a death, a start of work, and a birth at one dawn', () => {
-    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren', 'ripenFields']);
+    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren', 'ripenFields', 'turnToNewFrost']);
     const { sim } = settlement([[...COUPLE, man(9), man(70, 70)]], { mostLiving: 10 });
     turnsTenAt(sim, 2, 100);
     expect([sim.households.living[0], sim.households.workers[0]]).toEqual([4, 3]);

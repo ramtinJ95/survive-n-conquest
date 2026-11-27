@@ -9,6 +9,7 @@ import { VILLAGER_ROWS } from './villagerState';
 import { type FlowField, createFlowField } from './flowField';
 import { type Fields, createFields } from './fields';
 import { type Foraging, createForaging } from './foraging';
+import { frostTick } from './frost';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
 import { type Households, MAX_HOUSEHOLDS, NO_HOME, NO_VILLAGER, addMember, createHouseholds, formHousehold } from './households';
@@ -326,7 +327,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
-    fields: createFields(map.size),
+    fields: createFields(map.size, frostTick(map.seed, 0)),
     hunting: createHunting(),
     workshops: createWorkshops(),
     goods: createGoodsState(map.size),

@@ -4,6 +4,7 @@ import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
 import { createFieldTiles } from '../sim/fields';
+import { frostTick } from '../sim/frost';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
@@ -42,7 +43,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   /** The simulation's orders as the main thread knows them, for the interface's previews. */
   const orders = createOrders(map, camp);
   /** The simulation's field tiles as the main thread knows them, from the tile changes. */
-  const fields = createFieldTiles(map.size * map.size);
+  const fields = createFieldTiles(map.size * map.size, frostTick(map.seed, 0));
   const scenery = createScenery(map, seasonMix, clock, camp);
   const campsite = createCamp(map, camp, shapes);
   const { water, bed } = createWater(map, seasonMix, clock);

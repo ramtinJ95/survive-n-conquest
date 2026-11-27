@@ -35,6 +35,12 @@ export interface FieldTiles {
   readonly sownAt: Int32Array;
   /** The tick of the step in which each tile was cut, or `NOT_CUT`. */
   readonly cutAt: Int32Array;
+  /**
+   * The tick of the frost of the year of the latest dawn. It turns to the new
+   * year's frost at the first dawn of spring, not at midnight, so it is the
+   * frost of the year in which every standing crop was sown.
+   */
+  frostAt: number;
 }
 
 /**
@@ -55,15 +61,15 @@ export interface Fields extends TileSet, FieldTiles {
   ripeThisYear: number;
 }
 
-export function createFieldTiles(tiles: number): FieldTiles {
-  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN), cutAt: new Int32Array(tiles).fill(NOT_CUT) };
+export function createFieldTiles(tiles: number, frostAt: number): FieldTiles {
+  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN), cutAt: new Int32Array(tiles).fill(NOT_CUT), frostAt };
 }
 
-export function createFields(size: number): Fields {
+export function createFields(size: number, frostAt: number): Fields {
   const tiles = size * size;
   return {
     ...createTileSet(size),
-    ...createFieldTiles(tiles),
+    ...createFieldTiles(tiles, frostAt),
     taker: new Int32Array(tiles).fill(-1),
     progress: new Uint16Array(tiles),
     ripening: new Uint32Array(RIPENING_SLOTS),
