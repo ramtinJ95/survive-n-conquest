@@ -62,16 +62,16 @@ Doctor is read-only. It checks that an instance is recorded, that the port serve
 
 CLAUDE.md says which scenarios a pull request runs. This table names the scenarios for each file it touches, beside the scenario it adds and `readiness` and `selecting`. Drive them one at a time against one `launch`.
 
-A row in the first group is shared by every game. A change there that only adds what one feature needs, such as a field of the frame or a step of the dawn for farming, runs that feature's rows. A change to what the file already did runs every scenario `list` prints. A file under `src/` or the harness that the table does not name gets a row in the same pull request, with the scenarios whose feature files describe what it does.
+A row in the first group is shared by every game. A change there that alters only one feature's behavior, such as a field of the frame, a step of the dawn, or a draw call for farming, runs that feature's rows. A change that alters what every game does runs every scenario `list` prints. A `.test.ts` file goes with the file it tests. Any other file under `src/` or the harness that the table does not name gets a row in the same pull request, with the scenarios whose feature files describe what it does.
 
 | Files touched | Scenarios |
 | --- | --- |
 | `src/main.ts`, `src/worker.ts`, `src/frame.ts`, `src/sim/sim.ts`, `src/sim/dawn.ts`, `src/sim/villagers.ts`, `src/sim/villagerState.ts`, `src/sim/map.ts`, `src/sim/mapgen.ts`, `src/sim/noise.ts`, `src/sim/seed.ts`, `src/sim/paths.ts`, `src/sim/flowField.ts`, `src/sim/tileChanges.ts`, `src/sim/tileSet.ts`, `src/sim/tileHeap.ts`, `src/render/world.ts`, `src/render/shapes.ts`, `src/ui/style.css` | shared, as above |
 | `src/sim/calendar.ts`, `src/sim/daylight.ts`, `src/ui/clock.ts` | `clock`, `daylight`, `seasons` |
-| `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing` |
+| `src/sim/gathering.ts`, `src/sim/tasks.ts`, `src/sim/claims.ts`, `src/sim/orders.ts`, `src/ui/orders.ts`, `src/ui/buildings.ts` | `orders`, `gathering`, `hauling`, `firewood`, `clothing`, `sowing`, `harvest` |
 | `src/sim/jobs.ts` | `foraging`, `hunting`, `firewood`, `clothing`, `sowing` |
 | `src/render/orderMarks.ts` | `orders`, `gathering`, `sowing`, `harvest`, `frost` |
-| `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting` |
+| `src/sim/carrying.ts`, `src/sim/goods.ts`, `src/render/goods.ts` | `hauling`, `gathering`, `storing`, `hunting`, `clothing`, `harvest` |
 | `src/ui/stockpiles.ts` | `hauling`, `storing`, `clothing`, `firewood`, `cold`, `births`, `growing-up` |
 | `src/sim/building.ts`, `src/sim/buildings.ts`, `src/sim/supplying.ts`, `src/ui/sites.ts`, `src/render/sites.ts` | `building`, `storing`, `foraging`, `firewood-reason` |
 | `src/sim/stocking.ts`, `src/sim/stores.ts` | `storing`, `hunger`, `eating`, `firewood`, `cold`, `empty-house` |
