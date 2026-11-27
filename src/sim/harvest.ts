@@ -100,11 +100,12 @@ function holds(sim: Sim, id: number): boolean {
 function work(sim: Sim, id: number): boolean {
   const { fields } = sim;
   const tile = sim.villagers.taskTile[id]!;
-  fields.progress[tile] = fields.progress[tile]! + 1;
-  if (fields.progress[tile]! < CUT_WORK_TICKS) return false;
-  fields.progress[tile] = 0;
+  fields.cutProgress[tile] = fields.cutProgress[tile]! + 1;
+  if (fields.cutProgress[tile]! < CUT_WORK_TICKS) return false;
+  fields.cutProgress[tile] = 0;
   fields.taker[tile] = -1;
   fields.cutAt[tile] = sim.tick;
+  fields.standing -= 1;
   sim.tally.cut += 1;
   noteTileChange(sim, tile);
   if (putDown(sim, tile, Good.Food, FOOD_PER_TILE)) sim.tally.reaped += FOOD_PER_TILE;

@@ -20,3 +20,16 @@ export function turnToNewFrost(sim: Sim): void {
   const day = dawnDayAt(sim.tick);
   if (day % DAYS_PER_YEAR === 0) sim.fields.frostAt = frostTick(sim.seed, day / DAYS_PER_YEAR);
 }
+
+/**
+ * The frost of the year falls: every crop that stands is lost. It reads no
+ * tile, since `fieldState` reads every crop that stood at the frost as
+ * killed from then on, and none of them can ripen.
+ */
+export function frost(sim: Sim): void {
+  const { fields, tally } = sim;
+  fields.lostThisYear += fields.standing;
+  tally.lost += fields.standing;
+  fields.standing = 0;
+  fields.ripening.fill(0);
+}
