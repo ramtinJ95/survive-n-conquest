@@ -5301,7 +5301,7 @@ const FARM_COUNTS_STOPS = {
   afterFrost2: { day: 21, time: '08:00' },
 };
 /** The clip runs at 8x from `beforeRipe2` to `harvested2`, the whole harvest of year 2, with the clock panel and the farm's panel in the picture. */
-const FARM_COUNTS_CLIP = { crop: { x: 0, y: 0, width: 640, height: 540 }, width: 480, colors: 32, decimate: true, frames: 160 };
+const FARM_COUNTS_CLIP = { crop: { x: 0, y: 0, width: 640, height: 540 }, width: 480, colors: 32, decimate: true, frames: 100 };
 
 SCENARIOS['farm-counts'] = async (session) => {
   const { said } = siteDriver(session);

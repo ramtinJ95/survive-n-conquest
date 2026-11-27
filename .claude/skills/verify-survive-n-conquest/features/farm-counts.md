@@ -29,7 +29,7 @@ Preconditions:
 - **The clip.** The farm's panel stays open from 03:00 on day 18 to noon on day 20, while the clock runs at 8× through year 2's harvest.
 - **Layout.** At the morning after year 2's frost, with all three rows, `apart` needs the panel clear of the clock, the toolbar, the Stockpiles panel, the camera controls, the news log, the status line, and the `Winter readiness` panel.
 - **Screenshots.** `farm-counts-spring.png` at noon on day 2, `farm-counts-harvest.png` at 14:00 on day 6, `farm-counts-after-frost.png` at 08:00 on day 10, and `farm-counts-year2.png` at 08:00 on day 21, each at 960 by 540 with the panel open.
-- **Clip.** `farm-counts-clip.gif` runs from 03:00 on day 18 to noon on day 20 at 8×: the `Fields` row moves from `24 sown` through ripe to `24 cut`, and `This year` grows from `0 food cut` to `96 food cut`, beside `Last year 40 food cut, 14 tiles lost`. Its crop keeps the clock panel and the farm's panel. It drops the repeated frames and keeps at most 160.
+- **Clip.** `farm-counts-clip.gif` runs from 03:00 on day 18 to noon on day 20 at 8×: the `Fields` row moves from `24 sown` through ripe to `24 cut`, and `This year` grows from `0 food cut` to `96 food cut`, beside `Last year 40 food cut, 14 tiles lost`. Its crop keeps the clock panel and the farm's panel. It drops the repeated frames and keeps at most 100, so it stays under 4 MB for the stage's demo set.
 - **Proof.** Run `$V run farm-counts`. The evidence folder holds the clip, the screenshots, and `result.json` with every check, including `no page errors`.
 
 ## Gotchas
