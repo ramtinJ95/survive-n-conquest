@@ -555,6 +555,39 @@ describe("a farmer's panel through the harvest", () => {
   });
 });
 
+describe("a farmer's panel through the frost", () => {
+  it('waits for room before the frost, says the ground is frozen from the frost to the first dawn of spring, and sows after it', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 48 }, () => '.'.repeat(48)), SEED), { villagers: 2, monsters: 0, campFood: 60, animals: false });
+    const x = (sim.camp % sim.map.size) + 4;
+    const y = Math.floor(sim.camp / sim.map.size);
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x, y })).toMatchObject({ ok: true });
+    const slot = sim.orders.siteOf[at(sim.map, x, y)]!;
+    finishBuilding(sim, slot);
+    expect(applyCommand(sim, { kind: 'place', building: Building.House, x: x - 8, y: y - 8 })).toMatchObject({ ok: true });
+    const house = sim.orders.siteOf[at(sim.map, x - 8, y - 8)]!;
+    finishBuilding(sim, house);
+    sim.stores.held[Good.Firewood - 1]![house] = 12;
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: x, y0: y + 4, x1: x + 1, y1: y + 4 } })).toMatchObject({ ok: true });
+    const farmers = workersOf(sim, slot);
+    const byDay = new Map<number, Set<string>>();
+    while (sim.tally.sown < 4) {
+      step(sim);
+      const { day } = dateAt(sim.tick);
+      if (day >= 6 && sim.tick < sim.fields.frostAt) sim.stores.held[Good.Food - 1]![CAMP_STORE] = sim.stores.campLimit;
+      if (day < 9 || isNight(sim.tick)) continue;
+      const seen = byDay.get(day) ?? new Set<string>();
+      for (const id of farmers) seen.add(settler(factsOf(sim), id));
+      byDay.set(day, seen);
+    }
+    expect(sim.fields.frostAt).toBe(frostTick(SEED, 1));
+    const idle = (day: number) => [...byDay.get(day)!].filter((words) => words.startsWith('Idle')).sort();
+    expect([9, 10, 11, 12].map(idle)).toEqual([['Idle, waiting for room in a store'], ['Idle, the ground is frozen'], ['Idle, the ground is frozen'], ['Idle, the ground is frozen']]);
+    expect(byDay.get(13)).toContain('Sowing a field');
+    expect(idle(13)).not.toContain('Idle, the ground is frozen');
+    expect([sim.tally.lost, sim.tally.froze, sim.tally.starved]).toEqual([2, 0, 0]);
+  });
+});
+
 describe("a hunter's lodge's panel and a hunter's panel", () => {
   it('says what the lodge does and names its hunter, with its places', () => {
     const { sim, slot, hunter } = lodgeSettlement();
