@@ -5,7 +5,7 @@ import { Building } from './buildings';
 import { MINUTES_PER_DAY, OPENING_MINUTE, TICKS_PER_DAY, TICKS_PER_YEAR, dateAt, firstTickOf } from './calendar';
 import { isNight } from './daylight';
 import { FIRST_YEAR_LOG_TREES, FIRST_YEAR_SEED } from './firstYear';
-import { FOOD_PER_TILE } from './fields';
+import { FOOD_PER_TILE, NOT_SOWN } from './fields';
 import { Good } from './goods';
 import { generateMap } from './mapgen';
 import { type TileArea } from './orders';
@@ -73,6 +73,19 @@ describe("a farm's year", () => {
     runUntil(sim, () => sim.tick === YEAR_TWO - 1, YEAR_TWO, () => expect(standingByFarms(sim), `tick ${sim.tick}`).toBe(sim.fields.standing));
     expect([sim.tally.cut > 0, sim.tally.lost > 0, sim.tally.reaped]).toEqual([true, true, sim.tally.cut * FOOD_PER_TILE]);
     expect(yearOf(sim, slot)).toEqual({ broughtIn: sim.tally.reaped, lost: sim.tally.lost, broughtInLastYear: 0, lostLastYear: 0 });
+  });
+
+  it('keeps its standing crops adding up to all that stand when a sown tile and then a killed tile are cancelled', () => {
+    const { sim, slot } = bigField();
+    runUntil(sim, () => sim.tally.sown >= 8, 2 * TICKS_PER_DAY);
+    const sown = sim.fields.sownAt.findIndex((tick) => tick !== NOT_SOWN);
+    const { size } = sim.map;
+    applyCommand(sim, { kind: 'markArea', order: 'cancel', area: square(sown % size, Math.floor(sown / size)) });
+    expect([sim.fields.standing, standingByFarms(sim), sim.fields.standingBy[slot]]).toEqual([7, 7, 7]);
+    runUntil(sim, () => sim.tick > sim.fields.frostAt, YEAR_TWO, () => expect(standingByFarms(sim), `tick ${sim.tick}`).toBe(sim.fields.standing));
+    const lost = sim.workplaceYears.lost[slot];
+    applyCommand(sim, { kind: 'markArea', order: 'cancel', area: square(19, 12, 26, 19) });
+    expect([standingByFarms(sim), sim.fields.standing, sim.workplaceYears.lost[slot], lost]).toEqual([0, 0, sim.tally.lost, sim.tally.lost]);
   });
 
   it('turns into last year at the first tick of the next year, not a tick before, and keeps it through the next spring sowing', () => {
