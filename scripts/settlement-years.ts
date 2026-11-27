@@ -3,12 +3,13 @@
 // Year 1 gives the orders of #45's `NEAR_HOUSES_LATE_SHED`. From year 2 the rule `settle` reads what a player reads on
 // the screen once a day, at 08:00 or at `--hour`, and gives its orders then. Births off sets the cap on the living to
 // 0, a switch only this script has. `--hours` plays the run with births at 08:00, 10:00, 12:00, and 14:00 and prints
-// the living and the deaths of each. `--log` lists each morning's reading, every order, and every death.
+// the living and the deaths of each. `--log` lists each morning's reading, every order, and every death. `play` with
+// `farms` adds the rule `farm`, which `scripts/farm-years.ts` plays.
 import { ageAt } from '../src/sim/aging';
 import { arrived } from '../src/sim/building';
 import { BEARING_AGES, BIRTH_CHANCE, BIRTH_GAP, FULL_HOUSE, bearChildren, birthDraw } from '../src/sim/births';
-import { BUILDINGS, Building, type BuildingName, footprintStart, withinReach } from '../src/sim/buildings';
-import { DAYS_PER_YEAR, TICKS_PER_DAY, TICKS_PER_YEAR, dateAt } from '../src/sim/calendar';
+import { BUILDINGS, Building, type BuildingName, footprintStart, siteMidX, siteMidY, withinReach } from '../src/sim/buildings';
+import { DAYS_PER_YEAR, TICKS_PER_DAY, TICKS_PER_YEAR, dateAt, dayIndexAt } from '../src/sim/calendar';
 import { Claim } from '../src/sim/claims';
 import { DAWN } from '../src/sim/dawn';
 import { LOGS_PER_TREE } from '../src/sim/gathering';
@@ -34,7 +35,7 @@ const MIDNIGHT = 16 * TICKS_PER_HOUR;
 export const yearsEnd = (years: number) => (years - 1) * TICKS_PER_YEAR + (DAYS_PER_YEAR - 1) * TICKS_PER_DAY + MIDNIGHT;
 const endsYear = (tick: number) => tick % TICKS_PER_YEAR === yearsEnd(1);
 
-const when = (tick: number) => {
+export const when = (tick: number) => {
   const { year, day, minuteOfDay } = dateAt(tick);
   return `y${year} d${day - (year - 1) * DAYS_PER_YEAR} ${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`;
 };
@@ -207,6 +208,86 @@ function settle(sim: Sim, r: Reading, give: (commands: Command[]) => void): void
   if (r.sites.barn === 0 && r.commonFood >= CAMP_FOOD_LIMIT + BARN_FOOD_LIMIT * r.built.barn - 20) give(build(sim, Building.Barn));
 }
 
+const TILES_PER_SETTLER = 3;
+const TILES_PER_FARM = 40;
+
+/** What the rule `farm` read and did on the first morning of a year. */
+export interface FieldMorning {
+  readonly year: number;
+  readonly living: number;
+  /** Field tiles wanted, 3 for each living settler. */
+  readonly wanted: number;
+  /** Field tiles in the reach of the farms standing or ordered, before the morning's marks. */
+  readonly held: number;
+  readonly marked: number;
+  /** The anchor of the farm ordered this morning, or null. */
+  readonly farm: readonly [number, number] | null;
+}
+
+/** The farms standing or ordered, newest first. The rule cancels no site, so a higher slot is a later order. */
+function farmsOf(sim: Sim): number[] {
+  const { sites } = sim.orders;
+  const out: number[] = [];
+  for (let s = sites.used - 1; s >= 0; s--) if (sites.kind[s] === Building.Farm && sites.state[s] !== SiteState.Free) out.push(s);
+  return out;
+}
+
+/**
+ * The rule `farm`. On the first morning of each calendar year, in year 1 at tick 0 right after year 1's orders and
+ * from year 2 at the rule's hour on the year's first day before `settle` reads the screen, it gives these orders:
+ * F2. Farm: when 3 field tiles for each living settler are more than 40 for each farm standing or ordered, one farm
+ *     on the place nearest the camp the rules accept, with chop orders for its 8 logs as `settle` gives them.
+ * F1. Field: when the field tiles within the reach of the farms standing or ordered are fewer than 3 for each living
+ *     settler, a field mark on one tile at a time for the missing tiles: the tiles within the reach of the newest farm
+ *     nearest its middle, then the lowest tile, then those of the farm ordered before it, skipping every tile the
+ *     rules refuse the mark. It cancels no field.
+ * F3. Places: none. A farm opens both its places when it stands, and the game fills them from settlers without a job.
+ * F4. Barns: none beyond `settle`'s rule 6.
+ */
+/** `note` lists marks the rule already gave, one at a time, to learn which the rules refuse. */
+function farm(sim: Sim, give: (commands: Command[]) => void, note: (commands: Command[]) => void): FieldMorning {
+  const { map, orders } = sim;
+  const { size } = map;
+  const { sites } = orders;
+  const wanted = TILES_PER_SETTLER * sim.living;
+  let placed: readonly [number, number] | null = null;
+  if (wanted > TILES_PER_FARM * farmsOf(sim).length) {
+    const commands = build(sim, Building.Farm);
+    const first = commands[0]!;
+    if (first.kind === 'place') placed = [first.x, first.y];
+    give(commands);
+  }
+  const farms = farmsOf(sim);
+  const inAnyReach = (t: number) => farms.some((s) => withinReach(sites, s, (t % size) + 0.5, Math.floor(t / size) + 0.5));
+  let held = 0;
+  for (let t = 0; t < size * size; t++) if (orders.claims[t] === Claim.Field && inAnyReach(t)) held += 1;
+  let marked = 0;
+  for (const s of farms) {
+    if (held + marked >= wanted) break;
+    const mx = siteMidX(sites, s);
+    const my = siteMidY(sites, s);
+    const reach = BUILDINGS[Building.Farm].reach;
+    const found: { t: number; d: number }[] = [];
+    for (let y = Math.max(Math.floor(my - reach), 0); y <= Math.min(Math.ceil(my + reach), size - 1); y++) {
+      for (let x = Math.max(Math.floor(mx - reach), 0); x <= Math.min(Math.ceil(mx + reach), size - 1); x++) {
+        if (withinReach(sites, s, x + 0.5, y + 0.5)) found.push({ t: y * size + x, d: (x + 0.5 - mx) ** 2 + (y + 0.5 - my) ** 2 });
+      }
+    }
+    found.sort((a, b) => a.d - b.d || a.t - b.t);
+    const marks: Command[] = [];
+    for (const { t } of found) {
+      if (held + marked >= wanted) break;
+      const command: Command = { kind: 'markArea', order: 'field', area: { x0: t % size, y0: Math.floor(t / size), x1: t % size, y1: Math.floor(t / size) } };
+      if (applyCommand(sim, command)?.ok) {
+        marks.push(command);
+        marked += 1;
+      }
+    }
+    if (marks.length > 0) note(marks);
+  }
+  return { year: dateAt(sim.tick).year, living: sim.living, wanted, held, marked, farm: placed };
+}
+
 /** Why a household did not have a child at a dawn: the first reason `qualifies` fails on, then a draw at or above `BIRTH_CHANCE`, then the cap on the living. */
 const BRAKES = ['no house', 'full', 'couple', 'age', 'wanting', 'gap', 'drawn', 'cap', 'born'] as const;
 type Brake = (typeof BRAKES)[number];
@@ -254,6 +335,8 @@ export interface Run {
   readonly over: string | null;
   readonly camp: { readonly paired: number; readonly coldBeforeHouse: number; readonly froze: number; readonly frozeBeforeHouse: number };
   readonly log: string[];
+  /** The rule `farm`'s mornings, in a run with farms. */
+  readonly fields?: FieldMorning[];
   readonly sim: Sim;
 }
 
@@ -264,6 +347,10 @@ export interface Options {
   /** The year from which no child is born. */
   readonly birthsOffFrom?: number;
   readonly log?: boolean;
+  /** Plays the rule `farm` beside `settle`. */
+  readonly farms?: boolean;
+  /** Reads the state after every step. */
+  readonly watch?: (sim: Sim) => void;
 }
 
 /** Counts each household at this dawn by the reason it will not have a child. It reads the state right before `bearChildren`. */
@@ -358,7 +445,7 @@ function morning(sim: Sim, r: Reading): string {
 const CAUSE_WORDS: Record<number, string> = { [Cause.Hunger]: 'starved', [Cause.Cold]: 'froze', [Cause.OldAge]: 'died of old age' };
 
 /** Plays year 1's orders, then the rule from year 2 at `hour`, for `ticks` ticks or until nobody lives. */
-export function play({ hour, ticks, birthsOffFrom, log: logging = false }: Options): Run {
+export function play({ hour, ticks, birthsOffFrom, log: logging = false, farms = false, watch }: Options): Run {
   const sim = createSim(generateMap(SEED), SETTLERS);
   const ruleTick = (hour - 8) * TICKS_PER_HOUR;
   const pending = ordersOf(NEAR_HOUSES_LATE_SHED);
@@ -370,10 +457,14 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false }: Optio
   const camp: CampPairing[] = [];
   const watched = new Map<number, CampPairing>();
   const recorded = new Uint8Array(sim.villagers.state.length);
-  const give = (commands: Command[], label = '') => {
-    for (const command of commands) applyCommand(sim, command);
+  const note = (commands: Command[], label = '') => {
     if (logging) log.push(`${when(sim.tick)} ${label}${describe(sim, commands)}`);
   };
+  const give = (commands: Command[], label = '') => {
+    for (const command of commands) applyCommand(sim, command);
+    note(commands, label);
+  };
+  const fields: FieldMorning[] = [];
   const probe = (s: Sim) => {
     if (s === sim) countBrakes(sim, row.brakes);
   };
@@ -387,8 +478,12 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false }: Optio
         else give(pending.splice(i, 1)[0]!.give(sim), `${order.label}: `);
       }
       const { year } = dateAt(sim.tick);
+      const ruleNow = (sim.tick - ruleTick) % TICKS_PER_DAY === 0;
+      if (farms && (sim.tick === 0 || (year >= 2 && ruleNow && dayIndexAt(sim.tick) % DAYS_PER_YEAR === 0))) {
+        fields.push(farm(sim, (c) => give(c, 'farm: '), (c) => note(c, 'field: ')));
+      }
       if (birthsOffFrom !== undefined && year >= birthsOffFrom) (sim as { mostLiving: number }).mostLiving = 0;
-      if (year >= 2 && (sim.tick - ruleTick) % TICKS_PER_DAY === 0) {
+      if (year >= 2 && ruleNow) {
         const reading = readingOf(sim);
         if (logging) log.push(`${when(sim.tick)} ${morning(sim, reading)}`);
         settle(sim, reading, give);
@@ -396,6 +491,7 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false }: Optio
       const households = sim.households.count;
       const { died } = sim.tally;
       step(sim);
+      watch?.(sim);
       peak = Math.max(peak, sim.living);
       for (let h = households; h < sim.households.count; h++) {
         if (sim.households.home[h] !== NO_HOME) continue;
@@ -440,12 +536,13 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false }: Optio
     over: sim.over ? when(sim.tick) : null,
     camp: { paired: camp.length, coldBeforeHouse: camp.filter((p) => p.coldBeforeHouse).length, froze: camp.filter(froze).length, frozeBeforeHouse: camp.filter((p) => p.frozeBeforeHouse).length },
     log,
+    ...(farms ? { fields } : {}),
     sim,
   };
 }
 
 const total = (run: Run) => run.rows.reduce((d, r) => ({ hunger: d.hunger + r.died.hunger, cold: d.cold + r.died.cold, old: d.old + r.died.old }), { hunger: 0, cold: 0, old: 0 });
-const hhmm = (hour: number) => `${String(hour).padStart(2, '0')}:00`;
+export const hhmm = (hour: number) => `${String(hour).padStart(2, '0')}:00`;
 
 function summary(run: Run): string {
   const died = total(run);
@@ -456,7 +553,7 @@ function summary(run: Run): string {
 
 const firstYear = (run: Run, holds: (r: YearRow) => boolean) => run.rows.find(holds)?.year ?? 'none';
 
-function table(header: string[], rows: (string | number)[][]): string[] {
+export function table(header: string[], rows: (string | number)[][]): string[] {
   return [`| ${header.join(' | ')} |`, `|${' --- |'.repeat(header.length)}`, ...rows.map((r) => `| ${r.join(' | ')} |`)];
 }
 
