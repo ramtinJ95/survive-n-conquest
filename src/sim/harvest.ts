@@ -1,7 +1,7 @@
 import { Job } from './buildings';
 import { CARRYING, pickUpReserved, putInStore, reserveLoose, takeHeld } from './carrying';
 import { Claim } from './claims';
-import { CUT_WORK_TICKS, FOOD_PER_TILE, FieldState, fieldState, inReach, nearestInReach } from './fields';
+import { CUT_WORK_TICKS, FOOD_PER_TILE, FieldState, fieldState, inReach, loseStanding, nearestInReach } from './fields';
 import { Good, putDown, setAsideGoods } from './goods';
 import { planPath } from './paths';
 import type { Sim } from './sim';
@@ -105,10 +105,14 @@ function work(sim: Sim, id: number): boolean {
   fields.cutProgress[tile] = 0;
   fields.taker[tile] = -1;
   fields.cutAt[tile] = sim.tick;
-  fields.standing -= 1;
+  loseStanding(fields, tile);
   sim.tally.cut += 1;
   noteTileChange(sim, tile);
-  if (putDown(sim, tile, Good.Food, FOOD_PER_TILE)) sim.tally.reaped += FOOD_PER_TILE;
+  if (putDown(sim, tile, Good.Food, FOOD_PER_TILE)) {
+    sim.tally.reaped += FOOD_PER_TILE;
+    const farm = sim.villagers.workplace[id]!;
+    sim.workplaceYears.broughtIn[farm] = sim.workplaceYears.broughtIn[farm]! + FOOD_PER_TILE;
+  }
   return true;
 }
 
