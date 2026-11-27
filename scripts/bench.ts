@@ -119,14 +119,17 @@ const FIELD = { width: 6, depth: 4, south: 3 };
  */
 const WINTER = { warmupTicks: 9 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: 20_000 };
 /**
- * The harvest run warms up to the midnight that opens day 6, the last day of
- * summer, so the fields its farms sowed in the warm-up's spring ripen at the
- * dawns of days 6 to 8 and are cut and carried in during its measured ticks.
- * Its camp starts with the winter run's food, so the villagers live to it.
- * Only the tick time, the living, and a tile cut decide whether it passes.
- * `--no-harvest` leaves it out, and so does `--no-farms`, which leaves it nothing to cut.
+ * The harvest run warms up to the midnight that opens day 7, the first day of
+ * autumn, so the fields its farms sowed in the warm-up's spring ripen at the
+ * dawns of days 7 and 8 and are cut and carried in during its measured ticks,
+ * and the frost falls in them, at the dusk of day 9 on seed 7. No run of
+ * `MEASURED_TICKS` holds both the dawn of day 6 and that frost, so the tiles
+ * that ripen at day 6 are cut in the warm-up. Its camp starts with the winter
+ * run's food, so the villagers live to it. Only the tick time, the living, a
+ * tile cut, and the frost decide whether it passes. `--no-harvest` leaves it
+ * out, and so does `--no-farms`, which leaves it nothing to cut.
  */
-const HARVEST = { warmupTicks: 5 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: WINTER.campFood };
+const HARVEST = { warmupTicks: 6 * TICKS_PER_DAY - (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY, campFood: WINTER.campFood };
 const RUNS = ['spring', 'winter', ...(FARM_GRID === 0 ? [] : ['harvest'])].filter((run) => !process.argv.includes(`--no-${run}`));
 /** The youngest and the oldest age of the settlement in its later years, every age between as likely as another. */
 const AGES = { youngest: 16, oldest: 75 };
@@ -518,6 +521,7 @@ function measure(size: number, run: string): boolean {
   const turnCount = { dusk: 0, dawn: 0 };
   let turn: 'dusk' | 'dawn' | undefined;
   let turnLeft = 0;
+  const frost = { at: -1, ms: 0, dusk: -1 };
   const reading = readingCost(sim);
   const heapBefore = fullGC();
   for (let tick = 0; tick < MEASURED_TICKS; tick++) {
@@ -532,9 +536,15 @@ function measure(size: number, run: string): boolean {
     const paired = sim.tally.paired;
     const started = sim.tally.startedWork;
     const ripened = sim.tally.ripened;
+    const frosts = sim.tick === sim.fields.frostAt;
     const start = performance.now();
     step(sim);
     samples[tick] = performance.now() - start;
+    if (frosts) {
+      frost.at = sim.tick - 1;
+      frost.ms = samples[tick]!;
+      frost.dusk = turnCount.dusk - 1;
+    }
     if (dawnTick) birthsByDawn.push(sim.tally.births - born);
     if (dawnTick) pairedByDawn.push(sim.tally.paired - paired);
     if (dawnTick) startedByDawn.push(sim.tally.startedWork - started);
@@ -623,7 +633,7 @@ function measure(size: number, run: string): boolean {
   const workHeld = busy >= LEAST_BUSY && fewestOpen > 0 && fewestRoom.every((room) => room > 0);
   const livingLimit = population.mostLiving!;
   const cut = sim.tally.cut - cutBefore;
-  const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (harvest ? cut > 0 : workHeld && allWork));
+  const pass = p99 < LIMIT_MS && mostLiving <= livingLimit && (winter || (harvest ? cut > 0 && frost.at >= 0 : workHeld && allWork));
   const goalX = (sim.flow.goal % size) + 0.5 - size / 2;
   const goalY = Math.floor(sim.flow.goal / size) + 0.5 - size / 2;
   const ms = (value: number) => `${value.toFixed(3)} ms`;
@@ -631,7 +641,7 @@ function measure(size: number, run: string): boolean {
   const runName = winter
     ? `winter run: ${warmup} warm-up ticks to the first midnight of winter and food for the year at the camp`
     : harvest
-      ? `harvest run: ${warmup} warm-up ticks to the midnight that opens day 6 and food for the year at the camp`
+      ? `harvest run: ${warmup} warm-up ticks to the midnight that opens day 7 and food for the year at the camp`
       : 'spring run';
   console.log(`\nmap ${size}x${size}, ${runName}`);
   console.log(`  measured from ${seasonAt(warmup)} day ${Math.floor((warmup + (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY) / TICKS_PER_DAY) + 1}`);
@@ -739,11 +749,19 @@ function measure(size: number, run: string): boolean {
   const ripeningDawns = ripenedByDawn.flatMap((tiles, dawn) => (tiles > 0 ? [`${tiles} tiles, largest tick ${ms(turns.dawn[dawn]!)}`] : []));
   console.log(
     `  fields in the measured ticks: ${sim.tally.sown - sownBefore} field tiles sown of the ${fieldTiles} marked, ${sownBefore} sown in the warm-up ticks; ` +
-      `${sim.tally.ripened - tallyBefore.ripened} ripened, ${cut} cut, ${cutBefore} cut in the warm-up ticks; ` +
+      `${sim.tally.ripened - tallyBefore.ripened} ripened, ${cut} cut, ${cutBefore} cut in the warm-up ticks, ${sim.tally.lost - tallyBefore.lost} lost to the frost; ` +
       `${sim.tally.reaped - tallyBefore.reaped} units of food cut, ${sim.tally.reapedIn - tallyBefore.reapedIn} carried into a store by farmers and ${sim.tally.fromFields - tallyBefore.fromFields} by settlers without a job, ` +
       `${sim.tally.spoiledOnFields - tallyBefore.spoiledOnFields} spoiled on the fields at a dawn`,
   );
   console.log(`  dawns of the measured ticks at which tiles ripened: ${ripeningDawns.join('; ') || 'none'}${harvest ? `; a tile cut in the measured ticks: ${cut > 0 ? 'PASS' : 'FAIL'}` : ''}`);
+  console.log(
+    `  the frost in the measured ticks: ${
+      frost.at < 0
+        ? 'none'
+        : `at the dusk of day ${Math.floor((frost.at + (OPENING_MINUTE * TICKS_PER_DAY) / MINUTES_PER_DAY) / TICKS_PER_DAY) + 1}, tick ${frost.at}, ` +
+          `its own tick ${ms(frost.ms)}, largest tick in the ${TURN_TICKS} ticks from its dusk ${ms(turns.dusk[frost.dusk]!)}`
+    }${harvest ? `; a frost in the measured ticks: ${frost.at >= 0 ? 'PASS' : 'FAIL'}` : ''}`,
+  );
   const mean = ({ count, length }: Trips) => (count === 0 ? 'none' : `${(length / count).toFixed(1)} tiles over ${count} trips`);
   console.log(
     `  straight line from a unit to where it goes, for tasks taken in the measured ticks: to a stockpile ${mean(toStockpile)}, ` +
