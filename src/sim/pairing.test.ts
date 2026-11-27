@@ -464,7 +464,7 @@ describe('the order of a dawn', () => {
   };
 
   it('pairs before the births: a daughter who leaves a house of 5 for an empty house makes room for a child at the same dawn', () => {
-    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren', 'ripenFields']);
+    expect(DAWN.map((stepOf) => stepOf.name)).toEqual(['breakDay', 'dieOfOldAge', 'startWork', 'pairSettlers', 'bearChildren', 'ripenFields', 'turnToNewFrost']);
     const born = (suitor: number) => {
       const sim = settlement([[man(40), woman(38), woman(16), man(8), woman(6)], [...PARENTS, man(suitor)]], { seed: seedFor(0, [1]), seen: BIRTH_GAP });
       house(sim, 0);

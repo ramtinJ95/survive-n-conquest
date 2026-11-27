@@ -104,6 +104,7 @@ sim.addEventListener('message', ({ data }: MessageEvent<SimFrame>) => {
   tick = data.tick;
   ticksPerMs = data.paused ? 0 : (data.speed * TICKS_PER_SECOND) / 1000;
   changeTiles(data.tiles);
+  fields.frostAt = data.frostAt;
   changeOrders(data.orders);
   showFires(data.fires);
   toolbar.heard(data);

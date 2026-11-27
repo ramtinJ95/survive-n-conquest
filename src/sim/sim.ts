@@ -9,6 +9,7 @@ import { VILLAGER_ROWS } from './villagerState';
 import { type FlowField, createFlowField } from './flowField';
 import { type Fields, createFields } from './fields';
 import { type Foraging, createForaging } from './foraging';
+import { frost, frostTick } from './frost';
 import { type Gathering, createGathering } from './gathering';
 import { type GoodsState, type PutDownSearch, createGoodsState, createPutDownSearch, refreshStack, spoilGoods } from './goods';
 import { type Households, MAX_HOUSEHOLDS, NO_HOME, NO_VILLAGER, addMember, createHouseholds, formHousehold } from './households';
@@ -215,6 +216,8 @@ export interface Tally {
   fromFields: number;
   /** Units of food gone from a field tile at a dawn, also counted in `spoiled`. */
   spoiledOnFields: number;
+  /** Field tiles whose crop the frost killed. */
+  lost: number;
 }
 
 export interface Sim {
@@ -326,7 +329,7 @@ export function createSim(source: TileMap, population: Population): Sim {
     siteTasks: createSiteTasks(map.size),
     gathering: createGathering(map),
     foraging: createForaging(map.size * map.size),
-    fields: createFields(map.size),
+    fields: createFields(map.size, frostTick(map.seed, 0)),
     hunting: createHunting(),
     workshops: createWorkshops(),
     goods: createGoodsState(map.size),
@@ -348,6 +351,7 @@ export function createSim(source: TileMap, population: Population): Sim {
       reapedIn: 0,
       fromFields: 0,
       spoiledOnFields: 0,
+      lost: 0,
     },
     thisYear: { born: 0, died: 0 },
     tick: 0,
@@ -400,16 +404,18 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
 }
 
 /**
- * Runs the systems in their fixed order. Nothing in a tick allocates. At dawn
+ * Runs the systems in their fixed order. Nothing in a tick allocates. The
+ * frost of the year falls first in its tick, the first of its night. At dawn
  * every fire goes out, kept as last night's, every workshop's day of work starts anew, the food on open ground whose day has come is gone, and
  * tasks set aside as out of reach open again, as they do after a tick in
  * which land gained walks to the camp, and then the steps of `DAWN` run in
  * their order. A step whose tick ends on the first tick of a calendar year
- * starts the year's births and deaths, and its ripe field tiles, from 0, so what ran in it counts in the
+ * starts the year's births and deaths, and its ripe and killed field tiles, from 0, so what ran in it counts in the
  * year before. Once the settlement has died out, nothing runs.
  */
 export function step(sim: Sim): void {
   if (sim.over) return;
+  if (sim.tick === sim.fields.frostAt) frost(sim);
   const night = isNight(sim.tick);
   const dawn = isDawn(sim.tick);
   if (dawn) {
@@ -430,6 +436,7 @@ export function step(sim: Sim): void {
     sim.thisYear.born = 0;
     sim.thisYear.died = 0;
     sim.fields.ripeThisYear = 0;
+    sim.fields.lostThisYear = 0;
   }
 }
 

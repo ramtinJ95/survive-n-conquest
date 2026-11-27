@@ -134,7 +134,7 @@ describe('a farmer at the harvest', () => {
     toDawnOf(sim, 6);
     expect([fieldState(sim.fields, beyond, sim.tick), fieldState(sim.fields, corner, sim.tick)]).toEqual([FieldState.Ripe, FieldState.Ripe]);
     const taken = new Set<number>();
-    runUntil(sim, () => dateAt(sim.tick).day === 9, 4 * TICKS_PER_DAY, () => {
+    runUntil(sim, () => dateAt(sim.tick).day === 8, 3 * TICKS_PER_DAY, () => {
       if (sim.villagers.task[farmer] === CUT) taken.add(sim.villagers.taskTile[farmer]!);
     });
     expect([...taken]).toEqual([36, 37, 38, 39, 40].map((x) => at(sim.map, x, 31)));
@@ -169,19 +169,19 @@ describe('a farmer at the harvest', () => {
     const sim = ripeField({ villagers: 1, monsters: 0 }, [16, 16], square(19, 16));
     const tile = at(sim.map, 19, 16);
     const camp = sim.stores.held[FOOD]!;
-    runUntil(sim, () => sim.fields.progress[tile]! >= CUT_WORK_TICKS / 2, TICKS_PER_DAY);
+    runUntil(sim, () => sim.fields.cutProgress[tile]! >= CUT_WORK_TICKS / 2, TICKS_PER_DAY);
     camp[CAMP_STORE] = CAMP_FOOD_LIMIT;
     step(sim);
     step(sim);
     expect(sim.villagers.task[0]).toBe(NO_TASK);
-    const kept = sim.fields.progress[tile]!;
+    const kept = sim.fields.cutProgress[tile]!;
     expect(kept).toBeGreaterThanOrEqual(CUT_WORK_TICKS / 2);
     for (let tick = 0; tick < CUT_WORK_TICKS; tick++) {
       camp[CAMP_STORE] = CAMP_FOOD_LIMIT;
       step(sim);
     }
     expect(fieldState(sim.fields, tile, sim.tick)).toBe(FieldState.Ripe);
-    expect(sim.fields.progress[tile]).toBe(kept);
+    expect(sim.fields.cutProgress[tile]).toBe(kept);
     camp[CAMP_STORE] = 0;
     runUntil(sim, () => sim.tally.cut === 1, TICKS_PER_DAY);
     expect(sim.tally.reaped).toBe(FOOD_PER_TILE);

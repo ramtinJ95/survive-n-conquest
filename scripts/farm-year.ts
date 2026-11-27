@@ -2,12 +2,15 @@
 // scripts/farm-year.ts`. It runs the year twice: as ordered, and with no settler free to carry, where 7 more trees are
 // felled from the start and a woodshed and a tailor's hut are ordered once the farm, the barn, and the lodge stand, so
 // the two settlers left without a job build them from those logs, take their places, and do no common work after them.
-// For each day it prints the field tiles sown, ripened, and cut, the food cut, the food the farmers and the settlers
+// It plays each run with the frost at the dusk of day 9, seed 7's own, and forced to the dusk of day 8. For each day it
+// prints the field tiles sown, ripened, cut, and lost to the frost, the food cut, the food the farmers and the settlers
 // without a job carried in from the fields, the food spoiled on the fields, and the food in the barn and at the camp at
 // the day's end.
 import { Building } from '../src/sim/buildings';
-import { DAYS_PER_SEASON, SEASONS, dateAt } from '../src/sim/calendar';
+import { DAYS_PER_SEASON, SEASONS, dateAt, firstTickOf } from '../src/sim/calendar';
+import { dawnTick } from '../src/sim/daylight';
 import { FIRST_SPRING_FIELD, FIRST_YEAR_BARNS, FIRST_YEAR_LODGE, FIRST_YEAR_SEED, HIDES_LAYOUT, NOTHING_FOR_WARMTH, WINTER_TREES, WOOD_LAYOUT } from '../src/sim/firstYear';
+import { frostTick } from '../src/sim/frost';
 import { Good } from '../src/sim/goods';
 import { generateMap } from '../src/sim/mapgen';
 import { SiteState, type TileArea } from '../src/sim/orders';
@@ -29,6 +32,9 @@ const TAILOR = HIDES_LAYOUT.woodshed;
 /** Stage 3's food in the barn at autumn's end with a hut, a barn, and a lodge, and stage 4's at the year's end in the year "wood". */
 const STAGE_3_AUTUMN = 97;
 const STAGE_4_WOOD = 32;
+/** #63's tiles cut of the 24 sown and food in the barn at the year's end, with no frost, as ordered and with no settler free to carry. */
+const NO_FROST = { free: { cut: 22, barn: 120 }, noneFree: { cut: 24, barn: 120 } } as const;
+const FROST_DAYS = [9, 8];
 
 const one = ([x, y]: readonly [number, number]): TileArea => ({ x0: x, y0: y, x1: x, y1: y });
 const atStart: Command[] = [
@@ -48,6 +54,7 @@ interface Day {
   sown: number;
   ripened: number;
   cut: number;
+  lost: number;
   reaped: number;
   reapedIn: number;
   fromFields: number;
@@ -66,8 +73,13 @@ function give(sim: Sim, command: Command): void {
   if (!outcome?.ok) throw new Error(`refused at ${clock(sim.tick)}: ${JSON.stringify(command)} ${JSON.stringify(outcome)}`);
 }
 
-function playYear(free: boolean): void {
+/** The first night tick of day `day` of the first year, counted from 1, where `frostTick` puts a frost. */
+const duskOf = (day: number) => firstTickOf(day) - dawnTick('Autumn');
+
+function playYear(free: boolean, frostDay: number): void {
   const sim = createSim(generateMap(FIRST_YEAR_SEED), SETTLERS);
+  sim.fields.frostAt = duskOf(frostDay);
+  console.log(`\n  with the frost at the dusk of day ${frostDay}${sim.fields.frostAt === frostTick(FIRST_YEAR_SEED, 0) ? ", seed 7's own" : ', forced'}:`);
   [...atStart, ...(free ? [] : shedLogs)].forEach((command) => give(sim, command));
   const { size } = sim.map;
   const slotOf = ({ x, y }: { readonly x: number; readonly y: number }) => sim.orders.siteOf[y * size + x]!;
@@ -96,6 +108,7 @@ function playYear(free: boolean): void {
       sown: after.sown - before.sown,
       ripened: after.ripened - before.ripened,
       cut: after.cut - before.cut,
+      lost: after.lost - before.lost,
       reaped: after.reaped - before.reaped,
       reapedIn: after.reapedIn - before.reapedIn,
       fromFields: after.fromFields - before.fromFields,
@@ -107,18 +120,20 @@ function playYear(free: boolean): void {
     before = after;
   }
   for (const [name, tick] of stood) console.log(`  the ${name} stands at ${clock(tick)}`);
-  console.log('  | Day | Season | Sown | Ripened | Cut | Food cut | Carried in by farmers | by settlers without a job | Spoiled on the fields | Barn at the day\'s end | Camp |');
-  console.log('  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  console.log('  | Day | Season | Sown | Ripened | Cut | Lost | Food cut | Carried in by farmers | by settlers without a job | Spoiled on the fields | Barn at the day\'s end | Camp |');
+  console.log('  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   days.forEach((d, index) =>
     console.log(
-      `  | ${index + 1} | ${SEASONS[Math.floor(index / DAYS_PER_SEASON)]} | ${d.sown} | ${d.ripened} | ${d.cut} | ${d.reaped} | ${d.reapedIn} | ${d.fromFields} | ${d.spoiledOnFields} | ${d.barn} | ${d.camp} |`,
+      `  | ${index + 1} | ${SEASONS[Math.floor(index / DAYS_PER_SEASON)]} | ${d.sown} | ${d.ripened} | ${d.cut} | ${d.lost} | ${d.reaped} | ${d.reapedIn} | ${d.fromFields} | ${d.spoiledOnFields} | ${d.barn} | ${d.camp} |`,
     ),
   );
   const total = (key: keyof Day) => days.reduce((sum, d) => sum + (key === 'barn' || key === 'camp' ? 0 : d[key]), 0);
   console.log(
-    `  | year | | ${total('sown')} | ${total('ripened')} | ${total('cut')} | ${total('reaped')} | ${total('reapedIn')} | ${total('fromFields')} | ${total('spoiledOnFields')} | ${days.at(-1)!.barn} | ${days.at(-1)!.camp} |`,
+    `  | year | | ${total('sown')} | ${total('ripened')} | ${total('cut')} | ${total('lost')} | ${total('reaped')} | ${total('reapedIn')} | ${total('fromFields')} | ${total('spoiledOnFields')} | ${days.at(-1)!.barn} | ${days.at(-1)!.camp} |`,
   );
   const { tally: all } = sim;
+  const noFrost = NO_FROST[free ? 'free' : 'noneFree'];
+  console.log(`  ${total('cut')} of ${total('sown')} tiles cut and ${total('lost')} lost, and ${days.at(-1)!.barn} food in the barn at the year's end, against #63's ${noFrost.cut} cut and ${noFrost.barn} with no frost`);
   console.log(
     `  food in the barn at autumn's end ${autumnBarn} and at the year's end ${days.at(-1)!.barn}, against stage 3's ${STAGE_3_AUTUMN} at autumn's end and stage 4's ${STAGE_4_WOOD} in the year "wood"; ` +
       `the year's food: ${all.foraged} foraged, ${all.hunted} from kills, ${all.reaped} cut; ${all.meals} meals eaten, ${all.missed} missed, ${all.spoiled} spoiled on the ground in all; ` +
@@ -131,6 +146,6 @@ console.log(
     `a farm anchored on (${FARM.x}, ${FARM.y}), 6.1's field from (${FIRST_SPRING_FIELD.x0}, ${FIRST_SPRING_FIELD.y0}) to (${FIRST_SPRING_FIELD.x1}, ${FIRST_SPRING_FIELD.y1}), and Chop on ${FARM_TREES.length} trees for the farm's logs`,
 );
 console.log('\nas ordered:');
-playYear(true);
+FROST_DAYS.forEach((frostDay) => playYear(true, frostDay));
 console.log(`\nwith no settler free to carry: Chop on ${SHED_TREES.length} more trees at the start, then a woodshed on (${WOODSHED.x}, ${WOODSHED.y}) and a tailor's hut on (${TAILOR.x}, ${TAILOR.y}) once the farm, the barn, and the lodge stand:`);
-playYear(false);
+FROST_DAYS.forEach((frostDay) => playYear(false, frostDay));

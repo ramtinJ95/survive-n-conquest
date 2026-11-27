@@ -44,6 +44,47 @@ describe('the news of the harvest', () => {
   });
 });
 
+describe('the news of the frost', () => {
+  it('warns at the dawn of the day of the frost, and only then, and after it says how many tiles it killed', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 1, monsters: 0, campFood: 10, animals: false });
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x: 16, y: 16 })).toMatchObject({ ok: true });
+    finishBuilding(sim, sim.orders.siteOf[at(sim.map, 16, 16)]!);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: 10, y0: 10, x1: 19, y1: 19 } })).toMatchObject({ ok: true });
+    const { said } = listen(sim, 9 * TICKS_PER_DAY);
+    expect(dateAt(sim.fields.frostAt)).toMatchObject({ day: 8, minuteOfDay: 19 * 60 + 12 });
+    expect(sim.tally.lost).toBeGreaterThan(1);
+    expect(said.filter((line) => line.includes('frost'))).toEqual([
+      'Day 8, 04:48. A frost comes tonight.',
+      `Day 8, 19:12. The frost killed the crop on ${sim.tally.lost} tiles.`,
+    ]);
+  });
+
+  it('warns of the frost on a map with a field though no crop stands, and then says nothing of a loss', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 2, monsters: 0, campFood: 40, animals: false });
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: 10, y0: 10, x1: 13, y1: 13 } })).toMatchObject({ ok: true });
+    const { said } = listen(sim, 9 * TICKS_PER_DAY);
+    expect(sim.tick).toBeGreaterThan(sim.fields.frostAt);
+    expect([sim.tally.sown, sim.tally.lost]).toEqual([0, 0]);
+    expect(said.filter((line) => line.includes('frost'))).toEqual(['Day 8, 04:48. A frost comes tonight.']);
+  });
+
+  it('says nothing of a frost on a map with no field', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 2, monsters: 0, campFood: 40, animals: false });
+    const { said } = listen(sim, 9 * TICKS_PER_DAY);
+    expect(sim.tick).toBeGreaterThan(sim.fields.frostAt);
+    expect(said.filter((line) => line.includes('frost'))).toEqual([]);
+    expect(sim.tally.lost).toBe(0);
+  });
+
+  it('counts the tiles the frost killed, one tile and many', () => {
+    const dusk = 22_400;
+    expect(lineWords('frost killed', dusk, [], [], 1)).toBe('Day 8, 19:12. The frost killed the crop on 1 tile.');
+    expect(lineWords('frost killed', dusk, [], [], 14)).toBe('Day 8, 19:12. The frost killed the crop on 14 tiles.');
+    expect(lineWords('frost killed', dusk, [], [], 1493)).toBe('Day 8, 19:12. The frost killed the crop on 1,493 tiles.');
+    expect(lineWords('frost coming', 20_600, [])).toBe('Day 8, 04:48. A frost comes tonight.');
+  });
+});
+
 describe('listNames', () => {
   it('names up to eight settlers, the whole of a new game, and counts the rest', () => {
     expect(listNames(['Merek'])).toBe('Merek');
@@ -194,6 +235,9 @@ describe('the settlement news', () => {
       workshopStops: new Uint8Array(0),
       workshopWorked: new Uint8Array(0),
       ripeThisYear: 0,
+      frostAt: 25_400,
+      fieldTiles: 0,
+      frostLostThisYear: 0,
     });
     news.hear(frame(0, [0, 0, 0, 0, 0]), 0);
     for (let id = 0; id < 5; id++) news.hear(frame(1000 * (id + 1), [0, 1, 2, 3, 4].map((other) => (other <= id ? 1 : 0))), id * 1000);

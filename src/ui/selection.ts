@@ -10,7 +10,7 @@ import { isNight } from '../sim/daylight';
 import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
-import { FieldState, type FieldTiles, SOWING, fieldState, sowsAt } from '../sim/fields';
+import { FieldState, type FieldTiles, SOWING, fieldState, frozenAt, sowsAt } from '../sim/fields';
 import { CUTTING, FETCHING_CROP } from '../sim/harvest';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
@@ -299,6 +299,7 @@ export const DOING_WORDS = {
     noRoom: 'Idle, waiting for room in a store',
     sown: 'Idle, the fields are sown',
     growing: 'Idle, the crop is growing',
+    frozen: 'Idle, the ground is frozen',
     noField: `Idle, no field within ${BUILDINGS[Building.Farm].reach} tiles of the farm`,
   },
   child: {
@@ -431,7 +432,8 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
  * Why a farmer at the farm in `slot` is idle: what the field tiles in the
  * farm's reach hold, and the season. A tile that another farmer works, or that
  * no walk reaches, still counts. In spring a farmer's work is sowing, so a
- * field that is all sown reads as sown while its crop grows.
+ * field that is all sown reads as sown while its crop grows. From the frost
+ * to the first dawn of spring the ground is frozen, once no food lies cut.
  */
 function farmerIdle(facts: Facts, slot: number): string {
   const { orders, fields, frame, map } = facts;
@@ -456,6 +458,7 @@ function farmerIdle(facts: Facts, slot: number): string {
     }
   }
   if (toCut) return roomInAStore(facts) ? farmer.lookingToCut : farmer.noRoom;
+  if (frozenAt(fields, frame.tick)) return farmer.frozen;
   if (growing) return spring ? farmer.sown : farmer.growing;
   if (!spring) return farmer.winter;
   return field ? farmer.sown : farmer.noField;

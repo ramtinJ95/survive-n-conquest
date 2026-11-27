@@ -21,6 +21,7 @@ import {
 } from 'three';
 import type { TileMap } from '../sim/map';
 import { NOT_CUT, NOT_SOWN, RIPE_DAWNS, bareAgainDay } from '../sim/fields';
+import { DAYS_PER_YEAR } from '../sim/calendar';
 import { dawnDayAt } from '../sim/daylight';
 import { Claim, type Orders, SiteState } from '../sim/orders';
 
@@ -64,7 +65,7 @@ const CLAIM_COLORS: Record<Claim, string> = {
  * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of shoots across it in the color of
  * `stages` for the dawns since its sowing, from pale to deep green, with a shadow on the soil that grows by
  * `shadowPerDawn` of a row's third at each dawn. A ripe tile bears wide golden rows, and a cut one thin rows of pale
- * stubble.
+ * stubble. A crop the frost killed is dark withered rows with no shadow, until the first dawn of spring after its sowing.
  */
 const FIELD_LOOK = {
   soil: '#6b4a2b',
@@ -72,6 +73,7 @@ const FIELD_LOOK = {
   shadow: '#3f2a16',
   ripe: '#f0b429',
   stubble: '#d9c58a',
+  withered: '#1f1c1a',
   soilShare: 0.75,
   rows: 3,
   rowWidth: 0.4,
@@ -79,6 +81,7 @@ const FIELD_LOOK = {
   ripeWidth: 0.6,
   ripeShadow: 0.3,
   stubbleWidth: 0.15,
+  witheredWidth: 0.6,
 };
 
 const PREVIEW_COLORS: Record<Preview, string> = {
@@ -111,8 +114,10 @@ uniform vec3 fieldStages[${RIPE_DAWNS}];
 uniform vec3 fieldShadow;
 uniform vec3 fieldRipe;
 uniform vec3 fieldStubble;
+uniform vec3 fieldWithered;
 uniform sampler2D cropMap;
 uniform float cropDay;
+uniform float cropFrozen;
 
 float twoBytes(float low, float high) {
   return floor(low * 255.0 + 0.5) + 256.0 * floor(high * 255.0 + 0.5);
@@ -128,6 +133,12 @@ void drawCrop(inout vec3 color, ivec2 tile, vec2 inTile) {
     return;
   }
   if (sown == 0.0) return;
+  float bareAgain = (floor((sown - ${CROP_DAY_OFFSET.toFixed(1)}) / ${DAYS_PER_YEAR.toFixed(1)}) + 1.0) * ${DAYS_PER_YEAR.toFixed(1)};
+  if (cropDay >= bareAgain) return;
+  if (cropFrozen > 0.5) {
+    if (row >= 1.0 - ${FIELD_LOOK.witheredWidth.toFixed(2)}) color = linearToOutputTexel(vec4(fieldWithered, 1.0)).rgb;
+    return;
+  }
   float grown = clamp(cropDay - (sown - ${CROP_DAY_OFFSET.toFixed(1)}), 0.0, ${RIPE_DAWNS.toFixed(1)});
   bool ripe = grown >= ${RIPE_DAWNS.toFixed(1)};
   float width = ripe ? ${FIELD_LOOK.ripeWidth.toFixed(2)} : ${FIELD_LOOK.rowWidth.toFixed(2)};
@@ -255,7 +266,7 @@ function pinMaterial(color: string, scale: { value: number }, outline: boolean):
 /**
  * Draws the orders on the map: a tint and an outline on every claimed tile,
  * drawn into the terrain's own shader, and a pin over every tree marked for
- * felling. A field tile is tilled soil, with its crop drawn as it stands at the last dawn. The interface draws its previews through the same layer.
+ * felling. A field tile is tilled soil, with its crop drawn as it stands at the last dawn, or withered after the frost. The interface draws its previews through the same layer.
  *
  * `treeTop` gives the top of the tree on a tile, in world coordinates.
  */
@@ -291,8 +302,10 @@ export function createOrderMarks(
     fieldShadow: { value: linear(FIELD_LOOK.shadow) },
     fieldRipe: { value: linear(FIELD_LOOK.ripe) },
     fieldStubble: { value: linear(FIELD_LOOK.stubble) },
+    fieldWithered: { value: linear(FIELD_LOOK.withered) },
     cropMap: { value: cropTexture },
     cropDay: { value: 0 },
+    cropFrozen: { value: 0 },
   };
   const before = terrainMaterial.onBeforeCompile;
   terrainMaterial.onBeforeCompile = (shader, renderer) => {
@@ -375,9 +388,10 @@ export function createOrderMarks(
       cropTexture.needsUpdate = true;
     },
 
-    /** Grows every crop to the latest dawn at or before `tick`. */
-    showCropDay(tick: number) {
+    /** Grows every crop to the latest dawn at or before `tick`, and withers every crop that stands while the ground is `frozen`. */
+    showCropDay(tick: number, frozen: boolean) {
       uniforms.cropDay.value = dawnDayAt(tick);
+      uniforms.cropFrozen.value = frozen ? 1 : 0;
     },
 
     /** Replaces the preview with `preview` on each of `tiles`. Pass no tiles to clear it. */

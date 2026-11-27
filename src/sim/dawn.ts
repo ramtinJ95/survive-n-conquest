@@ -1,6 +1,7 @@
 import { dieOfOldAge, startWork } from './aging';
 import { bearChildren } from './births';
 import { ripenFields } from './fields';
+import { turnToNewFrost } from './frost';
 import { pairSettlers } from './pairing';
 import type { Sim } from './sim';
 import { breakDay } from './villagers';
@@ -13,4 +14,5 @@ export const DAWN: readonly ((sim: Sim) => void)[] = [
   pairSettlers,
   bearChildren,
   ripenFields,
+  turnToNewFrost,
 ];

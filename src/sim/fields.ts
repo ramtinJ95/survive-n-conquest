@@ -25,8 +25,8 @@ export const NOT_CUT = -1;
 /** The slots of `Fields.ripening`. */
 const RIPENING_SLOTS = 2 ** Math.ceil(Math.log2(RIPE_DAWNS + 1));
 
-/** The state of a field tile's crop, read from what the tile stores against the clock. */
-export const FieldState = { Bare: 0, Sown: 1, Ripe: 2, Cut: 3 } as const;
+/** The state of a field tile's crop, read from what the tile stores against the clock. A killed tile's crop stood at the frost. */
+export const FieldState = { Bare: 0, Sown: 1, Ripe: 2, Cut: 3, Killed: 4 } as const;
 export type FieldState = (typeof FieldState)[keyof typeof FieldState];
 
 /** What a field tile stores of its crop, the size of the map. The main thread keeps a copy from the tile changes. */
@@ -35,6 +35,12 @@ export interface FieldTiles {
   readonly sownAt: Int32Array;
   /** The tick of the step in which each tile was cut, or `NOT_CUT`. */
   readonly cutAt: Int32Array;
+  /**
+   * The tick of the frost of the year of the latest dawn. It turns to the new
+   * year's frost at the first dawn of spring, not at midnight, so it is the
+   * frost of the year in which every standing crop was sown.
+   */
+  frostAt: number;
 }
 
 /**
@@ -45,30 +51,39 @@ export interface FieldTiles {
 export interface Fields extends TileSet, FieldTiles {
   /** The farmer that sows or cuts each tile, or -1. */
   readonly taker: Int32Array;
-  /** Work ticks done on each tile toward its sowing or its cut. Work stays when the farmer leaves, and goes with the field. */
+  /** Work ticks done on each tile toward its sowing. Work stays when the farmer leaves, and goes with the field. */
   readonly progress: Uint16Array;
+  /** Work ticks done on each tile toward the cut of its crop. Work stays when the farmer leaves, and goes with the crop, so a crop the frost kills takes it. */
+  readonly cutProgress: Uint16Array;
   /** The sown tiles that turn ripe at each dawn, in the slot of the dawn's day index modulo `RIPENING_SLOTS`. */
   readonly ripening: Uint32Array;
   /** The day index of the last dawn whose tiles `ripenFields` counted ripe. */
   ripenedDay: number;
   /** The tiles that turned ripe at the dawns of the calendar year the clock is in. */
   ripeThisYear: number;
+  /** The tiles whose crop stands now, sown or ripe, neither cut nor killed. The frost kills this many. */
+  standing: number;
+  /** The tiles whose crop the frost killed in the calendar year the clock is in. */
+  lostThisYear: number;
 }
 
-export function createFieldTiles(tiles: number): FieldTiles {
-  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN), cutAt: new Int32Array(tiles).fill(NOT_CUT) };
+export function createFieldTiles(tiles: number, frostAt: number): FieldTiles {
+  return { sownAt: new Int32Array(tiles).fill(NOT_SOWN), cutAt: new Int32Array(tiles).fill(NOT_CUT), frostAt };
 }
 
-export function createFields(size: number): Fields {
+export function createFields(size: number, frostAt: number): Fields {
   const tiles = size * size;
   return {
     ...createTileSet(size),
-    ...createFieldTiles(tiles),
+    ...createFieldTiles(tiles, frostAt),
     taker: new Int32Array(tiles).fill(-1),
     progress: new Uint16Array(tiles),
+    cutProgress: new Uint16Array(tiles),
     ripening: new Uint32Array(RIPENING_SLOTS),
     ripenedDay: 0,
     ripeThisYear: 0,
+    standing: 0,
+    lostThisYear: 0,
   };
 }
 
@@ -78,20 +93,34 @@ export function grownDawns(fields: FieldTiles, tile: number, tick: number): numb
   return sownAt === NOT_SOWN ? 0 : Math.min(dawnDayAt(tick) - dawnDayAt(sownAt), RIPE_DAWNS);
 }
 
-/** The day index of the first dawn of spring after a cut, at which the cut tile is bare again. */
-export function bareAgainDay(cutAt: number): number {
-  return (Math.floor(dawnDayAt(cutAt) / DAYS_PER_YEAR) + 1) * DAYS_PER_YEAR;
+/** The day index of the first dawn of spring after `tick`, at which a tile cut or sown then is bare again. */
+export function bareAgainDay(tick: number): number {
+  return (Math.floor(dawnDayAt(tick) / DAYS_PER_YEAR) + 1) * DAYS_PER_YEAR;
+}
+
+/**
+ * Whether the ground is frozen at `tick`, the next tick to step: once the step
+ * of the frost's tick has run, until the first dawn of spring, when `frostAt`
+ * turns to the new year's. An order given on the frost's own tick still finds
+ * the crop standing.
+ */
+export function frozenAt(fields: FieldTiles, tick: number): boolean {
+  return tick > fields.frostAt;
 }
 
 /**
  * The state of a field tile's crop at `tick`. A cut tile is cut until the
  * first dawn of spring after the cut and bare from then on, whatever its
- * `sownAt` still holds.
+ * `sownAt` still holds. A crop that is not cut is killed from the frost of the
+ * year it was sown in, and the tile is bare from the first dawn of spring
+ * after the sowing.
  */
 export function fieldState(fields: FieldTiles, tile: number, tick: number): FieldState {
   const cutAt = fields.cutAt[tile]!;
   if (cutAt !== NOT_CUT) return dawnDayAt(tick) < bareAgainDay(cutAt) ? FieldState.Cut : FieldState.Bare;
-  if (fields.sownAt[tile] === NOT_SOWN) return FieldState.Bare;
+  const sownAt = fields.sownAt[tile]!;
+  if (sownAt === NOT_SOWN || dawnDayAt(tick) >= bareAgainDay(sownAt)) return FieldState.Bare;
+  if (frozenAt(fields, tick)) return FieldState.Killed;
   return grownDawns(fields, tile, tick) === RIPE_DAWNS ? FieldState.Ripe : FieldState.Sown;
 }
 
@@ -100,10 +129,10 @@ function ripeningSlot(sownAt: number): number {
   return (dawnDayAt(sownAt) + RIPE_DAWNS) & (RIPENING_SLOTS - 1);
 }
 
-/** Takes a tile that loses its crop out of the count of the dawn it would ripen at, while that dawn has not come. */
+/** Takes a standing crop that is lost out of the count of the dawn it would ripen at, while that dawn has not come. */
 function leaveRipening(fields: Fields, tile: number): void {
   const sownAt = fields.sownAt[tile]!;
-  if (sownAt === NOT_SOWN || fields.cutAt[tile] !== NOT_CUT || dawnDayAt(sownAt) + RIPE_DAWNS <= fields.ripenedDay) return;
+  if (dawnDayAt(sownAt) + RIPE_DAWNS <= fields.ripenedDay) return;
   const slot = ripeningSlot(sownAt);
   fields.ripening[slot] = fields.ripening[slot]! - 1;
 }
@@ -223,9 +252,11 @@ function work(sim: Sim, id: number): boolean {
   fields.progress[tile] = fields.progress[tile]! + 1;
   if (fields.progress[tile]! < SOW_WORK_TICKS) return false;
   fields.progress[tile] = 0;
+  fields.cutProgress[tile] = 0;
   fields.sownAt[tile] = sim.tick;
   fields.cutAt[tile] = NOT_CUT;
   fields.taker[tile] = -1;
+  fields.standing += 1;
   const slot = ripeningSlot(sim.tick);
   fields.ripening[slot] = fields.ripening[slot]! + 1;
   sim.tally.sown += 1;
@@ -239,15 +270,20 @@ function release(sim: Sim, id: number): void {
   if (tile >= 0 && sim.fields.taker[tile] === id) sim.fields.taker[tile] = -1;
 }
 
-/** Keeps the set of field tiles up to the claims. A tile whose field was cancelled loses its crop, sown, ripe, or cut, and the work done on it. */
+/** Keeps the set of field tiles up to the claims. A tile whose field was cancelled loses its crop, sown, ripe, cut, or killed, and the work done on it. */
 function refresh(sim: Sim, tile: number): void {
   const { fields } = sim;
   const field = sim.orders.claims[tile] === Claim.Field;
   setOpen(fields, sim.map.size, tile, field);
   if (field) return;
   fields.progress[tile] = 0;
+  fields.cutProgress[tile] = 0;
   if (fields.sownAt[tile] === NOT_SOWN && fields.cutAt[tile] === NOT_CUT) return;
-  leaveRipening(fields, tile);
+  const state = fieldState(fields, tile, sim.tick);
+  if (state === FieldState.Sown || state === FieldState.Ripe) {
+    fields.standing -= 1;
+    leaveRipening(fields, tile);
+  }
   fields.sownAt[tile] = NOT_SOWN;
   fields.cutAt[tile] = NOT_CUT;
   noteTileChange(sim, tile);
