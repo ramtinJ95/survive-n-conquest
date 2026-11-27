@@ -195,7 +195,26 @@ function playCounted(hour: number, ticks: number, farmsFrom: number | undefined)
 
 const pct = (n: number, of: number) => (of === 0 ? '-' : `${((100 * n) / of).toFixed(0)}%`);
 const mean = (xs: number[]) => (xs.length === 0 ? '-' : (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1));
-const lostForRoom = (y: FarmYear) => (y.frostDayNoRoom > 0 ? y.lost : 0);
+
+/** The most food the camp can hold, the most a store's column counts. */
+const ROOM_ENOUGH = 0xffff;
+
+/**
+ * The tiles the frost kills in `year` of the same run when the camp has room for all the food of that year: the run
+ * played again to the year's end, with the camp's food limit raised to `ROOM_ENOUGH` from the year's first tick and the
+ * rules and the orders as before. The loss the stops for room cost that year is the run's loss less this one.
+ */
+function lostWithRoom(hour: number, farmsFrom: number, year: number): number {
+  const start = yearsEnd(year - 1);
+  let lostBefore = 0;
+  const watch = (sim: Sim) => {
+    if (sim.tick !== start) return;
+    (sim.stores as { campLimit: number }).campLimit = ROOM_ENOUGH;
+    lostBefore = sim.tally.lost;
+  };
+  const { sim } = play({ hour, ticks: yearsEnd(year), farmsFrom, watch });
+  return sim.tally.lost - lostBefore;
+}
 
 function summary(run: Run, label: string): string {
   const end = run.rows.at(-1)!;
@@ -203,7 +222,7 @@ function summary(run: Run, label: string): string {
   return `${label}, the rule at ${hhmm(run.hour)}: ${run.over ? `nobody lives from ${run.over}` : `${end.mouths} living at the end of year ${end.year}`}; most living ${run.peak}; died of hunger ${died.hunger}, of cold ${died.cold}, of old age ${died.old}.`;
 }
 
-function report(farmed: Played, bare: Played): string[] {
+function report(farmed: Played, bare: Played, withRoom: ReadonlyMap<number, number>): string[] {
   const out = ['## Table 1. The living, with farms and without', '', summary(bare.run, 'Without farms (#53)'), summary(farmed.run, 'With farms'), ''];
   const years = Math.max(farmed.run.rows.length, bare.run.rows.length);
   const life = (run: Run, i: number) => {
@@ -265,19 +284,20 @@ function report(farmed: Played, bare: Played): string[] {
 
   out.push('', '## Table 3. The stores full while a crop stands', '');
   out.push(
-    'Daylight ticks in which a crop stands, some standing tile is ripe, and no common store has room for food (`nearestCommonStore` from the camp center), and the same in days of that season\'s daylight. The tiles the frost killed count as lost for lack of room when no store had room at one daylight tick of the frost\'s day or more, and for lack of hands or time otherwise.',
+    "Daylight ticks in which a crop stands, some standing tile is ripe, and no common store has room for food (`nearestCommonStore` from the camp center), and the same in days of that season's daylight. The loss for lack of room is the year's loss less the loss of the same year played again with room for all its food at the camp from the year's first tick (`lostWithRoom`), in each year in which the stores stopped a ripe crop.",
     '',
   );
+  const room = (y: FarmYear) => withRoom.get(y.year) ?? y.lost;
   out.push(
     ...table(
-      ['year', 'ticks ripe, no room', 'days', "frost day's ticks with no room", 'lost', 'lost for lack of room', 'lost for lack of hands/time'],
-      farmed.years.map((y) => [y.year, y.ripeNoRoomTicks, y.ripeNoRoomDays.toFixed(2), `${y.frostDayNoRoom}/${y.frostDayDaylight}`, y.lost, lostForRoom(y), y.lost - lostForRoom(y)]),
+      ['year', 'ticks ripe, no room', 'days', "frost day's ticks with no room", 'lost', 'lost with room at the camp', 'lost for lack of room'],
+      farmed.years.map((y) => [y.year, y.ripeNoRoomTicks, y.ripeNoRoomDays.toFixed(2), `${y.frostDayNoRoom}/${y.frostDayDaylight}`, y.lost, withRoom.has(y.year) ? room(y) : '-', y.lost - room(y)]),
     ),
   );
   const ripeNoRoom = farmed.years.reduce((n, y) => n + y.ripeNoRoomTicks, 0);
   const ripeNoRoomDays = farmed.years.reduce((n, y) => n + y.ripeNoRoomDays, 0);
-  const room = farmed.years.reduce((n, y) => n + lostForRoom(y), 0);
-  out.push('', `Over the run: ${ripeNoRoom} daylight ticks (${ripeNoRoomDays.toFixed(1)} days) with a ripe crop and no room; ${room} of ${sum('lost')} lost tiles for lack of room.`);
+  const forRoom = farmed.years.reduce((n, y) => n + y.lost - room(y), 0);
+  out.push('', `Over the run: ${ripeNoRoom} daylight ticks (${ripeNoRoomDays.toFixed(1)} days) with a ripe crop and no room; ${forRoom} of ${sum('lost')} lost tiles for lack of room.`);
 
   out.push('', '## Table 4. The early frost', '');
   out.push('The crop standing at the dusk of day 8 and of day 9, read before the step in which a frost falls. In a day-9 year an early frost would have killed the crop of the dusk of day 8; the difference is what one day earlier would have cost.', '');
@@ -332,7 +352,10 @@ if (import.meta.main) {
     const raw = (p: Played) => ({ ...p, run: { ...p.run, sim: undefined, log: undefined } });
     console.log(JSON.stringify({ seed: 7, seconds, runs: pairs.map(({ farmed, bare }) => ({ farmed: raw(farmed), bare: raw(bare) })) }));
   } else {
-    console.log((process.argv.includes('--hours') ? hoursReport(pairs) : report(pairs[0]!.farmed, pairs[0]!.bare)).join('\n'));
+    const { farmed, bare } = pairs[0]!;
+    const stopped = farmed.years.filter((y) => y.lost > 0 && (y.ripeNoRoomTicks > 0 || y.frostDayNoRoom > 0));
+    const withRoom = new Map(process.argv.includes('--hours') ? [] : stopped.map((y) => [y.year, lostWithRoom(farmed.run.hour, farmsFrom, y.year)] as const));
+    console.log((process.argv.includes('--hours') ? hoursReport(pairs) : report(farmed, bare, withRoom)).join('\n'));
     console.log(`\nWall seconds: ${seconds.toFixed(1)}.`);
   }
 }
