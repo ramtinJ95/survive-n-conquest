@@ -90,7 +90,7 @@ A starting settler of 18 to 30 with a span of 60 to 80 years reaches its span 6 
 - A new household takes an empty house at once when one stands. With none it lives at the camp until a house is finished or freed.
   - The owner decided on 2026-11-25 that a newly paired household stays under its parents' roofs until a house is free, and #59 built it. In the orchestrator's reading, as #59 built it: with no empty house, one of the two who lived in its parents' house lodges there, eats from its store, is warm by its fire, and counts among its people, and one who lived at the camp stays at the camp. A house is never freed under a lodger. When the last of its household dies or leaves, the lodger's household takes it at once, ahead of the order by number. (#59)
 - A single settler stays in its parents' household until it pairs. It counts among the people of the house.
-  - Since 2026-11-25 this holds for a single settler who never had a partner. A widowed settler stays in its own household. (#61)
+  - Since 2026-11-25, in the orchestrator's reading as #61 built it, this holds for a single settler who never had a partner. A widowed settler stays in its own household. (#61)
 - The player does not choose who pairs with whom, and does not move households between houses, in this stage.
 
 ### The order of a dawn
