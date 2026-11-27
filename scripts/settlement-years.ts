@@ -4,7 +4,7 @@
 // the screen once a day, at 08:00 or at `--hour`, and gives its orders then. Births off sets the cap on the living to
 // 0, a switch only this script has. `--hours` plays the run with births at 08:00, 10:00, 12:00, and 14:00 and prints
 // the living and the deaths of each. `--log` lists each morning's reading, every order, and every death. `play` with
-// `farms` adds the rule `farm`, which `scripts/farm-years.ts` plays.
+// `farmsFrom` adds the rule `farm`, which `scripts/farm-years.ts` plays.
 import { ageAt } from '../src/sim/aging';
 import { arrived } from '../src/sim/building';
 import { BEARING_AGES, BIRTH_CHANCE, BIRTH_GAP, FULL_HOUSE, bearChildren, birthDraw } from '../src/sim/births';
@@ -233,8 +233,9 @@ function farmsOf(sim: Sim): number[] {
 }
 
 /**
- * The rule `farm`. On the first morning of each calendar year, in year 1 at tick 0 right after year 1's orders and
- * from year 2 at the rule's hour on the year's first day before `settle` reads the screen, it gives these orders:
+ * The rule `farm`. On the first morning of each calendar year from the year it starts in, which is year 2 in
+ * `scripts/farm-years.ts` as for `settle`, at the rule's hour on the year's first day before `settle` reads the screen
+ * (or, when it starts in year 1, at tick 0 right after year 1's orders), it gives these orders:
  * F2. Farm: when 3 field tiles for each living settler are more than 40 for each farm standing or ordered, one farm
  *     on the place nearest the camp the rules accept, with chop orders for its 8 logs as `settle` gives them.
  * F1. Field: when the field tiles within the reach of the farms standing or ordered are fewer than 3 for each living
@@ -347,8 +348,8 @@ export interface Options {
   /** The year from which no child is born. */
   readonly birthsOffFrom?: number;
   readonly log?: boolean;
-  /** Plays the rule `farm` beside `settle`. */
-  readonly farms?: boolean;
+  /** The calendar year from whose first morning the rule `farm` plays beside `settle`. Without it the run has no farm. */
+  readonly farmsFrom?: number;
   /** Reads the state after every step. */
   readonly watch?: (sim: Sim) => void;
 }
@@ -445,7 +446,7 @@ function morning(sim: Sim, r: Reading): string {
 const CAUSE_WORDS: Record<number, string> = { [Cause.Hunger]: 'starved', [Cause.Cold]: 'froze', [Cause.OldAge]: 'died of old age' };
 
 /** Plays year 1's orders, then the rule from year 2 at `hour`, for `ticks` ticks or until nobody lives. */
-export function play({ hour, ticks, birthsOffFrom, log: logging = false, farms = false, watch }: Options): Run {
+export function play({ hour, ticks, birthsOffFrom, log: logging = false, farmsFrom, watch }: Options): Run {
   const sim = createSim(generateMap(SEED), SETTLERS);
   const ruleTick = (hour - 8) * TICKS_PER_HOUR;
   const pending = ordersOf(NEAR_HOUSES_LATE_SHED);
@@ -479,7 +480,8 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false, farms =
       }
       const { year } = dateAt(sim.tick);
       const ruleNow = (sim.tick - ruleTick) % TICKS_PER_DAY === 0;
-      if (farms && (sim.tick === 0 || (year >= 2 && ruleNow && dayIndexAt(sim.tick) % DAYS_PER_YEAR === 0))) {
+      const firstMorning = year === 1 ? sim.tick === 0 : ruleNow && dayIndexAt(sim.tick) % DAYS_PER_YEAR === 0;
+      if (farmsFrom !== undefined && year >= farmsFrom && firstMorning) {
         fields.push(farm(sim, (c) => give(c, 'farm: '), (c) => note(c, 'field: ')));
       }
       if (birthsOffFrom !== undefined && year >= birthsOffFrom) (sim as { mostLiving: number }).mostLiving = 0;
@@ -536,7 +538,7 @@ export function play({ hour, ticks, birthsOffFrom, log: logging = false, farms =
     over: sim.over ? when(sim.tick) : null,
     camp: { paired: camp.length, coldBeforeHouse: camp.filter((p) => p.coldBeforeHouse).length, froze: camp.filter(froze).length, frozeBeforeHouse: camp.filter((p) => p.frozeBeforeHouse).length },
     log,
-    ...(farms ? { fields } : {}),
+    ...(farmsFrom !== undefined ? { fields } : {}),
     sim,
   };
 }

@@ -1,9 +1,10 @@
 // #53's twenty years of `src/sim` on seed 7 played with the rule `farm` beside `settle`, and without it: `bun
-// scripts/farm-years.ts [--years n] [--hour h] [--hours] [--json]`. The rule `farm` is stated in
-// `scripts/settlement-years.ts`. The default prints, for the rule at 08:00 or at `--hour`, the living beside the run
-// without farms, the fields of each year, the share of a farmer's daylight in which it works, the harvest's stops for
-// lack of room, and what the early frost costs. `--hours` plays both rules at 08:00, 10:00, 12:00, and 14:00 and
-// prints the living of each. `--json` prints the raw numbers.
+// scripts/farm-years.ts [--years n] [--hour h] [--hours] [--farms-from y] [--json]`. The rule `farm` is stated in
+// `scripts/settlement-years.ts`. It starts in year 2, as `settle` does, or in year `--farms-from`. The default prints,
+// for the rule at 08:00 or at `--hour`, the living beside the run without farms, the fields of each year, the share of
+// a farmer's daylight in which it works, the harvest's stops for lack of room, and what the early frost costs.
+// `--hours` plays both rules at 08:00, 10:00, 12:00, and 14:00 and prints the living of each. `--json` prints the raw
+// numbers.
 import { BUILDINGS, Building } from '../src/sim/buildings';
 import { DAYS_PER_YEAR, SEASONS, TICKS_PER_DAY, TICKS_PER_YEAR, dayIndexAt, firstTickOf, seasonAt, seasonIndexAt } from '../src/sim/calendar';
 import { Claim } from '../src/sim/claims';
@@ -103,7 +104,7 @@ const tallyDelta = (t: Tally, last: Tally) => ({
  * A tile the frost kills counts as lost for lack of room when no common store had room for food at one daylight tick
  * of the frost's day or more, and as lost for lack of hands or time otherwise.
  */
-function playCounted(hour: number, ticks: number, farms: boolean): Played {
+function playCounted(hour: number, ticks: number, farmsFrom: number | undefined): Played {
   const years: FarmYear[] = [];
   const orders: Order[] = [];
   const watched: { slot: number; order: Order }[] = [];
@@ -188,7 +189,7 @@ function playCounted(hour: number, ticks: number, farms: boolean): Played {
       year = open(sim, year.year);
     }
   };
-  const run = play({ hour, ticks, farms, watch });
+  const run = play({ hour, ticks, farmsFrom, watch });
   return { run, years, orders };
 }
 
@@ -324,7 +325,8 @@ if (import.meta.main) {
   const ticks = yearsEnd(Number(flag('--years') ?? 20));
   const hours = process.argv.includes('--hours') ? [...HOURS] : [Number(flag('--hour') ?? 8)];
   const started = performance.now();
-  const pairs = hours.map((hour) => ({ farmed: playCounted(hour, ticks, true), bare: playCounted(hour, ticks, false) }));
+  const farmsFrom = Number(flag('--farms-from') ?? 2);
+  const pairs = hours.map((hour) => ({ farmed: playCounted(hour, ticks, farmsFrom), bare: playCounted(hour, ticks, undefined) }));
   const seconds = (performance.now() - started) / 1000;
   if (process.argv.includes('--json')) {
     const raw = (p: Played) => ({ ...p, run: { ...p.run, sim: undefined, log: undefined } });

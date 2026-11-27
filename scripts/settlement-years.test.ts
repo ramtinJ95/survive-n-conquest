@@ -30,9 +30,9 @@ describe('settlement years', () => {
     expect(after.rows).toEqual(control.rows);
   });
 
-  it('orders a farm and marks 3 field tiles for each of the 8 settlers at the start of a run with farms', () => {
+  it('orders a farm and marks 3 field tiles for each of the 8 settlers at the start of a run with farms from year 1', () => {
     let steps = 0;
-    const { fields } = play({ hour: 8, ticks: 10, farms: true, watch: () => steps++ });
+    const { fields } = play({ hour: 8, ticks: 10, farmsFrom: 1, watch: () => steps++ });
     expect(steps).toBe(10);
     expect(fields).toHaveLength(1);
     expect(fields![0]).toMatchObject({ year: 1, living: 8, wanted: 24, held: 0, marked: 24 });
