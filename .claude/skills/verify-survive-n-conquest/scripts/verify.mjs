@@ -3528,6 +3528,7 @@ const FARMER_DOING = [
   'Walking to a field to pick up food',
   'Idle, waiting for room in a store',
   'Looking for a field to sow',
+  'Idle, the ground is frozen',
   'Carrying food to the camp',
   'Walking to a field to sow',
   'Idle, the crop is growing',
@@ -4670,9 +4671,9 @@ const HARVEST_STOPS = {
   day8: { day: 8, time: '12:00' },
   midnight9: { day: 9, time: '00:00' },
 };
-const FIELD_STATES = ['bare', 'sown', 'ripe', 'cut'];
+const FIELD_STATES = ['bare', 'sown', 'ripe', 'cut', 'killed'];
 /** The crop's colors from `FIELD_LOOK` in `src/render/orderMarks.ts`. The mark layer draws them after the light, so no light changes them. */
-const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a] };
+const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble: [0xd9, 0xc5, 0x8a], withered: [0x35, 0x30, 0x2c] };
 /**
  * Adjacent stages of a sown tile differ by at least this much in the mean color of the tile's box, as a distance in
  * 8-bit RGB, by day and at midnight, so a player tells them apart at a glance.
@@ -4680,11 +4681,12 @@ const CROP_RGB = { shadow: [0x3f, 0x2a, 0x16], ripe: [0xf0, 0xb4, 0x29], stubble
 const STAGE_MARGIN = 20;
 /**
  * In the box of 11 by 11 pixels around a tile's center, about half a tile, the rows of a sown tile draw about 48 pixels
- * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, and the shadow
- * about 12 more pixels at each dawn. A bare tile draws none of them, and soil fills its box: `sowing` read a mean of 94%
- * on a bare field. A box with no rows and less soil is hidden by a settler, a sack, or a stone.
+ * of shoots, as `sowing` reads, a ripe tile's rows about 73 of gold, a cut tile's about 18 of stubble, a killed tile's
+ * about 60 of withered rows, and the shadow about 12 more pixels at each dawn. A bare tile draws none of them, and soil
+ * fills its box: `sowing` read a mean of 94% on a bare field. A box with no rows and less soil is hidden by a settler,
+ * a sack, or a stone.
  */
-const CROP_LEAST = { shoots: 20, ripe: 30, stubble: 6, soilBare: 0.6, day: 20 };
+const CROP_LEAST = { shoots: 20, ripe: 30, stubble: 6, withered: 30, soilBare: 0.6, day: 20 };
 /**
  * The scenery draws a stone over the field tile (130, 123), as `sowing`'s gotchas say, whose box reads 15 shoot pixels
  * when sown, and tufts and a stone over (130, 121), whose box reads 55% soil at night when bare. A check may read them
@@ -4698,7 +4700,7 @@ const HARVEST_CLIP = { crop: { x: 0, y: 0, width: 720, height: 540 }, width: 560
 function cropLook(png, width, spots) {
   const pixels = ffmpeg(['-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
   return spots.map(({ x, y }) => {
-    const found = { shoots: 0, shadow: 0, ripe: 0, stubble: 0, soil: 0, stages: SHOOT_STAGES.map(() => 0), mean: [0, 0, 0] };
+    const found = { shoots: 0, shadow: 0, ripe: 0, stubble: 0, withered: 0, soil: 0, stages: SHOOT_STAGES.map(() => 0), mean: [0, 0, 0] };
     for (let row = y - SOW_HALF; row <= y + SOW_HALF; row++) {
       for (let column = x - SOW_HALF; column <= x + SOW_HALF; column++) {
         const i = (row * width + column) * 3;
@@ -4721,11 +4723,12 @@ function cropLook(png, width, spots) {
 }
 
 /** The state a tile's box reads, or `unclear` when a settler or a stone hides too much of it to tell. */
-function cropState({ shoots, ripe, stubble, soil }) {
+function cropState({ shoots, ripe, stubble, withered, soil }) {
   if (ripe >= CROP_LEAST.ripe) return 'ripe';
   if (ripe > CROP_MOST.none) return 'unclear';
   if (shoots >= CROP_LEAST.shoots) return 'sown';
   if (stubble >= CROP_LEAST.stubble && shoots <= CROP_MOST.none) return 'cut';
+  if (withered >= CROP_LEAST.withered && shoots <= CROP_MOST.none && stubble <= CROP_MOST.none) return 'killed';
   if (shoots <= CROP_MOST.none && stubble <= CROP_MOST.none && soil >= CROP_LEAST.soilBare) return 'bare';
   return 'unclear';
 }
@@ -4986,6 +4989,288 @@ SCENARIOS.harvest = async (session) => {
   await session.screenshot(page, 'harvest-barn-full');
 
   await session.finishClips(play.context, page, [{ label: 'harvest-clip', from: clipFrom, to: clipTo, ...HARVEST_CLIP }]);
+  seen.push(...play.errors);
+  session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
+};
+
+/**
+ * The `frost` scenario plays the first year's frost on seed 7 through the page, with a camp that starts with 100 food:
+ * `harvest`'s farm, field of 24 tiles, and barn, `cold`'s woodshed and two houses, a stockpile south of the camp, a Chop
+ * drag over 54 trees east of the camp, and a Quarry drag over 5 rock tiles, all at tick 0. `scripts/frost.ts` gives
+ * these orders and plays them in `src/sim`. The farm's places are taken away on the night of day 6, as in `harvest`, and
+ * given back after the frost, so the 10 tiles of day 1 are cut and the 14 of day 2 stand ripe at the dusk of the
+ * frost: a field half cut. Two farmers sow about 54 tiles in spring on this layout and cut about 44 of them by the
+ * frost, as `frost.ts` played fields of 48, 72, and 96 tiles, so a field too large for them leaves a fifth of its crop
+ * standing, not half. The two households in houses live through the winter, and their settlers sow the field again in
+ * the next spring. The orders go in from `FROST_ORDER_VIEW`, 61 m above `HARVEST_VIEW`'s look-at point, which holds every
+ * order's tiles, and the wheel then brings the camera in to `FROST_VIEW`, within a pixel of `HARVEST_VIEW`.
+ */
+const FROST_SEARCH = '?seed=7&food=100';
+const FROST_SIM = join(ROOT, '.claude/skills/verify-survive-n-conquest/scripts/frost.ts');
+const FROST_ORDER_VIEW = { wheel: -450, turn: { x: 424, y: 20 }, pan: { x: 11, y: 23 } };
+/** Wheel pixels from the order view's 61 m in to 23 m, toward the same look-at point. */
+const FROST_CLOSER = -650;
+/** The view after `FROST_CLOSER`, as `scripts/aim.ts` takes it: the look-at point that the order view's whole-pixel pan reaches. */
+const FROST_VIEW = { wheel: FROST_ORDER_VIEW.wheel + FROST_CLOSER, turn: FROST_ORDER_VIEW.turn, target: [131.06, 126.97] };
+/**
+ * The stops, from `scripts/frost.ts`. The tiles of day 1 ripen at the dawn of day 6 and those of day 2 at the dawn of
+ * day 7. The noons of days 3, 4, 6, 13, and 14 and the midnights that open days 3, 5, 6, and 14 show each sown stage
+ * and a bare tile by day and by night. Until the woodshed stands at 14:30 on day 2 its site's label covers the west of
+ * the field, and its dark panel reads as withered rows, so the field is first read at the midnight that opens day 3. The frost of
+ * the first year on seed 7 falls at 19:12 on day 9, the dusk of its last day of autumn, and its warning at the dawn of
+ * that day, 04:48. The first dawn of spring is at 04:48 on day 13, and by noon on day 14 the
+ * farmers have sown the whole field again. At noon on day 11 one farmer stands on the field and the other by the
+ * woodshed, both left of the `Winter readiness` panel.
+ */
+const FROST_STOPS = {
+  midnight3: { day: 3, time: '00:00' },
+  day3: { day: 3, time: '12:00' },
+  day4: { day: 4, time: '12:00' },
+  midnight5: { day: 5, time: '00:00' },
+  midnight6: { day: 6, time: '00:00' },
+  day6: { day: 6, time: '12:00' },
+  noFarmers: { day: 6, time: '21:00', places: [1, 0] },
+  midnight8: { day: 8, time: '00:00' },
+  warning: { day: 9, time: '04:50' },
+  halfCut: { day: 9, time: '18:40' },
+  frost: { day: 9, time: '19:20' },
+  farmersBack: { day: 9, time: '20:00', places: [1, 2] },
+  midnight10: { day: 10, time: '00:00' },
+  day10: { day: 10, time: '12:00' },
+  frozen: { day: 11, time: '12:00' },
+  midnight13: { day: 13, time: '00:00' },
+  spring: { day: 13, time: '05:00' },
+  day13: { day: 13, time: '12:00' },
+  midnight14: { day: 14, time: '00:00' },
+  day14: { day: 14, time: '12:00' },
+};
+/** The clip runs at 1x from `halfCut` to `frost`, through the dusk, so the light falls and the rows wither in a few frames each. */
+const FROST_CLIP_SPEED = '1';
+/** The clip keeps the clock, the field, the barn, and the news at the bottom right, and leaves out the toolbar. */
+const FROST_CLIP = { crop: { x: 0, y: 0, width: 720, height: 540 }, width: 480, colors: 48, decimate: true };
+
+SCENARIOS.frost = async (session) => {
+  const seen = [];
+  const { said } = siteDriver(session);
+  const { reads, text, click, uiBoxes } = selectionDriver(session);
+  const { lines } = hungerDriver(session);
+  const at = async (page) => clockText(await session.gameMinutes(page));
+  const tileName = ([x, y]) => `(${x}, ${y})`;
+  const percent = (part, whole) => `${((part / whole) * 100).toFixed(0)}%`;
+
+  const stops = Object.values(FROST_STOPS);
+  const run = spawnSync('bun', [FROST_SIM, JSON.stringify(stops)], { cwd: ROOT, encoding: 'utf8' });
+  if (run.status !== 0) fail(`frost.ts failed: ${run.stderr}`);
+  const sim = JSON.parse(run.stdout);
+  const simAt = Object.fromEntries(Object.keys(FROST_STOPS).map((name, index) => [name, sim.stops[index]]));
+  const aim = (view, points, picks = false) => {
+    const result = spawnSync('bun', [SOW_AIM, '7', JSON.stringify(view), JSON.stringify(points)], { cwd: ROOT, encoding: 'utf8' });
+    if (result.status !== 0) fail(`aim.ts failed: ${result.stderr}`);
+    const found = result.stdout.split('\n').filter((line) => / at \{/.test(line));
+    if (found.length !== points.length || (picks && found.some((line) => line.includes('MISSES')))) fail(`aim.ts did not find every point: ${result.stdout}`);
+    return found.map((line) => JSON.parse(/ at (\{[^}]*\})/.exec(line)[1]));
+  };
+  const view = (points) => aim(FROST_VIEW, points);
+  const fieldTiles = sim.field;
+  const fieldSpots = view(fieldTiles);
+  const farmRoofs = view(HARVEST_TILES.farmRoofs);
+  const farmerSpots = (stop) => (stop.farmers.length === 0 ? [] : view(stop.farmers.map(({ x, y }) => [x - 0.5, y - 0.5, SOW_TUNIC_RISE])).map((spot, index) => ({ ...stop.farmers[index], ...spot })));
+
+  const play = await session.open(CLIP, { record: true, search: FROST_SEARCH, clock: 'paused' });
+  const { page } = play;
+  await takeForageView(session, page, FROST_ORDER_VIEW);
+  const corner = () => page.mouse.move(CLIP.width - 5, CLIP.height - 5);
+  const news = async () => lines(page);
+
+  const KEYS = { 0: 'KeyH', 2: 'KeyB', 4: 'KeyK', 6: 'KeyO' };
+  const KINDS = { 0: 'House', 2: 'Barn', 4: 'Woodshed', 6: 'Farm' };
+  const given = [];
+  for (const command of sim.commands) {
+    if (command.kind === 'place') {
+      const [spot] = aim(FROST_ORDER_VIEW, [[command.x, command.y]], true);
+      await page.keyboard.press(KEYS[command.building]);
+      await page.mouse.move(spot.x, spot.y, { steps: 3 });
+      await page.mouse.down();
+      await page.mouse.up();
+      given.push(await said(page, /site placed\.$/));
+    } else {
+      const { x0, y0, x1, y1 } = command.area;
+      const [from, to] = aim(FROST_ORDER_VIEW, [[x0, y0], [x1, y1]], true);
+      await page.keyboard.press({ field: 'KeyI', stockpile: 'KeyP', chop: 'KeyC', quarry: 'KeyM' }[command.order]);
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 6 });
+      await page.mouse.up();
+      given.push(await said(page, /join the field\.$|join the stockpile zone|marked for felling|marked for quarrying/));
+    }
+    await page.keyboard.press('Escape');
+    await corner();
+  }
+  const expected = sim.commands.map((command, index) => {
+    const tiles = sim.marked[index];
+    if (command.kind === 'place') return new RegExp(`^${KINDS[command.building]} site placed\\.$`);
+    return { field: new RegExp(`^${tiles} tiles join the field\\.$`), stockpile: new RegExp(`^${tiles} tiles join the stockpile zone`), chop: new RegExp(`^${tiles} trees marked for felling`), quarry: new RegExp(`^${tiles} rock tiles marked for quarrying`) }[command.order];
+  });
+  session.check(
+    `the orders of frost.ts go through the toolbar at 08:00 on day 1: the farm, the field of ${fieldTiles.length} tiles, the barn, the woodshed, two houses, the stockpile, ${sim.marked[sim.commands.findIndex(({ order }) => order === 'chop')]} trees, and ${sim.marked[sim.commands.findIndex(({ order }) => order === 'quarry')]} rock tiles`,
+    given.length === expected.length && given.every((line, index) => expected[index].test(line)) && (await at(page)) === 'day 1 08:00',
+    given.map((line) => `"${line}"`).join(', '),
+  );
+  await session.still(page);
+  await session.screenshot(page, 'frost-orders');
+  await page.mouse.move(CLIP.width / 2, CLIP.height / 2);
+  await page.mouse.wheel(0, FROST_CLOSER);
+  await corner();
+  await session.still(page);
+
+  /** The mean color of the boxes of the tiles read in each state, by day and at midnight; a sown tile's by its stage. */
+  const looks = { day: {}, midnight: {} };
+  const lookOf = (state, grown) => (state === 'sown' ? `sown at stage ${grown}` : state);
+  /** Reads every field tile at the stop against the rules, as `harvest` reads them, with a killed tile's withered rows. */
+  const expectCrop = async (stop, shot, what, { midnight }) => {
+    await session.still(page);
+    const png = await session.screenshot(page, shot);
+    const look = cropLook(png, CLIP.width, fieldSpots);
+    const rules = simAt[stop].tiles;
+    const shown = look.map((tile, index) => {
+      const state = cropState(tile);
+      return state === 'sown' && FIELD_STATES[rules[index].state] === 'sown' && tile.stage !== rules[index].grown ? `sown at stage ${tile.stage}` : state;
+    });
+    rules.forEach((tile, index) => {
+      if (shown[index] !== FIELD_STATES[tile.state]) return;
+      const kind = lookOf(shown[index], tile.grown);
+      const when = midnight ? looks.midnight : looks.day;
+      (when[kind] ??= []).push(look[index].mean);
+    });
+    const hidden = (tile, index) => shown[index] === 'unclear' && (!midnight || HARVEST_STONES.includes(tileName(tile)));
+    const wrong = fieldTiles.filter((tile, index) => shown[index] !== FIELD_STATES[rules[index].state] && !hidden(tile, index));
+    const matched = fieldTiles.filter((_, index) => shown[index] === FIELD_STATES[rules[index].state]).length;
+    const counts = Object.fromEntries(FIELD_STATES.map((state) => [state, rules.filter((tile) => FIELD_STATES[tile.state] === state).length]));
+    session.check(
+      `at ${await at(page)} ${what}: the field reads ${FIELD_STATES.filter((state) => counts[state] > 0).map((state) => `${counts[state]} ${state}`).join(', ')} as the rules have it`,
+      wrong.length === 0 && matched >= (midnight ? fieldTiles.length - HARVEST_STONES.length : CROP_LEAST.day),
+      `${matched} of ${fieldTiles.length} tiles read as the rules have them, needs ${midnight ? `all but the stone at ${HARVEST_STONES.join(' ')}` : `${CROP_LEAST.day} by day`}; wrong: ${wrong.map(tileName).join(' ') || 'none'}; ` +
+        `by tile shoots at its stage/shadow/ripe/stubble/withered/soil: ${fieldTiles.map((tile, index) => `${tileName(tile)} ${FIELD_STATES[rules[index].state]}${rules[index].grown} ${look[index].shoots}@${look[index].stage}/${look[index].shadow}/${look[index].ripe}/${look[index].stubble}/${look[index].withered}/${percent(look[index].soil, 1)}`).join(', ')}`,
+    );
+    return { png, look, shown };
+  };
+  const clickFarmer = async (stop, words) => {
+    const boxesNow = Object.values(await uiBoxes(page)).filter(Boolean);
+    const clear = (spot) => spot.x > 0 && spot.y > 0 && spot.x < CLIP.width && spot.y < CLIP.height && boxesNow.every((box) => !(spot.x >= box.x && spot.x <= box.x + box.width && spot.y >= box.y && spot.y <= box.y + box.height));
+    let read = null;
+    for (const spot of farmerSpots(simAt[stop]).filter(clear).filter(words)) {
+      read = await click(page, spot);
+      if (read?.rows?.Job === 'Farmer') return read;
+    }
+    return read;
+  };
+  const setPlaces = async (stop, button) => {
+    await session.reach(page, FROST_STOPS[stop]);
+    let farm = null;
+    for (const spot of farmRoofs) {
+      farm = await click(page, spot);
+      if (farm?.title === 'Farm') break;
+    }
+    for (let press = 0; press < FROST_STOPS[stop].places.length; press++) {
+      await page.getByRole('button', { name: button }).click();
+      await session.still(page);
+    }
+    farm = await reads(page);
+    await page.keyboard.press('Escape');
+    await corner();
+    return farm;
+  };
+
+  for (const [stop, what, midnight] of [
+    ['midnight3', 'at the midnight that opens day 3 the tiles of days 1 and 2 show their rows', true],
+    ['day3', 'at noon on day 3', false],
+    ['day4', 'at noon on day 4', false],
+    ['midnight5', 'at the midnight that opens day 5', true],
+    ['midnight6', 'at the midnight that opens day 6', true],
+    ['day6', 'at noon on day 6 the tiles of day 1 are ripe and cut', false],
+  ]) {
+    await session.reach(page, FROST_STOPS[stop]);
+    await expectCrop(stop, `frost-field-${stop}`, what, { midnight });
+  }
+  const emptied = await setPlaces('noFarmers', 'Fewer places');
+  session.check(`at ${FROST_STOPS.noFarmers.time} on day 6 two presses of Fewer places leave the farm with no farmer`, emptied?.rows?.Places === '0 of 2', `the panel reads "${text(emptied)}"`);
+  await session.reach(page, FROST_STOPS.midnight8);
+  await expectCrop('midnight8', 'frost-field-midnight8', 'at the midnight that opens day 8, with no farmer, the tiles of day 2 stand ripe beside the cut ones', { midnight: true });
+
+  await session.reach(page, FROST_STOPS.warning);
+  const warned = await news();
+  const warning = `Day 9, ${sim.frostDawn.at.slice(-5)}. A frost comes tonight.`;
+  session.check(
+    `at ${await at(page)} the news warns of the frost at the dawn of its day, while ${simAt.warning.standing} tiles' crops stand`,
+    sim.frost.at === 'day 9 19:12' && sim.frostDawn.at === 'day 9 04:48' && simAt.warning.standing > 0 && warned.includes(warning),
+    `the news reads ${warned.map((line) => `"${line}"`).join(', ') || 'nothing'}, needs "${warning}"; the rules' frost falls at ${sim.frost.at}, tick ${sim.frost.tick}, and its day dawns at ${sim.frostDawn.at}`,
+  );
+  await session.screenshot(page, 'frost-warning');
+
+  await session.reach(page, FROST_STOPS.halfCut);
+  const half = simAt.halfCut.tiles.reduce((counts, { state }) => ({ ...counts, [FIELD_STATES[state]]: (counts[FIELD_STATES[state]] ?? 0) + 1 }), {});
+  const clipFrom = play.since();
+  await expectCrop('halfCut', 'frost-field-half-cut', `before the dusk of the frost the field is half cut, ${half.cut ?? 0} tiles cut and ${half.ripe ?? 0} ripe`, { midnight: false });
+  await session.reach(page, FROST_STOPS.frost, { speed: FROST_CLIP_SPEED });
+  const told = await news();
+  await session.still(page);
+  const clipTo = play.since();
+  const lost = simAt.frost.lostThisYear;
+  const killedLine = `Day 9, 19:12. The frost killed the crop on ${lost} tiles.`;
+  session.check(
+    `at ${await at(page)} the news counts the tiles the frost killed at 19:12, as many as the rules had standing before it`,
+    lost === simAt.halfCut.standing && lost === simAt.frost.tally.lost && lost === (half.ripe ?? 0) + (half.sown ?? 0) && told.includes(killedLine),
+    `the news reads ${told.map((line) => `"${line}"`).join(', ') || 'nothing'}, needs "${killedLine}"; the rules had ${simAt.halfCut.standing} crops standing at ${simAt.halfCut.at}, and killed ${simAt.frost.lostThisYear} this year`,
+  );
+  await expectCrop('frost', 'frost-field-killed-dusk', 'after the dusk of the frost the crops that stood are killed and the cut tiles stay cut', { midnight: false });
+  const filled = await setPlaces('farmersBack', 'More places');
+  session.check(`at ${FROST_STOPS.farmersBack.time} on day 9 two presses of More places fill the farm's places again`, filled?.rows?.Places === '2 of 2', `the panel reads "${text(filled)}"`);
+  await session.reach(page, FROST_STOPS.midnight10);
+  await expectCrop('midnight10', 'frost-killed-midnight', 'at the midnight that opens day 10 the killed tiles read killed by night', { midnight: true });
+  await session.reach(page, FROST_STOPS.day10);
+  await expectCrop('day10', 'frost-killed-day', 'at noon on day 10, in winter, the killed tiles read killed by day', { midnight: false });
+
+  await session.reach(page, FROST_STOPS.frozen);
+  await session.still(page);
+  const frozen = await clickFarmer('frozen', () => true);
+  session.check(
+    `at ${await at(page)}, a winter day after the frost, a farmer reads that the ground is frozen`,
+    frozen?.rows?.Job === 'Farmer' && frozen.rows.Doing === 'Idle, the ground is frozen',
+    `the panel reads "${text(frozen)}"; the rules' farmers are ${simAt.frozen.farmers.map(({ name, task }) => `${name}, task ${task}`).join(' and ')}`,
+  );
+  await session.screenshot(page, 'frost-farmer-frozen');
+  await page.keyboard.press('Escape');
+  await corner();
+
+  await session.reach(page, FROST_STOPS.midnight13);
+  await expectCrop('midnight13', 'frost-field-midnight13', 'at the midnight that opens day 13 the field still reads killed and cut', { midnight: true });
+  await session.reach(page, FROST_STOPS.spring);
+  await expectCrop('spring', 'frost-spring-bare', `after the first dawn of spring at ${sim.springDawn.at.slice(-5)} every killed and cut tile is bare`, { midnight: false });
+  await session.reach(page, FROST_STOPS.day13);
+  await expectCrop('day13', 'frost-field-day13', 'at noon on day 13 the farmers sow the field again', { midnight: false });
+  await session.reach(page, FROST_STOPS.midnight14);
+  await expectCrop('midnight14', 'frost-field-midnight14', 'at the midnight that opens day 14 the field reads the tiles sown again and the bare ones', { midnight: true });
+  await session.reach(page, FROST_STOPS.day14);
+  await expectCrop('day14', 'frost-sown-again', 'at noon on day 14 the whole field is sown again', { midnight: false });
+  session.check(
+    `the rules sow the field again in the spring after the frost, with ${simAt.day14.living} settlers living`,
+    simAt.spring.tiles.every(({ state }) => FIELD_STATES[state] === 'bare') && simAt.day14.tiles.every(({ state }) => FIELD_STATES[state] === 'sown') && simAt.day14.living > 0,
+    `the rules have ${simAt.day13.tiles.filter(({ state }) => FIELD_STATES[state] === 'sown').length} tiles sown at ${simAt.day13.at} and ${simAt.day14.tiles.filter(({ state }) => FIELD_STATES[state] === 'sown').length} at ${simAt.day14.at}; ${simAt.day14.tally.froze} froze in the winter`,
+  );
+
+  const mean = (colors) => [0, 1, 2].map((channel) => colors.reduce((sum, color) => sum + color[channel], 0) / colors.length);
+  for (const [when, byLook] of Object.entries(looks)) {
+    const killed = byLook.killed ? mean(byLook.killed) : null;
+    const others = ['bare', ...SHOOT_STAGES.map((_, grown) => lookOf('sown', grown)), 'ripe', 'cut'].map((kind) => ({ kind, color: byLook[kind] ? mean(byLook[kind]) : null, tiles: byLook[kind]?.length ?? 0 }));
+    const gaps = others.map(({ kind, color, tiles }) => ({ kind, tiles, gap: killed && color ? distance(killed, color) : 0, color }));
+    session.check(
+      `${when === 'day' ? 'by day' : 'at midnight'} a killed tile reads apart from a bare, a sown, a ripe, and a cut one: the mean color of the killed tiles' boxes differs from that of each other state and each sown stage by at least ${STAGE_MARGIN}`,
+      Boolean(killed) && gaps.every(({ color, gap }) => color && gap >= STAGE_MARGIN),
+      `killed ${killed ? killed.map((value) => value.toFixed(0)).join('/') : 'none'} over ${byLook.killed?.length ?? 0} tiles; ${gaps.map(({ kind, color, tiles, gap }) => `${kind} ${color ? color.map((value) => value.toFixed(0)).join('/') : 'none'} over ${tiles} tiles, ${gap.toFixed(1)} away`).join(', ')}`,
+    );
+  }
+
+  await session.finishClips(play.context, page, [{ label: 'frost-clip', from: clipFrom, to: clipTo, ...FROST_CLIP }]);
   seen.push(...play.errors);
   session.check('no page errors', seen.length === 0, seen.join(' | ') || 'none');
 };
