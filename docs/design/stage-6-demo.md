@@ -86,6 +86,8 @@ The first screenshot is the farm's panel at 12:00 on day 2 of year 1, at 960 by 
 
 `scripts/farm-years.ts` plays #53's 20 years on seed 7 with farms and without, and prints the tables under "What the stage measured". `--hours` plays the rule at its four hours, and `--farms-from 1` plays the first farm at the start. `scripts/settlement-years.ts` gains two options and prints the same output as on `main` without them. No game code changed, so #67 ran no scenario and no benchmark. It has no clip, and its proof is its tables. (#67)
 
+For this summary, `bun scripts/farm-years.ts` and `bun scripts/farm-years.ts --hours` were run at `cc84e8b`, the merge of #67, the first tree that holds #66 and #67 together. Every row of #67's tables matches a row they print, and so do its lines on the living, the stores, and the early frost. They took 17.4 s and 62.4 s of wall time in this pylon, by their own last lines.
+
 ## The fixes and the skill between the stages
 
 ### Record the owner's firewood decisions in the stage 4 brief (#46)
@@ -151,7 +153,7 @@ Both clips come from the same page at 12:00 on day 1, paused, at 960 by 540, wit
 
 ## What the stage measured
 
-Every number below is taken from the pull request named beside it, except where a command is named. No command was run for this summary except the size and frame checks of its media and `lscpu`.
+Every number below is taken from the pull request named beside it, except where a command is named. The commands run for this summary are #67's two scripts, to check its tables, the size and frame checks of its media, and `lscpu`.
 
 ### The first spring on seed 7 (#60)
 
@@ -254,7 +256,7 @@ Without farms nobody lives from day 12 of year 15. It held 40 living at most, an
 | 17 | 144 | 4 | 5 | 144 | 144 | 77 | 67 | 308 | 262 | 46 | 0 | day 9 | 458 | 474 |
 | 18 | 144 | 4 | 5 | 77 | 77 | 41 | 36 | 164 | 164 | 0 | 0 | day 9 | 562 | 602 |
 
-Farms were ordered in years 2, 3, 8, and 14. The second barn came from #53's barn rule in year 4, against year 6 without farms, a third in year 5, and two more in years 16 and 17. Over the run the settlers without a job carried 2,894 units of the cut food and the farmers 1,679, and in years 5 to 14 most food came in by the free hands. Without farms the barns and the camp held 7 to 184 food at the ends of years 5 to 14. (#67) The by-farmers and by-settlers columns, added for this summary, do not reach the food cut in every year, for example 44 and 11 of 56 in year 2. #67 does not say where the rest lies at the year's end.
+Farms were ordered in years 2, 3, 8, and 14. The second barn came from #53's barn rule in year 4, against year 6 without farms, a third in year 5, and two more in years 16 and 17. Over the run the settlers without a job carried 2,894 units of the cut food and the farmers 1,679, and in years 5 to 14 most food came in by the free hands. Without farms the barns and the camp held 7 to 184 food at the ends of years 5 to 14. (#67) The by-farmers and by-settlers columns, added for this summary, do not reach the food cut in every year, for example 44 and 11 of 56 in year 2. Over the run the script counts 4,628 food cut, 1,679 carried in by farmers, 2,894 by settlers without a job, and 0 spoiled on the fields (`bun scripts/farm-years.ts`, its line "Over the run"). #67 does not say where the other 55 lie, 4,628 less the two carried counts.
 
 **A farmer's daylight.** Every daylight tick of every living villager who works at a farm, by the task it holds. (#67)
 
