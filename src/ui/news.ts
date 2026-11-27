@@ -1,6 +1,6 @@
 import { BUILDINGS, Building, needOf } from '../sim/buildings';
-import { TICKS_PER_DAY, dateAt } from '../sim/calendar';
-import { isNight } from '../sim/daylight';
+import { TICKS_PER_DAY, dateAt, dayIndexAt } from '../sim/calendar';
+import { dawnDayAt, isNight } from '../sim/daylight';
 import { type Sex, nameOf } from '../sim/names';
 import type { Orders } from '../sim/orders';
 import { Cause, VillagerState } from '../sim/villagerState';
@@ -10,7 +10,7 @@ import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'ripeThisYear' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
+type Seen = Pick<SimFrame, 'tick' | 'ripeThisYear' | 'frostAt' | 'standingCrops' | 'frostLostThisYear' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -118,12 +118,27 @@ const EVENTS: readonly NewsEvent[] = [
 interface SettlementEvent {
   readonly kind: string;
   readonly befell: (before: Seen, after: Seen) => boolean;
-  readonly words: string;
+  /** The number the line states, read from the frame in which it befell, 0 for a line that states none. */
+  readonly count: (frame: Seen) => number;
+  readonly words: (count: number) => string;
 }
+
+/** Whether the step of the dawn of the day of the frost ran between the two frames, and the frost's did not. A frame's tick is the next to step. */
+const frostDawned = (before: Seen, after: Seen) => {
+  const day = dayIndexAt(after.frostAt);
+  return dawnDayAt(before.tick - 1) < day && dawnDayAt(after.tick - 1) >= day && after.tick - 1 < after.frostAt;
+};
 
 /** Every kind of news about the settlement as a whole, in the order a frame's lines are made, after the settlers' lines. */
 const SETTLEMENT_EVENTS: readonly SettlementEvent[] = [
-  { kind: 'first ripe', befell: (before, after) => before.ripeThisYear === 0 && after.ripeThisYear > 0, words: 'The first crop of the year is ripe' },
+  { kind: 'first ripe', befell: (before, after) => before.ripeThisYear === 0 && after.ripeThisYear > 0, count: () => 0, words: () => 'The first crop of the year is ripe' },
+  { kind: 'frost coming', befell: (before, after) => frostDawned(before, after) && after.standingCrops > 0, count: () => 0, words: () => 'A frost comes tonight' },
+  {
+    kind: 'frost killed',
+    befell: (before, after) => before.frostLostThisYear === 0 && after.frostLostThisYear > 0,
+    count: (frame) => frame.frostLostThisYear,
+    words: (count) => `The frost killed the crop on ${count.toLocaleString('en-US')} ${count === 1 ? 'tile' : 'tiles'}`,
+  },
 ];
 
 /** A line shows for this long, in milliseconds of wall time, so it can be read at 8×. */
@@ -191,18 +206,21 @@ function coupleWords(couples: readonly string[], verb: string): string {
  * The words of a line of `kind` whose first event came at `tick`, naming the
  * settlers in `names`, and for a line of births each child's parents in
  * `parents`. A line of `COUPLE_KINDS` names its couples in `names`, each as
- * "Merek and Elsi", the man first.
+ * "Merek and Elsi", the man first. A line about the settlement names nobody
+ * and states `count`, the number of `names` when left out.
  */
-export function lineWords(kind: string, tick: number, names: readonly string[], parents: readonly string[] = []): string {
+export function lineWords(kind: string, tick: number, names: readonly string[], parents: readonly string[] = [], count = names.length): string {
   const { day, minuteOfDay } = dateAt(tick);
   const settlement = SETTLEMENT_EVENTS.find((event) => event.kind === kind);
-  if (settlement) return `Day ${day}, ${formatTime(minuteOfDay)}. ${settlement.words}.`;
+  if (settlement) return `Day ${day}, ${formatTime(minuteOfDay)}. ${settlement.words(count)}.`;
   const { verb } = EVENTS.find((event) => event.kind === kind)!;
   const words = kind === BORN ? birthWords(names, parents) : COUPLE_KINDS.includes(kind) ? coupleWords(names, verb(1)) : `${listNames(names)} ${verb(names.length)}`;
   return `Day ${day}, ${formatTime(minuteOfDay)}. ${words}.`;
 }
 
 function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): string {
+  const settlement = SETTLEMENT_EVENTS.find((event) => event.kind === line.kind);
+  if (settlement) return lineWords(line.kind, line.tick, [], [], settlement.count(frame));
   const name = (id: number) => nameOf(frame.sexes[id] as Sex, frame.names[id]!);
   const parents = line.kind === BORN ? line.ids.map((id) => `${name(frame.fathers[id]!)} and ${name(frame.mothers[id]!)}`) : [];
   const couple = (woman: number) => `${name(frame.couples[frame.households[woman]! * 2]!)} and ${name(woman)}`;
@@ -212,7 +230,7 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 /**
  * The settlement's news: who was born and to whom, who formed a household or a couple, who went hungry, who starved, who ate again, who had
  * a cold night, who froze, who died of old age, who started to work, who took a place at a
- * workplace, who left one, that the first crop of the year is ripe, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
+ * workplace, who left one, that the first crop of the year is ripe, on the day of the frost while a crop stands that it comes tonight, how many tiles it killed, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
  */
