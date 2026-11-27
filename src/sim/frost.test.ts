@@ -141,6 +141,22 @@ describe('the frost', () => {
     expect(tiles.filter((tile) => fieldState(sim.fields, tile, sim.tick) === FieldState.Killed)).toHaveLength(standing);
   });
 
+  it('counts no crop lost for a tile cancelled on the frost\'s tick before its step, and reads the crop killed only after that step', () => {
+    const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false, campFood: 10 });
+    const slot = farm(sim);
+    field(sim, square(19, 16));
+    const tile = at(sim.map, 19, 16);
+    runUntil(sim, () => sim.tally.sown === 1, TICKS_PER_DAY);
+    applyCommand(sim, { kind: 'setPlaces', slot, places: 0 });
+    sim.fields.frostAt = duskOf(1);
+    runUntil(sim, () => sim.tick === sim.fields.frostAt, TICKS_PER_DAY);
+    expect([fieldState(sim.fields, tile, sim.tick), fieldState(sim.fields, tile, sim.tick + 1), sim.fields.standing]).toEqual([FieldState.Sown, FieldState.Killed, 1]);
+    applyCommand(sim, { kind: 'markArea', order: 'cancel', area: square(19, 16) });
+    expect(sim.fields.standing).toBe(0);
+    step(sim);
+    expect([sim.tally.lost, sim.fields.lostThisYear]).toEqual([0, 0]);
+  });
+
   it('leaves the ground frozen until the first dawn of spring, when a killed tile is bare and is sown again, its cut work gone with its crop', () => {
     const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false, campFood: 30 });
     const farm = farmAndHouse(sim);

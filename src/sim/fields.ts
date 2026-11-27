@@ -98,9 +98,14 @@ export function bareAgainDay(tick: number): number {
   return (Math.floor(dawnDayAt(tick) / DAYS_PER_YEAR) + 1) * DAYS_PER_YEAR;
 }
 
-/** Whether the ground is frozen at `tick`: from the frost to the first dawn of spring, when `frostAt` turns to the new year's. */
+/**
+ * Whether the ground is frozen at `tick`, the next tick to step: once the step
+ * of the frost's tick has run, until the first dawn of spring, when `frostAt`
+ * turns to the new year's. An order given on the frost's own tick still finds
+ * the crop standing.
+ */
 export function frozenAt(fields: FieldTiles, tick: number): boolean {
-  return tick >= fields.frostAt;
+  return tick > fields.frostAt;
 }
 
 /**
