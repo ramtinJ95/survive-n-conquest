@@ -5046,8 +5046,8 @@ const FROST_STOPS = {
 };
 /** The clip runs at 1x from `halfCut` to `frost`, through the dusk, so the light falls and the rows wither in a few frames each. */
 const FROST_CLIP_SPEED = '1';
-/** The clip keeps the clock, the field, the barn, and the news at the bottom right, and leaves out the toolbar. */
-const FROST_CLIP = { crop: { x: 0, y: 0, width: 720, height: 540 }, width: 480, colors: 48, decimate: true };
+/** The clip keeps the clock, the field, the barn, and the whole news line at the bottom right, which ends near x 790, and leaves out the toolbar. */
+const FROST_CLIP = { crop: { x: 0, y: 0, width: 800, height: 540 }, width: 560, colors: 48, decimate: true };
 
 SCENARIOS.frost = async (session) => {
   const seen = [];
