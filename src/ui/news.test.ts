@@ -59,7 +59,16 @@ describe('the news of the frost', () => {
     ]);
   });
 
-  it('says nothing of a frost in a year in which no crop stands', () => {
+  it('warns of the frost on a map with a field though no crop stands, and then says nothing of a loss', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 2, monsters: 0, campFood: 40, animals: false });
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: 10, y0: 10, x1: 13, y1: 13 } })).toMatchObject({ ok: true });
+    const { said } = listen(sim, 9 * TICKS_PER_DAY);
+    expect(sim.tick).toBeGreaterThan(sim.fields.frostAt);
+    expect([sim.tally.sown, sim.tally.lost]).toEqual([0, 0]);
+    expect(said.filter((line) => line.includes('frost'))).toEqual(['Day 8, 04:48. A frost comes tonight.']);
+  });
+
+  it('says nothing of a frost on a map with no field', () => {
     const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 2, monsters: 0, campFood: 40, animals: false });
     const { said } = listen(sim, 9 * TICKS_PER_DAY);
     expect(sim.tick).toBeGreaterThan(sim.fields.frostAt);
@@ -227,7 +236,7 @@ describe('the settlement news', () => {
       workshopWorked: new Uint8Array(0),
       ripeThisYear: 0,
       frostAt: 25_400,
-      standingCrops: 0,
+      fieldTiles: 0,
       frostLostThisYear: 0,
     });
     news.hear(frame(0, [0, 0, 0, 0, 0]), 0);

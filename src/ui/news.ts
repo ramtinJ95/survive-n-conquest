@@ -10,7 +10,7 @@ import { BUILDING_WORDS, JOB_WORDS } from './buildings';
 import { formatTime } from './clock';
 import './news.css';
 
-type Seen = Pick<SimFrame, 'tick' | 'ripeThisYear' | 'frostAt' | 'standingCrops' | 'frostLostThisYear' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
+type Seen = Pick<SimFrame, 'tick' | 'ripeThisYear' | 'frostAt' | 'fieldTiles' | 'frostLostThisYear' | 'children' | 'states' | 'causes' | 'missedMeals' | 'coldNights' | 'names' | 'sexes' | 'mothers' | 'fathers' | 'households' | 'couples' | 'workplaces' | 'workshopStops' | 'workshopWorked'>;
 
 /** Something that can befall a settler between two frames, and the words that say it of the settlers it befell. */
 interface NewsEvent {
@@ -135,7 +135,7 @@ const frostDawned = (before: Seen, after: Seen) => {
 /** Every kind of news about the settlement as a whole, in the order a frame's lines are made, after the settlers' lines. */
 const SETTLEMENT_EVENTS: readonly SettlementEvent[] = [
   { kind: 'first ripe', befell: (before, after) => before.ripeThisYear === 0 && after.ripeThisYear > 0, count: () => 0, words: () => 'The first crop of the year is ripe' },
-  { kind: 'frost coming', befell: (before, after) => frostDawned(before, after) && after.standingCrops > 0, count: () => 0, words: () => 'A frost comes tonight' },
+  { kind: 'frost coming', befell: (before, after) => frostDawned(before, after) && after.fieldTiles > 0, count: () => 0, words: () => 'A frost comes tonight' },
   {
     kind: 'frost killed',
     befell: (before, after) => before.frostLostThisYear === 0 && after.frostLostThisYear > 0,
@@ -233,7 +233,7 @@ function lineText(frame: Seen, line: Pick<NewsLine, 'kind' | 'tick' | 'ids'>): s
 /**
  * The settlement's news: who was born and to whom, who formed a household or a couple, who went hungry, who starved, who ate again, who had
  * a cold night, who froze, who died of old age, who started to work, who took a place at a
- * workplace, who left one, that the first crop of the year is ripe, on the day of the frost while a crop stands that it comes tonight, how many tiles it killed, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
+ * workplace, who left one, that the first crop of the year is ripe, on the day of the frost, on a map with a field, that it comes tonight, how many tiles it killed, and, at dusk, the worker at a workshop that did none of its work that day for lack of its input and why, found by comparing each
  * frame with the one before, with the kinds of the buildings in `orders`.
  * The events of a kind close together in time make one line.
  */

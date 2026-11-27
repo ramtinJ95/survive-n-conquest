@@ -5186,7 +5186,7 @@ SCENARIOS.frost = async (session) => {
   const warned = await news();
   const warning = `Day 9, ${sim.frostDawn.at.slice(-5)}. A frost comes tonight.`;
   session.check(
-    `at ${await at(page)} the news warns of the frost at the dawn of its day, while ${simAt.warning.standing} tiles' crops stand`,
+    `at ${await at(page)} the news warns of the frost at the dawn of its day, on a map with a field where ${simAt.warning.standing} tiles' crops stand`,
     sim.frost.at === 'day 9 19:12' && sim.frostDawn.at === 'day 9 04:48' && simAt.warning.standing > 0 && warned.includes(warning),
     `the news reads ${warned.map((line) => `"${line}"`).join(', ') || 'nothing'}, needs "${warning}"; the rules' frost falls at ${sim.frost.at}, tick ${sim.frost.tick}, and its day dawns at ${sim.frostDawn.at}`,
   );

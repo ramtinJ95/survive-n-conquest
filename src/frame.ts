@@ -79,8 +79,8 @@ export interface SimFrame extends ClockSnapshot {
   readonly ripeThisYear: number;
   /** The tick of the frost of the year of the latest dawn, as `FieldTiles.frostAt` holds it. */
   readonly frostAt: number;
-  /** The field tiles whose crop stands, sown or ripe, neither cut nor killed. */
-  readonly standingCrops: number;
+  /** The tiles under a field claim. */
+  readonly fieldTiles: number;
   /** The field tiles whose crop the frost killed in the calendar year the frame's tick is in. */
   readonly frostLostThisYear: number;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
@@ -179,7 +179,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     diedThisYear: sim.thisYear.died,
     ripeThisYear: sim.fields.ripeThisYear,
     frostAt: sim.fields.frostAt,
-    standingCrops: sim.fields.standing,
+    fieldTiles: sim.fields.count,
     frostLostThisYear: sim.fields.lostThisYear,
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
