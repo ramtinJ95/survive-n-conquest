@@ -75,6 +75,8 @@ export interface SimFrame extends ClockSnapshot {
   /** The births, and the deaths of every cause, since the first tick of the calendar year the frame's tick is in. */
   readonly bornThisYear: number;
   readonly diedThisYear: number;
+  /** The field tiles that turned ripe at the dawns of the calendar year the frame's tick is in. */
+  readonly ripeThisYear: number;
   /** The food in each store, by store id: a site slot, or `CAMP_STORE`. */
   readonly storeFood: Uint16Array;
   /** The most food the camp holds. */
@@ -169,6 +171,7 @@ export function frameOf(sim: Sim, outcome?: OrderOutcome): { readonly frame: Sim
     ages: agesOf(villagers, sim.tick),
     bornThisYear: sim.thisYear.born,
     diedThisYear: sim.thisYear.died,
+    ripeThisYear: sim.fields.ripeThisYear,
     storeFood: sim.stores.held[Good.Food - 1]!.slice(),
     campFoodLimit: sim.stores.campLimit,
     storeInbound: sim.stores.inbound[Good.Food - 1]!.slice(),

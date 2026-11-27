@@ -30,6 +30,20 @@ function listen(sim: Sim, ticks: number, each: () => void = () => {}) {
   return { news, said: [...said.values()] };
 }
 
+describe('the news of the harvest', () => {
+  it('says at the dawn of day 6 that the first crop of the year is ripe, and says it once though more tiles ripen at the next dawn', () => {
+    const sim = createSim(mapFrom(Array.from({ length: 30 }, () => '.'.repeat(30))), { villagers: 2, monsters: 0, campFood: 100, animals: false });
+    expect(applyCommand(sim, { kind: 'place', building: Building.Farm, x: 20, y: 20 })).toMatchObject({ ok: true });
+    finishBuilding(sim, sim.orders.siteOf[at(sim.map, 20, 20)]!);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'field', area: { x0: 10, y0: 10, x1: 19, y1: 19 } })).toMatchObject({ ok: true });
+    const { said } = listen(sim, 6 * TICKS_PER_DAY);
+    const ripe = said.filter((line) => line.endsWith('The first crop of the year is ripe.'));
+    expect(sim.tally.ripened).toBeGreaterThan(ripe.length);
+    expect(ripe).toEqual(['Day 6, 03:36. The first crop of the year is ripe.']);
+    expect(lineWords('first ripe', 6 * TICKS_PER_DAY, ['Merek', 'Elsi'])).toBe('Day 7, 08:00. The first crop of the year is ripe.');
+  });
+});
+
 describe('listNames', () => {
   it('names up to eight settlers, the whole of a new game, and counts the rest', () => {
     expect(listNames(['Merek'])).toBe('Merek');
@@ -179,6 +193,7 @@ describe('the settlement news', () => {
       workplaces: new Int16Array(missedMeals.length).fill(-1),
       workshopStops: new Uint8Array(0),
       workshopWorked: new Uint8Array(0),
+      ripeThisYear: 0,
     });
     news.hear(frame(0, [0, 0, 0, 0, 0]), 0);
     for (let id = 0; id < 5; id++) news.hear(frame(1000 * (id + 1), [0, 1, 2, 3, 4].map((other) => (other <= id ? 1 : 0))), id * 1000);

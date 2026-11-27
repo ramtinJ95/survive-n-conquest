@@ -33,6 +33,11 @@ export function tickOfDay(tick: number): number {
   return (tick + OPENING_TICK_OF_DAY) % TICKS_PER_DAY;
 }
 
+/** The index of the day that holds `tick`, 0 for day 1. */
+export function dayIndexAt(tick: number): number {
+  return Math.floor((tick + OPENING_TICK_OF_DAY) / TICKS_PER_DAY);
+}
+
 /** Ticks since the season began, at the midnight that opens its first day. */
 export function tickOfSeason(tick: number): number {
   return (tick + OPENING_TICK_OF_DAY) % TICKS_PER_SEASON;
@@ -53,7 +58,7 @@ export function seasonAt(tick: number): Season {
 }
 
 export function dateAt(tick: number): CalendarDate {
-  const dayIndex = Math.floor((tick + OPENING_TICK_OF_DAY) / TICKS_PER_DAY);
+  const dayIndex = dayIndexAt(tick);
   return {
     day: dayIndex + 1,
     year: Math.floor(dayIndex / DAYS_PER_YEAR) + 1,

@@ -203,6 +203,18 @@ export interface Tally {
   startedWork: number;
   /** Field tiles a farmer sowed. */
   sown: number;
+  /** Sown field tiles that turned ripe at a dawn. */
+  ripened: number;
+  /** Ripe field tiles a farmer cut. */
+  cut: number;
+  /** Units of food the cut tiles left on the ground. */
+  reaped: number;
+  /** Units of food a farmer carried into a store. A settler without a job who carries cut food counts in `fromGround` and `fromFields`. */
+  reapedIn: number;
+  /** Units of food a settler without a job carried from a field tile into a store, also counted in `fromGround`. */
+  fromFields: number;
+  /** Units of food gone from a field tile at a dawn, also counted in `spoiled`. */
+  spoiledOnFields: number;
 }
 
 export interface Sim {
@@ -330,6 +342,12 @@ export function createSim(source: TileMap, population: Population): Sim {
       widowedPaired: 0,
       startedWork: 0,
       sown: 0,
+      ripened: 0,
+      cut: 0,
+      reaped: 0,
+      reapedIn: 0,
+      fromFields: 0,
+      spoiledOnFields: 0,
     },
     thisYear: { born: 0, died: 0 },
     tick: 0,
@@ -387,7 +405,7 @@ export function applyCommand(sim: Sim, command: Command): OrderOutcome | undefin
  * tasks set aside as out of reach open again, as they do after a tick in
  * which land gained walks to the camp, and then the steps of `DAWN` run in
  * their order. A step whose tick ends on the first tick of a calendar year
- * starts the year's births and deaths from 0, so what ran in it counts in the
+ * starts the year's births and deaths, and its ripe field tiles, from 0, so what ran in it counts in the
  * year before. Once the settlement has died out, nothing runs.
  */
 export function step(sim: Sim): void {
@@ -411,6 +429,7 @@ export function step(sim: Sim): void {
   if (startsYear(sim.tick)) {
     sim.thisYear.born = 0;
     sim.thisYear.died = 0;
+    sim.fields.ripeThisYear = 0;
   }
 }
 

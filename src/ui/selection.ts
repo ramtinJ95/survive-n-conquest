@@ -11,6 +11,7 @@ import { CAMP_RADIUS, underCamp } from '../sim/camp';
 import { CARRYING } from '../sim/carrying';
 import { EATING } from '../sim/eating';
 import { FieldState, type FieldTiles, SOWING, fieldState, sowsAt } from '../sim/fields';
+import { CUTTING, FETCHING_CROP } from '../sim/harvest';
 import { FORAGING } from '../sim/foraging';
 import { GATHERING } from '../sim/gathering';
 import { Good } from '../sim/goods';
@@ -159,6 +160,8 @@ const HUNT = task(HUNTING);
 const WORK = task(WORKSHOP);
 const WEAR = task(WEARING);
 const SOW = task(SOWING);
+const FETCH_CROP = task(FETCHING_CROP);
+const CUT = task(CUTTING);
 const WINTER = SEASONS.indexOf('Winter');
 
 /**
@@ -263,6 +266,11 @@ const TASK_WORDS: Readonly<Record<number, (facts: Facts, id: number, working: bo
   },
   [HUNT]: (_facts, _id, working) => (working ? 'Aiming at a deer' : 'Stalking a deer'),
   [SOW]: (_facts, _id, working) => (working ? 'Sowing a field' : 'Walking to a field to sow'),
+  [FETCH_CROP]: (facts, id) => {
+    if (facts.frame.carried[id] === Good.Food) return `Carrying food to ${storeAt(facts, facts.frame.destinations[id]!)}`;
+    return 'Walking to a field to pick up food';
+  },
+  [CUT]: (_facts, _id, working) => (working ? 'Cutting the crop' : 'Walking to a field to cut'),
   [WORK]: (facts, id, working) => {
     const { frame } = facts;
     const words = workshopWords(facts, frame.workplaces[id]!);
@@ -306,25 +314,35 @@ function jobOf({ orders, frame }: Facts, id: number): Job {
 }
 
 /**
- * Why a farmer at the farm in `slot` is idle: the season, or what lies in the
- * farm's reach. A bare tile that another farmer sows, or that no walk reaches,
- * still counts as one to sow.
+ * Why a farmer at the farm in `slot` is idle: what the field tiles in the
+ * farm's reach hold, and the season. A tile that another farmer works, or that
+ * no walk reaches, still counts. In spring a farmer's work is sowing, so a
+ * field that is all sown reads as sown while its crop grows.
  */
-function farmerIdle({ orders, fields, frame, map }: Facts, slot: number): string {
-  if (!sowsAt(frame.tick)) return 'Idle, nothing is sown until spring';
+function farmerIdle(facts: Facts, slot: number): string {
+  const { orders, fields, frame, map } = facts;
+  const spring = sowsAt(frame.tick);
   const { size } = map;
   const { reach } = BUILDINGS[Building.Farm];
   const cx = siteMidX(orders.sites, slot);
   const cy = siteMidY(orders.sites, slot);
   let field = false;
+  let growing = false;
+  let toCut = false;
   for (let y = Math.max(Math.ceil(cy - reach - 0.5), 0); y <= Math.min(Math.floor(cy + reach - 0.5), size - 1); y++) {
     for (let x = Math.max(Math.ceil(cx - reach - 0.5), 0); x <= Math.min(Math.floor(cx + reach - 0.5), size - 1); x++) {
       const tile = y * size + x;
       if (orders.claims[tile] !== Claim.Field || !withinReach(orders.sites, slot, x + 0.5, y + 0.5)) continue;
-      if (fieldState(fields, tile) === FieldState.Bare) return 'Looking for a field to sow';
+      const state = fieldState(fields, tile, frame.tick);
+      if (spring && state === FieldState.Bare) return 'Looking for a field to sow';
       field = true;
+      growing ||= state === FieldState.Sown;
+      toCut ||= state === FieldState.Ripe || map.stackGood[tile] === Good.Food;
     }
   }
+  if (toCut) return roomInAStore(facts) ? 'Looking for a crop to cut' : 'Idle, waiting for room in a store';
+  if (growing) return spring ? 'Idle, the fields are sown' : 'Idle, the crop is growing';
+  if (!spring) return 'Idle, nothing is sown until spring';
   return field ? 'Idle, the fields are sown' : `Idle, no field within ${reach} tiles of the farm`;
 }
 

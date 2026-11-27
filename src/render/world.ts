@@ -3,7 +3,7 @@ import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
-import { FieldState, createFieldTiles, fieldState } from '../sim/fields';
+import { createFieldTiles } from '../sim/fields';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
 import { CameraRig } from './cameraRig';
@@ -80,6 +80,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const show = (tick: number, time = tick) => {
     clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
+    marks.showCropDay(tick);
     campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
@@ -100,9 +101,10 @@ export function createWorld(map: TileMap, shapes: Shapes) {
       map.trees[tile] = tree;
       map.stackGood[tile] = groups[i + 3]!;
       map.stackSize[tile] = groups[i + 4]!;
-      if (fields.sownAt[tile] !== groups[i + 5]) {
+      if (fields.sownAt[tile] !== groups[i + 5] || fields.cutAt[tile] !== groups[i + 6]) {
         fields.sownAt[tile] = groups[i + 5]!;
-        marks.showCrop(tile, fieldState(fields, tile) === FieldState.Sown);
+        fields.cutAt[tile] = groups[i + 6]!;
+        marks.showCrop(tile, fields.sownAt[tile]!, fields.cutAt[tile]!);
       }
       if (reshaped) repaint(tile);
       if (reshaped || felled || stacked) scenery.refresh(tile);

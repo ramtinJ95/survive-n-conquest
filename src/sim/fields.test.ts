@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { finishBuilding } from './building';
 import { BUILDINGS, Building } from './buildings';
-import { TICKS_PER_DAY, dateAt, seasonAt } from './calendar';
-import { isNight } from './daylight';
-import { FieldState, NOT_SOWN, SOWING, SOW_WORK_TICKS, fieldState } from './fields';
+import { DAYS_PER_YEAR, TICKS_PER_DAY, dateAt, seasonAt, startsYear } from './calendar';
+import { isDawn, isNight } from './daylight';
+import { FieldState, NOT_CUT, NOT_SOWN, RIPE_DAWNS, SOWING, SOW_WORK_TICKS, fieldState, grownDawns } from './fields';
 import { FIRST_YEAR_SEED, firstSpringCommands } from './firstYear';
 import { Good, putDown } from './goods';
 import { TileKind } from './map';
@@ -54,7 +54,7 @@ function watchSowing(sim: Sim) {
         held[id] = task;
       }
       for (let tile = 0; tile < sim.map.size * sim.map.size; tile++) {
-        if (!sownAt.has(tile) && fieldState(sim.fields, tile) === FieldState.Sown) sownAt.set(tile, sim.tick);
+        if (!sownAt.has(tile) && fieldState(sim.fields, tile, sim.tick) === FieldState.Sown) sownAt.set(tile, sim.tick);
       }
     },
   };
@@ -110,9 +110,9 @@ describe('the field mark', () => {
     field(sim, square(19, 16, 20, 16));
     const sown = at(sim.map, 19, 16);
     const bare = at(sim.map, 20, 16);
-    runUntil(sim, () => fieldState(sim.fields, sown) === FieldState.Sown, TICKS_PER_DAY);
+    runUntil(sim, () => fieldState(sim.fields, sown, sim.tick) === FieldState.Sown, TICKS_PER_DAY);
     takeTileChanges(sim);
-    expect(fieldState(sim.fields, bare)).toBe(FieldState.Bare);
+    expect(fieldState(sim.fields, bare, sim.tick)).toBe(FieldState.Bare);
 
     expect(applyCommand(sim, { kind: 'markArea', order: 'cancel', area: square(19, 16, 20, 16) })).toEqual({ ok: true, order: 'cancel', tiles: 2 });
     expect(sim.orders.claims[sown]).toBe(Claim.None);
@@ -121,10 +121,10 @@ describe('the field mark', () => {
     expect(sim.fields.progress[bare]).toBe(0);
     expect(sim.villagers.task[0]).not.toBe(SOW);
     const changes = takeTileChanges(sim);
-    expect(Array.from(changes)).toEqual([sown, TileKind.Grass, 0, Good.None, 0, NOT_SOWN]);
+    expect(Array.from(changes)).toEqual([sown, TileKind.Grass, 0, Good.None, 0, NOT_SOWN, NOT_CUT]);
 
     expect(field(sim, square(19, 16))).toMatchObject({ ok: true, tiles: 1 });
-    expect(fieldState(sim.fields, sown)).toBe(FieldState.Bare);
+    expect(fieldState(sim.fields, sown, sim.tick)).toBe(FieldState.Bare);
   });
 });
 
@@ -136,7 +136,7 @@ describe('a farmer', () => {
     const tile = at(sim.map, 19, 16);
     let firstWork = -1;
     const changes: number[] = [];
-    runUntil(sim, () => fieldState(sim.fields, tile) === FieldState.Sown, TICKS_PER_DAY, () => {
+    runUntil(sim, () => fieldState(sim.fields, tile, sim.tick) === FieldState.Sown, TICKS_PER_DAY, () => {
       if (firstWork < 0 && sim.villagers.state[0] === VillagerState.Working) firstWork = sim.tick - 1;
       const groups = takeTileChanges(sim);
       for (let i = 0; i < groups.length; i += TILE_CHANGE_STRIDE) if (groups[i] === tile) changes.push(groups[i + 5]!);
@@ -161,7 +161,7 @@ describe('a farmer', () => {
     const watch = watchSowing(sim);
     runUntil(sim, () => isNight(sim.tick), TICKS_PER_DAY, watch.each);
     expect(watch.taken).toEqual([36, 37, 38, 39, 40].map((x) => at(sim.map, x, 31)));
-    expect(fieldState(sim.fields, beyond)).toBe(FieldState.Bare);
+    expect(fieldState(sim.fields, beyond, sim.tick)).toBe(FieldState.Bare);
     expect(sim.fields.taker[beyond]).toBe(-1);
   });
 
@@ -172,7 +172,7 @@ describe('a farmer', () => {
     field(sim, square(19, 16));
     const tile = at(sim.map, 19, 16);
     const takers = new Set<number>();
-    runUntil(sim, () => fieldState(sim.fields, tile) === FieldState.Sown, TICKS_PER_DAY, () => {
+    runUntil(sim, () => fieldState(sim.fields, tile, sim.tick) === FieldState.Sown, TICKS_PER_DAY, () => {
       for (let id = 0; id < 2; id++) if (sim.villagers.task[id] === SOW) takers.add(id);
     });
     expect(takers.size).toBe(1);
@@ -208,7 +208,7 @@ describe('a farmer', () => {
     expect(sim.fields.progress[tile]).toBe(60);
     applyCommand(sim, { kind: 'setPlaces', slot, places: 1 });
     let firstWork = -1;
-    runUntil(sim, () => fieldState(sim.fields, tile) === FieldState.Sown, TICKS_PER_DAY, () => {
+    runUntil(sim, () => fieldState(sim.fields, tile, sim.tick) === FieldState.Sown, TICKS_PER_DAY, () => {
       if (firstWork < 0 && sim.villagers.state[0] === VillagerState.Working) firstWork = sim.tick - 1;
     });
     expect(sim.fields.sownAt[tile]! - firstWork + 1).toBe(SOW_WORK_TICKS - 60);
@@ -224,9 +224,9 @@ describe('a farmer', () => {
     const done = sim.fields.progress[tile]!;
     expect(done).toBeGreaterThan(0);
     expect(done).toBeLessThan(SOW_WORK_TICKS);
-    expect(fieldState(sim.fields, tile)).toBe(FieldState.Bare);
+    expect(fieldState(sim.fields, tile, sim.tick)).toBe(FieldState.Bare);
     let firstWork = -1;
-    runUntil(sim, () => fieldState(sim.fields, tile) === FieldState.Sown, TICKS_PER_DAY, () => {
+    runUntil(sim, () => fieldState(sim.fields, tile, sim.tick) === FieldState.Sown, TICKS_PER_DAY, () => {
       if (firstWork < 0 && sim.villagers.state[0] === VillagerState.Working) firstWork = sim.tick - 1;
     });
     expect(sim.fields.sownAt[tile]! - firstWork + 1).toBe(SOW_WORK_TICKS - done);
@@ -268,3 +268,106 @@ describe('the first spring on seed 7', () => {
     expect(sown).toEqual([10, 14, 0]);
   });
 });
+
+/** The first tick of the dawn of `day`, counted from 1 across the years. */
+function dawnOf(day: number): number {
+  let tick = Math.max((day - 2) * TICKS_PER_DAY, 0);
+  while (dateAt(tick).day !== day || !isDawn(tick)) tick++;
+  return tick;
+}
+
+/** A farm whose one farmer lives in a house with the firewood of the three winter nights, so it lives into a second year. */
+function wintering(): Sim {
+  const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false });
+  finishedFarm(sim, 16, 16);
+  expect(applyCommand(sim, { kind: 'place', building: Building.House, x: 8, y: 8 })).toMatchObject({ ok: true });
+  const house = sim.orders.siteOf[at(sim.map, 8, 8)]!;
+  finishBuilding(sim, house);
+  sim.stores.held[Good.Firewood - 1]![house] = 6;
+  return sim;
+}
+
+describe('a sown tile', () => {
+  it('is ripe at the fifth dawn after its sowing, and not one tick before: day 6 for day 1, day 7 for day 2, day 8 for day 3', () => {
+    const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false });
+    finishedFarm(sim, 16, 16);
+    const tiles = [19, 20, 21].map((x) => at(sim.map, x, 16));
+    for (const [index, tile] of tiles.entries()) {
+      runUntil(sim, () => dateAt(sim.tick).day === index + 1 && !isNight(sim.tick), TICKS_PER_DAY);
+      field(sim, square(19 + index, 16));
+      runUntil(sim, () => sim.fields.sownAt[tile] !== NOT_SOWN, TICKS_PER_DAY);
+      expect(dateAt(sim.fields.sownAt[tile]!).day).toBe(index + 1);
+    }
+    const ripeDawns = [6, 7, 8].map(dawnOf);
+    for (const [index, tile] of tiles.entries()) {
+      expect(fieldState(sim.fields, tile, ripeDawns[index]! - 1)).toBe(FieldState.Sown);
+      expect(fieldState(sim.fields, tile, ripeDawns[index]!)).toBe(FieldState.Ripe);
+    }
+    const ripenedAt: number[] = [];
+    runUntil(sim, () => dateAt(sim.tick).day === 9, 9 * TICKS_PER_DAY, () => {
+      for (let more = sim.tally.ripened - ripenedAt.length; more > 0; more--) ripenedAt.push(sim.tick - 1);
+    });
+    expect(ripenedAt).toEqual(ripeDawns);
+  });
+
+  it('grows by one at each dawn after its sowing until it is ripe at the fifth', () => {
+    const sim = createSim(grass(30), { villagers: 1, monsters: 0, animals: false });
+    finishedFarm(sim, 16, 16);
+    field(sim, square(19, 16));
+    const tile = at(sim.map, 19, 16);
+    runUntil(sim, () => sim.fields.sownAt[tile] !== NOT_SOWN, TICKS_PER_DAY);
+    const sownAt = sim.fields.sownAt[tile]!;
+    expect(grownDawns(sim.fields, tile, sownAt)).toBe(0);
+    const heights = [2, 3, 4, 5, 6, 7, 8].map((day) => [grownDawns(sim.fields, tile, dawnOf(day) - 1), grownDawns(sim.fields, tile, dawnOf(day))]);
+    expect(heights).toEqual([[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 5], [5, 5]]);
+    expect(RIPE_DAWNS).toBe(5);
+    expect(grownDawns(sim.fields, at(sim.map, 20, 16), dawnOf(8))).toBe(0);
+  });
+
+  it('once cut, is bare again at the first dawn of spring, not before, and is sown again that spring', () => {
+    const sim = wintering();
+    field(sim, square(19, 16));
+    const tile = at(sim.map, 19, 16);
+    runUntil(sim, () => sim.tally.cut === 1, 7 * TICKS_PER_DAY);
+    const spring = dawnOf(DAYS_PER_YEAR + 1);
+    expect(fieldState(sim.fields, tile, spring - 1)).toBe(FieldState.Cut);
+    expect(fieldState(sim.fields, tile, spring)).toBe(FieldState.Bare);
+    const tasks = new Set<number>();
+    runUntil(sim, () => sim.tick > spring, 9 * TICKS_PER_DAY, () => tasks.add(sim.villagers.task[0]!));
+    expect(tasks.has(SOW)).toBe(false);
+    runUntil(sim, () => sim.tally.sown === 2, TICKS_PER_DAY);
+    expect(dateAt(sim.fields.sownAt[tile]!)).toMatchObject({ year: 2, season: 'Spring' });
+    expect(fieldState(sim.fields, tile, sim.tick)).toBe(FieldState.Sown);
+    expect(sim.tally.froze).toBe(0);
+  });
+});
+
+describe('the ripe tiles of a year', () => {
+  it('count from 0 at the first ripening dawn of each year, once a tile, and leave out a tile whose field was cancelled', () => {
+    const sim = wintering();
+    field(sim, square(19, 16, 21, 16));
+    const cancelled = at(sim.map, 21, 16);
+    runUntil(sim, () => sim.tally.sown === 3, TICKS_PER_DAY);
+    toDay(sim, 2);
+    field(sim, square(19, 17));
+    runUntil(sim, () => sim.tally.sown === 4, TICKS_PER_DAY);
+    expect(applyCommand(sim, { kind: 'markArea', order: 'cancel', area: square(21, 16) })).toMatchObject({ ok: true });
+    expect(fieldState(sim.fields, cancelled, sim.tick)).toBe(FieldState.Bare);
+    const counts: { day: number; ripe: number }[] = [];
+    let last = sim.fields.ripeThisYear;
+    runUntil(sim, () => dateAt(sim.tick).day === 2 * DAYS_PER_YEAR, 2 * DAYS_PER_YEAR * TICKS_PER_DAY, () => {
+      const ripe = sim.fields.ripeThisYear;
+      if (ripe !== last) counts.push({ day: dateAt(sim.tick - 1).day, ripe });
+      if (startsYear(sim.tick)) expect(ripe).toBe(0);
+      last = ripe;
+    });
+    const yearTwoStarts = { day: DAYS_PER_YEAR, ripe: 0 };
+    const cutAndSownAgain = { day: DAYS_PER_YEAR + 6, ripe: 3 };
+    expect(counts).toEqual([{ day: 6, ripe: 2 }, { day: 7, ripe: 3 }, yearTwoStarts, cutAndSownAgain]);
+    expect(sim.tally.ripened).toBe(6);
+  });
+});
+
+function toDay(sim: Sim, day: number): void {
+  runUntil(sim, () => dateAt(sim.tick).day === day && !isNight(sim.tick), day * TICKS_PER_DAY);
+}

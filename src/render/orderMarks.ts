@@ -20,6 +20,8 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from 'three';
 import type { TileMap } from '../sim/map';
+import { NOT_CUT, NOT_SOWN, RIPE_DAWNS, bareAgainDay } from '../sim/fields';
+import { dawnDayAt } from '../sim/daylight';
 import { Claim, type Orders, SiteState } from '../sim/orders';
 
 /**
@@ -58,8 +60,26 @@ const CLAIM_COLORS: Record<Claim, string> = {
   [Claim.Field]: ORDER_COLORS.field,
 };
 
-/** A field tile is drawn as tilled soil inside its outline, and a sown one with rows of green shoots across it. */
-const FIELD_LOOK = { soil: '#6b4a2b', shoots: '#a6d64a', soilShare: 0.75, rows: 3, rowWidth: 0.4 };
+/**
+ * A field tile is drawn as tilled soil inside its outline. A sown one adds rows of shoots across it in the color of
+ * `stages` for the dawns since its sowing, from pale to deep green, with a shadow on the soil that grows by
+ * `shadowPerDawn` of a row's third at each dawn. A ripe tile bears wide golden rows, and a cut one thin rows of pale
+ * stubble.
+ */
+const FIELD_LOOK = {
+  soil: '#6b4a2b',
+  stages: ['#eaf5b0', '#b8e05a', '#5fe04a', '#22b84a', '#0e7d3a'],
+  shadow: '#3f2a16',
+  ripe: '#f0b429',
+  stubble: '#d9c58a',
+  soilShare: 0.75,
+  rows: 3,
+  rowWidth: 0.4,
+  shadowPerDawn: 0.1,
+  ripeWidth: 0.6,
+  ripeShadow: 0.3,
+  stubbleWidth: 0.15,
+};
 
 const PREVIEW_COLORS: Record<Preview, string> = {
   [Preview.None]: '#000000',
@@ -69,6 +89,9 @@ const PREVIEW_COLORS: Record<Preview, string> = {
   [Preview.Blocks]: ORDER_COLORS.cancel,
   [Preview.Refused]: '#ff9d8a',
 };
+
+/** The crop texture stores a day index one up, so that 0 means no crop. */
+const CROP_DAY_OFFSET = 1;
 
 const linear = (hex: string) => new Color(hex);
 
@@ -84,7 +107,34 @@ uniform vec3 previewColors[${Object.keys(PREVIEW_COLORS).length}];
 uniform vec4 ordersArea;
 uniform vec3 ordersAreaColor;
 uniform vec3 fieldSoil;
-uniform vec3 fieldShoots;
+uniform vec3 fieldStages[${RIPE_DAWNS}];
+uniform vec3 fieldShadow;
+uniform vec3 fieldRipe;
+uniform vec3 fieldStubble;
+uniform sampler2D cropMap;
+uniform float cropDay;
+
+float twoBytes(float low, float high) {
+  return floor(low * 255.0 + 0.5) + 256.0 * floor(high * 255.0 + 0.5);
+}
+
+void drawCrop(inout vec3 color, ivec2 tile, vec2 inTile) {
+  vec4 crop = texelFetch(cropMap, tile, 0);
+  float sown = twoBytes(crop.r, crop.g);
+  float bare = twoBytes(crop.b, crop.a);
+  float row = fract(inTile.x * ${FIELD_LOOK.rows.toFixed(1)});
+  if (bare > 0.0) {
+    if (cropDay < bare && row >= 1.0 - ${FIELD_LOOK.stubbleWidth.toFixed(2)}) color = linearToOutputTexel(vec4(fieldStubble, 1.0)).rgb;
+    return;
+  }
+  if (sown == 0.0) return;
+  float grown = clamp(cropDay - (sown - ${CROP_DAY_OFFSET.toFixed(1)}), 0.0, ${RIPE_DAWNS.toFixed(1)});
+  bool ripe = grown >= ${RIPE_DAWNS.toFixed(1)};
+  float width = ripe ? ${FIELD_LOOK.ripeWidth.toFixed(2)} : ${FIELD_LOOK.rowWidth.toFixed(2)};
+  float shadow = ripe ? ${FIELD_LOOK.ripeShadow.toFixed(2)} : grown * ${FIELD_LOOK.shadowPerDawn.toFixed(2)};
+  if (row >= 1.0 - width) color = linearToOutputTexel(vec4(ripe ? fieldRipe : fieldStages[int(grown)], 1.0)).rgb;
+  else if (row < shadow) color = linearToOutputTexel(vec4(fieldShadow, 1.0)).rgb;
+}
 
 int orderKey(ivec2 tile) {
   int size = int(ordersSize);
@@ -123,9 +173,7 @@ void drawOrders(inout vec3 color) {
     vec3 tint = orderColor(key);
     if (key == ${Claim.Field}) {
       color = mix(color, linearToOutputTexel(vec4(fieldSoil, 1.0)).rgb, ${FIELD_LOOK.soilShare.toFixed(2)});
-      bool sown = texelFetch(ordersMap, tile, 0).b > 0.5;
-      float row = step(1.0 - ${FIELD_LOOK.rowWidth.toFixed(2)}, fract(inTile.x * ${FIELD_LOOK.rows.toFixed(1)}));
-      if (sown) color = mix(color, linearToOutputTexel(vec4(fieldShoots, 1.0)).rgb, row);
+      drawCrop(color, tile, inTile);
     } else {
       color = mix(color, tint, key >= 8 ? 0.82 : 0.45);
     }
@@ -207,7 +255,7 @@ function pinMaterial(color: string, scale: { value: number }, outline: boolean):
 /**
  * Draws the orders on the map: a tint and an outline on every claimed tile,
  * drawn into the terrain's own shader, and a pin over every tree marked for
- * felling. A field tile is tilled soil, with rows of shoots once it is sown. The interface draws its previews through the same layer.
+ * felling. A field tile is tilled soil, with its crop drawn as it stands at the last dawn. The interface draws its previews through the same layer.
  *
  * `treeTop` gives the top of the tree on a tile, in world coordinates.
  */
@@ -223,6 +271,11 @@ export function createOrderMarks(
   texture.magFilter = NearestFilter;
   texture.minFilter = NearestFilter;
   texture.needsUpdate = true;
+  const cropTexels = new Uint8Array(size * size * 4);
+  const cropTexture = new DataTexture(cropTexels, size, size, RGBAFormat);
+  cropTexture.magFilter = NearestFilter;
+  cropTexture.minFilter = NearestFilter;
+  cropTexture.needsUpdate = true;
   const area = new Vector4(0, 0, -1, -1);
   const areaColor = linear(ORDER_COLORS.chop);
   const previewColors = Object.values(PREVIEW_COLORS).map(linear);
@@ -234,7 +287,12 @@ export function createOrderMarks(
     ordersArea: { value: area },
     ordersAreaColor: { value: areaColor },
     fieldSoil: { value: linear(FIELD_LOOK.soil) },
-    fieldShoots: { value: linear(FIELD_LOOK.shoots) },
+    fieldStages: { value: FIELD_LOOK.stages.map(linear) },
+    fieldShadow: { value: linear(FIELD_LOOK.shadow) },
+    fieldRipe: { value: linear(FIELD_LOOK.ripe) },
+    fieldStubble: { value: linear(FIELD_LOOK.stubble) },
+    cropMap: { value: cropTexture },
+    cropDay: { value: 0 },
   };
   const before = terrainMaterial.onBeforeCompile;
   terrainMaterial.onBeforeCompile = (shader, renderer) => {
@@ -306,10 +364,20 @@ export function createOrderMarks(
       texture.needsUpdate = true;
     },
 
-    /** Draws a field tile as sown or as bare. */
-    showCrop(tile: number, sown: boolean) {
-      texels[tile * 4 + 2] = sown ? 255 : 0;
-      texture.needsUpdate = true;
+    /** Draws a field tile's crop from the tick it was sown at and the tick it was cut at, as the simulation stores them. */
+    showCrop(tile: number, sownAt: number, cutAt: number) {
+      const sown = sownAt === NOT_SOWN ? 0 : dawnDayAt(sownAt) + CROP_DAY_OFFSET;
+      const bare = cutAt === NOT_CUT ? 0 : bareAgainDay(cutAt);
+      cropTexels[tile * 4] = sown & 0xff;
+      cropTexels[tile * 4 + 1] = sown >> 8;
+      cropTexels[tile * 4 + 2] = bare & 0xff;
+      cropTexels[tile * 4 + 3] = bare >> 8;
+      cropTexture.needsUpdate = true;
+    },
+
+    /** Grows every crop to the latest dawn at or before `tick`. */
+    showCropDay(tick: number) {
+      uniforms.cropDay.value = dawnDayAt(tick);
     },
 
     /** Replaces the preview with `preview` on each of `tiles`. Pass no tiles to clear it. */
