@@ -3,7 +3,7 @@ import { TICKS_PER_DAY } from '../sim/calendar';
 import { campTile } from '../sim/camp';
 import { type TileKind, WATER_LEVEL, heightAt, type TileMap } from '../sim/map';
 import { type OrderChanges, applyOrderChanges, createOrders } from '../sim/orders';
-import { createFieldTiles } from '../sim/fields';
+import { createFieldTiles, frozenAt } from '../sim/fields';
 import { frostTick } from '../sim/frost';
 import { TILE_CHANGE_STRIDE } from '../sim/tileChanges';
 import { createCamp } from './camp';
@@ -81,7 +81,7 @@ export function createWorld(map: TileMap, shapes: Shapes) {
   const show = (tick: number, time = tick) => {
     clock.value = time % TICKS_PER_DAY;
     const sun = light(tick, seasonMixAt(tick, seasonMix.value), rig.camera, rig.target);
-    marks.showCropDay(tick);
+    marks.showCropDay(tick, frozenAt(fields, tick));
     campsite.show(clock.value, MathUtils.smoothstep(-sun, -FIRELIT.from, -FIRELIT.full));
   };
   show(0);
