@@ -238,9 +238,22 @@ The camera scenario's held keys assume a frame of 220 to 400 ms, as on rj-fireba
 
 The scenarios take about 1.2 to 1.4 times as long as before that pull request. On the owner's Mac `camera` took 3 minutes 47 seconds against 2 minutes 38, and `hauling` 7 minutes 38 against 6 minutes 1.
 
-At 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
+Before stage 6, at 483188b on rj-firebat with 6 CPUs, the 33 scenarios but `frames`, driven one at a time against one `launch`, took 3 hours 32 minutes. The longest were `wearing` at 16 minutes, `births` and `clothing` at 15, `readiness` at 12, and `look`, `households`, `orders`, `selecting`, `cold`, and `pairing` at 10 to 11 each. A sweep that runs `drive` for each scenario against one `launch` builds once. `run` builds again for each scenario.
 
-The stage's full sweep that CLAUDE.md asks for is split into parts. Each part runs against its own `launch` in its own builder pylon, and drives its scenarios one at a time.
+The current numbers are stage 6's sweep at 7ccd33a on rj-firebat with 6 CPUs, in two parts that ran at once, each driving its scenarios one at a time against one `launch`. All 38 scenarios passed every check. Part A ran 18 scenarios in 2 h 16 min 38 s in a pylon with 5 GiB, and part B 20 scenarios in 2 h 48 min 53 s in a pylon with 7 GiB, so the scenarios take 5 h 05 min 31 s in all. Each scenario's time, in minutes and seconds:
+
+- Part A: `wearing` 17:17, `clothing` 19:53, `readiness` 13:08, `look` 12:11, `orders` 13:01, `cold` 11:12, `sowing` 3:48, `frost` 10:17, `window` 0:28, `terrain` 1:47, `camera` 3:58, `clock` 4:22, `swarm` 2:38, `daylight` 2:55, `seasons` 7:18, `settlers` 3:42, `gathering` 3:35, `hauling` 5:08.
+- Part B: `births` 18:39, `households` 13:26, `selecting` 12:29, `pairing` 35:47, `harvest` 6:49, `farm-counts` 14:04, `people` 2:42, `aging` 4:22, `growing-up` 5:33, `empty-house` 5:34, `eating` 1:39, `hunger` 9:47, `foraging` 2:03, `hunting` 4:59, `building` 3:20, `storing` 8:36, `firewood` 3:02, `firewood-reason` 2:05, `firewood-year` 7:56, `clothing-reason` 6:01.
+
+`pairing` took 35:47, against 10 to 11 minutes at 483188b. It now drives three pages, and nobody timed each page, so the cause of the rise is not known.
+
+The stage's full sweep that CLAUDE.md asks for is split into parts. Each part runs against its own `launch` in its own builder pylon, and drives its scenarios one at a time. From these times, three parts of about equal time are below. A greedy split put each scenario, longest first, into the part with the least time so far. The longest scenario, `pairing`, sets the floor of a part.
+
+- Part 1, 1 h 42 min 09 s: `pairing`, `readiness`, `look`, `firewood-year`, `storing`, `growing-up`, `aging`, `clock`, `building`, `firewood`, `firewood-reason`, `terrain`.
+- Part 2, 1 h 42 min 05 s: `clothing`, `farm-counts`, `households`, `selecting`, `frost`, `harvest`, `clothing-reason`, `hunting`, `sowing`, `settlers`, `daylight`, `foraging`, `eating`.
+- Part 3, 1 h 41 min 17 s: `births`, `wearing`, `orders`, `cold`, `hunger`, `seasons`, `empty-house`, `hauling`, `camera`, `gathering`, `people`, `swarm`, `window`.
+
+With two parts the sweep takes about 2.5 to 3 hours, as stage 6's did.
 
 Under 12 busy processes beside the browser, at a load average near 18 on rj-firebat, `camera` took 1.9 to 2.7 times as long and `clock` 3.5 times. `camera`'s check `panning stops in a corner of the map` then failed while its legs were 2.5 s of a held `W`, because they drew too few frames to reach the corner. Its legs are now 10 drawn frames each, and under the same load `camera` passed 20 of 20 in 6 min 54 s against 3 min 1 s, `selecting` 40 of 40 in 16 min 21 s against 10 min 22 s, and `readiness` 28 of 28 in 15 min 3 s against 12 min 11 s.
 

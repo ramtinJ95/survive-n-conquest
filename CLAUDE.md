@@ -19,7 +19,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - Each stage ends with a demo summary. It embeds only the stage's demo set, which lives on the `pr-media` branch under `stage-<n>/`. A demo set is at most 15 MB: one short clip for each pull request of the stage, and the few screenshots the summary needs.
 - Pull request media lives on `pr-media` only until its stage closes. When the owner has accepted a stage's demo summary, the orchestrator orders a rewrite of `pr-media` to one fresh commit. That commit keeps the demo set of each closed stage and the folders of pull requests whose stage is still open, and nothing else. The pictures in the merged pull requests of the closed stage go blank, and their text stays.
 - The rewrite is the only force-push in the project. It happens only at a stage's close, after the owner accepted the demo summary, and it never touches `main`. The verification skill holds the recipe.
-- Before its demo summary, each stage runs a full sweep: every scenario the skill's `list` prints. The orchestrator splits it into parts and starts each in its own builder pylon on rj-firebat with 6 CPUs, all at once, so the sweep takes an hour or two. The demo summary reports every scenario's checks and every failure. A failure becomes a fix pull request before the stage closes.
+- Before its demo summary, each stage runs a full sweep: every scenario the skill's `list` prints. The orchestrator splits it into as many parts as rj-firebat has room for, three where it can, and starts each in its own builder pylon on rj-firebat with 6 CPUs, all at once. The scenarios take about 5 hours in all, so three parts take about 1 h 45 min, and two about 2.5 to 3 hours. The skill's "Speed" gives the split. The demo summary reports every scenario's checks and every failure. A failure becomes a fix pull request before the stage closes.
 
 ## Who does the work
 
@@ -46,7 +46,7 @@ The agreed design is in `docs/design.md`. Each stage has a brief in `docs/design
 - `.nexus/resume` runs on every wake. It clones or updates the private assets repository at `game-assets/`, and only warns when the pylon cannot read it. It installs the packages again only when `bun.lock` or `package.json` changed.
 - `.nexus/check` is the check a pull request must pass. It installs if needed, then runs `bun run typecheck`, `bun run test`, and `bun run build`, and exits nonzero if any of them fails.
 - The verification skill runs in the pylon, in headless Chromium.
-- A pull request runs only the scenarios its change can reach: the scenario it adds, the scenarios the skill's table names for the files it touches, and always `readiness` and `selecting`. The same holds after the branch merges `main`. The body lists what ran, what was left out, and why.
+- A pull request runs only the scenarios its change can reach: the scenario it adds, the scenarios the skill's table names for the files it touches, and always `readiness` and `selecting`. The same holds after the branch merges `main`. The body lists what ran, what was left out, and why. A pull request that changes nothing under `src/`, nothing in the harness, and nothing the build reads runs no scenario, and its body says so.
 - A thread that runs the browser scenarios or the benchmark is started on rj-firebat with 6 CPUs and 8 GiB, because a 2 CPU pylon is too slow for headless Chromium. The review loop's check threads keep the project's default size.
 
 ## Pushing and opening the pull request
